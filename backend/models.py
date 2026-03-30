@@ -1,0 +1,70 @@
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+
+db = SQLAlchemy()
+
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    user_id = db.Column(db.BigInteger, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    real_name = db.Column(db.String(50), nullable=False)
+    email = db.Column(db.String(100), unique=True)
+    phone = db.Column(db.String(20))
+    user_type = db.Column(db.String(20), nullable=False, default='student')
+    organization = db.Column(db.String(100))
+    student_or_staff_id = db.Column(db.String(50))
+    avatar_url = db.Column(db.Text)
+    account_status = db.Column(db.String(20), nullable=False, default='active')
+    register_time = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    last_login_time = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_deleted = db.Column(db.Boolean, default=False)
+    extra_fields = db.Column(db.JSON)
+
+class Event(db.Model):
+    __tablename__ = 'events'
+    
+    event_id = db.Column(db.BigInteger, primary_key=True)
+    event_name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    category = db.Column(db.String(50))
+    location = db.Column(db.String(200))
+    status = db.Column(db.String(20), nullable=False, default='ongoing')
+    event_start_time = db.Column(db.DateTime(timezone=True))
+    event_end_time = db.Column(db.DateTime(timezone=True))
+    upload_start_time = db.Column(db.DateTime(timezone=True))
+    upload_end_time = db.Column(db.DateTime(timezone=True))
+    creator_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
+    leader_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))
+    total_budget = db.Column(db.Numeric(12, 2), nullable=False, default=0.00)
+    reimbursed_amount = db.Column(db.Numeric(12, 2), default=0.00)
+    remaining_budget = db.Column(db.Numeric(12, 2), default=0.00)
+    invoice_count = db.Column(db.Integer, default=0)
+    invoice_total_amount = db.Column(db.Numeric(12, 2), default=0.00)
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_deleted = db.Column(db.Boolean, default=False)
+    extra_fields = db.Column(db.JSON)
+    
+    creator = db.relationship('User', foreign_keys=[creator_id], backref='created_events')
+    leader = db.relationship('User', foreign_keys=[leader_id], backref='led_events')
+
+class EventMember(db.Model):
+    __tablename__ = 'event_members'
+    
+    id = db.Column(db.BigInteger, primary_key=True)
+    event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
+    user_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
+    role_in_event = db.Column(db.String(20), nullable=False)
+    join_time = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_deleted = db.Column(db.Boolean, default=False)
+    
+    event = db.relationship('Event', backref='members')
+    user = db.relationship('User', backref='event_memberships')
+    
+    __table_args__ = (db.UniqueConstraint('event_id', 'user_id'),)
