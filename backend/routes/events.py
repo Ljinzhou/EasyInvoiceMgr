@@ -1,8 +1,10 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Event, User
+from models import db, Event, User, Invoice
 from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 events_bp = Blueprint('events', __name__)
 
 @events_bp.route('/events', methods=['POST'])
@@ -240,4 +242,54 @@ def get_event(event_id):
         }), 200
         
     except Exception as e:
+        logger.error(f'获取赛事详情异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@events_bp.route('/events/<int:event_id>', methods=['DELETE'])
+@jwt_required()
+def delete_event(event_id):
+    logger.info(f'=== 删除赛事请求: event_id={event_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        logger.info(f'当前用户ID: {current_user_id}')
+        
+        user = User.query.get(current_user_id)
+        if not user:
+            logger.warning(f'用户不存在: {current_user_id}')
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+        
+        if user.user_type not in ['admin', 'teacher']:
+            logger.warning(f'权限不足: 用户类型={user.user_type}')
+            return jsonify({'code': 403, 'message': '权限不足，只有管理员或教师可以删除项目', 'data': None}), 403
+        
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        
+        if not event:
+            logger.warning(f'赛事不存在: event_id={event_id}')
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+        
+        invoice_count = Invoice.query.filter_by(event_id=event_id, is_deleted=False).count()
+        logger.info(f'关联发票数量: {invoice_count}')
+        
+        if invoice_count > 0:
+            logger.warning(f'赛事存在关联发票，无法删除: event_id={event_id}')
+            return jsonify({
+                'code': 400, 
+                'message': f'该项目下存在 {invoice_count} 张发票，请先删除所有发票后再删除项目', 
+                'data': None
+            }), 400
+        
+        event.is_deleted = True
+        db.session.commit()
+        
+        logger.info(f'赛事删除成功: event_id={event_id}, event_name={event.event_name}')
+        return jsonify({
+            'code': 200,
+            'message': '项目删除成功',
+            'data': None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'删除赛事异常: {str(e)}', exc_info=True)
+        db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500

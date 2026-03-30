@@ -60,6 +60,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 
+definePageMeta({
+  layout: 'default'
+})
+
 const { $api } = useNuxtApp()
 
 const stats = ref({
@@ -72,6 +76,16 @@ const stats = ref({
 const recentEvents = ref([])
 
 onMounted(async () => {
+  console.log('=== 总览面板：页面加载 ===')
+  const token = localStorage.getItem('token')
+  console.log('检查token:', token ? '已登录' : '未登录')
+  
+  if (!token) {
+    console.log('用户未登录，跳转到登录页面')
+    navigateTo('/login')
+    return
+  }
+  
   await loadData()
 })
 

@@ -35,6 +35,10 @@
 <script setup>
 import { ref } from 'vue'
 
+definePageMeta({
+  layout: false
+})
+
 const { $api } = useNuxtApp()
 
 const form = ref({
@@ -63,8 +67,8 @@ const handleLogin = async () => {
       console.log('登录成功，保存token和用户信息')
       localStorage.setItem('token', response.data.data.token)
       localStorage.setItem('user', JSON.stringify(response.data.data.user))
-      console.log('准备跳转到创建比赛页面')
-      navigateTo('/events/create')
+      console.log('准备跳转到总览面板')
+      navigateTo('/dashboard')
     } else {
       console.error('登录失败，错误码:', response.data.code)
       console.error('错误信息:', response.data.message)
