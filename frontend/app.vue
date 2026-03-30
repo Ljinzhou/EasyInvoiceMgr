@@ -1,11 +1,10 @@
 <template>
-  <div>
+  <NuxtLayout>
     <NuxtPage />
-  </div>
+  </NuxtLayout>
 </template>
 
 <script setup lang="ts">
-// App initialization code
 </script>
 
 <style>

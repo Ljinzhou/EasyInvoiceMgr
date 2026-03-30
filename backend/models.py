@@ -68,3 +68,33 @@ class EventMember(db.Model):
     user = db.relationship('User', backref='event_memberships')
     
     __table_args__ = (db.UniqueConstraint('event_id', 'user_id'),)
+
+class Invoice(db.Model):
+    __tablename__ = 'invoices'
+    
+    invoice_id = db.Column(db.BigInteger, primary_key=True)
+    event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
+    uploader_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
+    file_name = db.Column(db.String(255), nullable=False)
+    file_md5 = db.Column(db.String(64))
+    image_url = db.Column(db.Text, nullable=False)
+    invoice_type = db.Column(db.String(50))
+    invoice_code = db.Column(db.String(50))
+    invoice_number = db.Column(db.String(50))
+    tax_number = db.Column(db.String(100))
+    project_name = db.Column(db.String(200), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    invoice_date = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='approved')
+    reviewer_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))
+    review_time = db.Column(db.DateTime(timezone=True))
+    rejection_reason = db.Column(db.Text)
+    remarks = db.Column(db.Text)
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_deleted = db.Column(db.Boolean, default=False)
+    extra_fields = db.Column(db.JSON)
+    
+    event = db.relationship('Event', backref='invoices')
+    uploader = db.relationship('User', foreign_keys=[uploader_id], backref='uploaded_invoices')
+    reviewer = db.relationship('User', foreign_keys=[reviewer_id], backref='reviewed_invoices')

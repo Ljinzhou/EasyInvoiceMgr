@@ -20,7 +20,25 @@
 </template>
 
 <script setup lang="ts">
-// Import components
+import { onMounted } from 'vue'
+
+definePageMeta({
+  layout: false
+})
+
+onMounted(() => {
+  console.log('=== 首页加载 ===')
+  const token = localStorage.getItem('token')
+  console.log('检查token:', token ? '已登录' : '未登录')
+  
+  if (token) {
+    console.log('用户已登录，跳转到总览面板')
+    navigateTo('/dashboard')
+  } else {
+    console.log('用户未登录，跳转到登录页面')
+    navigateTo('/login')
+  }
+})
 </script>
 
 <style scoped>

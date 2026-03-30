@@ -145,6 +145,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 
+definePageMeta({
+  layout: 'default'
+})
+
 const { $api } = useNuxtApp()
 
 const form = ref({
@@ -170,9 +174,26 @@ const showDropdown = ref(false)
 let searchTimeout = null
 
 onMounted(() => {
+  console.log('=== 创建比赛：页面加载 ===')
   const token = localStorage.getItem('token')
+  console.log('检查token:', token ? '已登录' : '未登录')
+  
   if (!token) {
+    console.log('用户未登录，跳转到登录页面')
     navigateTo('/login')
+    return
+  }
+  console.log('用户已登录，可以创建比赛')
+  
+  const userStr = localStorage.getItem('user')
+  if (userStr) {
+    const user = JSON.parse(userStr)
+    console.log('当前登录用户:', user)
+    if (user.user_type === 'admin' || user.user_type === 'teacher') {
+      form.value.leader_id = user.user_id
+      leaderSearch.value = user.real_name
+      console.log('默认负责人已设置:', user.real_name)
+    }
   }
 })
 

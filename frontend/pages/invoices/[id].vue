@@ -58,6 +58,17 @@
         </div>
         <form @submit.prevent="addInvoice" class="modal-body">
           <div class="form-group">
+            <label>发票图片 *</label>
+            <input 
+              type="file" 
+              @change="handleFileUpload" 
+              accept=".pdf,.png,.jpg,.jpeg"
+              required
+            />
+            <div class="file-hint">支持格式：PDF、PNG、JPG、JPEG</div>
+            <div v-if="fileError" class="file-error">{{ fileError }}</div>
+          </div>
+          <div class="form-group">
             <label>发票类型</label>
             <input v-model="newInvoice.invoice_type" type="text" required placeholder="如：餐饮、交通、住宿" />
           </div>
@@ -93,10 +104,6 @@
             <label>备注</label>
             <textarea v-model="newInvoice.remarks" rows="3"></textarea>
           </div>
-          <div class="form-group">
-            <label>发票图片</label>
-            <input type="file" @change="handleFileUpload" accept="image/*" />
-          </div>
           <div class="modal-footer">
             <button type="button" @click="showAddModal = false" class="cancel-button">取消</button>
             <button type="submit" class="submit-button" :disabled="uploading">
@@ -112,6 +119,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 
+definePageMeta({
+  layout: 'default'
+})
+
 const { $api } = useNuxtApp()
 const route = useRoute()
 
@@ -121,6 +132,7 @@ const invoices = ref([])
 const selectedInvoices = ref([])
 const showAddModal = ref(false)
 const uploading = ref(false)
+const fileError = ref('')
 
 const newInvoice = ref({
   invoice_type: '',
@@ -140,6 +152,16 @@ const selectAll = computed({
 })
 
 onMounted(async () => {
+  console.log('=== 发票详情：页面加载 ===')
+  const token = localStorage.getItem('token')
+  console.log('检查token:', token ? '已登录' : '未登录')
+  
+  if (!token) {
+    console.log('用户未登录，跳转到登录页面')
+    navigateTo('/login')
+    return
+  }
+  
   await loadEvent()
   await loadInvoices()
 })
@@ -220,7 +242,26 @@ const toggleSelectAll = () => {
 }
 
 const handleFileUpload = (e) => {
-  newInvoice.value.file = e.target.files[0]
+  const file = e.target.files[0]
+  fileError.value = ''
+  
+  if (!file) {
+    return
+  }
+  
+  const allowedTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']
+  const fileExtension = file.name.split('.').pop().toLowerCase()
+  const allowedExtensions = ['pdf', 'png', 'jpg', 'jpeg']
+  
+  if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+    fileError.value = '文件格式不支持，请上传 PDF、PNG、JPG 或 JPEG 格式的文件'
+    e.target.value = ''
+    newInvoice.value.file = null
+    return
+  }
+  
+  console.log('文件验证通过:', file.name, file.type)
+  newInvoice.value.file = file
 }
 
 const addInvoice = async () => {
@@ -328,6 +369,7 @@ const resetForm = () => {
     remarks: '',
     file: null
   }
+  fileError.value = ''
 }
 
 const goBack = () => {
@@ -590,6 +632,18 @@ const getStatusText = (status) => {
 .submit-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.file-hint {
+  font-size: 0.85rem;
+  color: #7f8c8d;
+  margin-top: 0.3rem;
+}
+
+.file-error {
+  color: #e74c3c;
+  font-size: 0.85rem;
+  margin-top: 0.3rem;
 }
 
 @media (max-width: 768px) {

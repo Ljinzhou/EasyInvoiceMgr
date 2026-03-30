@@ -14,7 +14,10 @@
               {{ event.status === 'ongoing' ? '进行中' : '已结束' }}
             </span>
           </div>
-          <button @click="editEvent(event)" class="edit-button">编辑</button>
+          <div class="action-buttons">
+            <button @click="editEvent(event)" class="edit-button">编辑</button>
+            <button @click="confirmDelete(event)" class="delete-button">删除</button>
+          </div>
         </div>
         
         <div class="project-body">
@@ -157,18 +160,48 @@
         </form>
       </div>
     </div>
+
+    <!-- 删除确认弹窗 -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+      <div class="modal-content delete-modal">
+        <div class="modal-header">
+          <h2>确认删除</h2>
+          <button @click="showDeleteModal = false" class="close-button">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="delete-warning">
+            <div class="warning-icon">⚠️</div>
+            <p class="warning-text">确定要删除项目 <strong>"{{ deletingEvent?.event_name }}"</strong> 吗？</p>
+            <p class="warning-hint">此操作不可撤销，删除后数据将无法恢复。</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" @click="showDeleteModal = false" class="cancel-button">取消</button>
+          <button type="button" @click="deleteEvent" class="delete-confirm-button" :disabled="deleting">
+            {{ deleting ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 
+definePageMeta({
+  layout: 'default'
+})
+
 const { $api } = useNuxtApp()
 
 const events = ref([])
 const showEditModal = ref(false)
+const showDeleteModal = ref(false)
 const updating = ref(false)
+const deleting = ref(false)
 const editingEventId = ref(null)
+const deletingEvent = ref(null)
 
 const editForm = ref({
   event_name: '',
@@ -188,6 +221,16 @@ const filteredUsers = ref([])
 const showLeaderDropdown = ref(false)
 
 onMounted(async () => {
+  console.log('=== 项目管理：页面加载 ===')
+  const token = localStorage.getItem('token')
+  console.log('检查token:', token ? '已登录' : '未登录')
+  
+  if (!token) {
+    console.log('用户未登录，跳转到登录页面')
+    navigateTo('/login')
+    return
+  }
+  
   await loadEvents()
 })
 
@@ -283,6 +326,53 @@ const selectLeader = (user) => {
 const formatDateTime = (dateStr) => {
   if (!dateStr) return '未设置'
   return new Date(dateStr).toLocaleString('zh-CN')
+}
+
+const confirmDelete = (event) => {
+  deletingEvent.value = event
+  showDeleteModal.value = true
+}
+
+const deleteEvent = async () => {
+  if (!deletingEvent.value) return
+  
+  deleting.value = true
+  console.log('=== 项目管理：删除项目 ===')
+  console.log('项目ID:', deletingEvent.value.event_id)
+  console.log('项目名称:', deletingEvent.value.event_name)
+  
+  try {
+    const token = localStorage.getItem('token')
+    console.log('发送删除请求: DELETE /api/events/' + deletingEvent.value.event_id)
+    
+    const response = await $api.delete(`/events/${deletingEvent.value.event_id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    console.log('删除响应:', response.data)
+    
+    if (response.data.code === 200) {
+      console.log('删除成功')
+      showDeleteModal.value = false
+      deletingEvent.value = null
+      await loadEvents()
+      alert('项目删除成功')
+    } else {
+      console.error('删除失败:', response.data.message)
+      alert(response.data.message || '删除失败，请稍后重试')
+    }
+  } catch (error) {
+    console.error('=== 项目管理：删除项目异常 ===')
+    console.error('错误对象:', error)
+    console.error('错误响应:', error.response)
+    console.error('错误响应数据:', error.response?.data)
+    
+    const message = error.response?.data?.message || '删除失败，请稍后重试'
+    alert(message)
+  } finally {
+    deleting.value = false
+    console.log('=== 项目管理：删除流程结束 ===')
+  }
 }
 </script>
 
@@ -385,6 +475,25 @@ const formatDateTime = (dateStr) => {
 
 .edit-button:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.delete-button {
+  padding: 0.5rem 1rem;
+  background: rgba(231, 76, 60, 0.8);
+  border: 1px solid rgba(231, 76, 60, 0.9);
+  color: white;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.delete-button:hover {
+  background: rgba(231, 76, 60, 1);
 }
 
 .project-body {
@@ -584,6 +693,51 @@ const formatDateTime = (dateStr) => {
 }
 
 .submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.delete-modal {
+  max-width: 500px;
+}
+
+.delete-warning {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.warning-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.warning-text {
+  font-size: 1.1rem;
+  color: #2c3e50;
+  margin-bottom: 0.5rem;
+}
+
+.warning-hint {
+  color: #7f8c8d;
+  font-size: 0.9rem;
+}
+
+.delete-confirm-button {
+  padding: 0.7rem 1.5rem;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.delete-confirm-button:hover:not(:disabled) {
+  background: #c0392b;
+}
+
+.delete-confirm-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

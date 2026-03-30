@@ -79,7 +79,7 @@ def login():
         user.last_login_time = datetime.utcnow()
         db.session.commit()
         
-        access_token = create_access_token(identity=user.user_id)
+        access_token = create_access_token(identity=str(user.user_id))
         logger.info(f'用户登录成功: {user.username} (ID: {user.user_id})')
         
         return jsonify({
