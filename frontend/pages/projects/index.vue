@@ -187,13 +187,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useCacheStore } from '~/stores/cache'
 
 definePageMeta({
   layout: 'default'
 })
 
 const { $api } = useNuxtApp()
+const cacheStore = useCacheStore()
 
 const events = ref([])
 const showEditModal = ref(false)
@@ -231,21 +233,44 @@ onMounted(async () => {
     return
   }
   
+  cacheStore.restoreFromLocalStorage()
+  
   await loadEvents()
 })
 
-const loadEvents = async () => {
+onUnmounted(() => {
+  cacheStore.persistToLocalStorage()
+})
+
+const loadEvents = async (forceRefresh = false) => {
+  const startTime = performance.now()
+  console.log('=== 项目管理：开始加载比赛列表 ===')
+  
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.get('/events', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    const cacheKey = cacheStore.generateKey('/events', { page: 1, page_size: 100 })
+    
+    const response = await cacheStore.fetchWithCache(
+      cacheKey,
+      async () => {
+        console.log('发送请求: GET /api/events')
+        return await $api.get('/events', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      },
+      { forceRefresh, expiry: 3 * 60 * 1000 }
+    )
     
     if (response.data.code === 200) {
       events.value = response.data.data.data
+      console.log('成功加载比赛列表，数量:', events.value.length)
     }
   } catch (error) {
     console.error('加载比赛列表失败:', error)
+  } finally {
+    const loadTime = performance.now() - startTime
+    console.log(`=== 项目管理：比赛列表加载完成，耗时: ${loadTime.toFixed(2)}ms ===`)
+    console.log('缓存统计:', cacheStore.getStats)
   }
 }
 
@@ -279,6 +304,7 @@ const formatDateTimeLocal = (dateStr) => {
 
 const updateEvent = async () => {
   updating.value = true
+  console.log('=== 项目管理：更新比赛 ===')
   try {
     const token = localStorage.getItem('token')
     const response = await $api.put(`/events/${editingEventId.value}`, editForm.value, {
@@ -286,8 +312,10 @@ const updateEvent = async () => {
     })
     
     if (response.data.code === 200) {
+      console.log('比赛更新成功')
+      cacheStore.invalidateEventCache(editingEventId.value)
       showEditModal.value = false
-      await loadEvents()
+      await loadEvents(true)
     }
   } catch (error) {
     console.error('更新比赛失败:', error)
@@ -353,9 +381,10 @@ const deleteEvent = async () => {
     
     if (response.data.code === 200) {
       console.log('删除成功')
+      cacheStore.invalidateEventCache(deletingEvent.value.event_id)
       showDeleteModal.value = false
       deletingEvent.value = null
-      await loadEvents()
+      await loadEvents(true)
       alert('项目删除成功')
     } else {
       console.error('删除失败:', response.data.message)
