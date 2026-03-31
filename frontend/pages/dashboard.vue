@@ -58,13 +58,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useCacheStore } from '~/stores/cache'
 
 definePageMeta({
   layout: 'default'
 })
 
 const { $api } = useNuxtApp()
+const cacheStore = useCacheStore()
 
 const stats = ref({
   totalEvents: 0,
@@ -86,19 +88,33 @@ onMounted(async () => {
     return
   }
   
+  cacheStore.restoreFromLocalStorage()
+  
   await loadData()
 })
 
-const loadData = async () => {
+onUnmounted(() => {
+  cacheStore.persistToLocalStorage()
+})
+
+const loadData = async (forceRefresh = false) => {
   console.log('=== 总览面板：开始加载数据 ===')
+  const startTime = performance.now()
+  
   try {
     const token = localStorage.getItem('token')
-    console.log('获取token:', token ? '已获取' : '未获取')
+    const cacheKey = cacheStore.generateKey('/events', { page: 1, page_size: 10 })
     
-    console.log('发送请求: GET /api/events')
-    const response = await $api.get('/events', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    const response = await cacheStore.fetchWithCache(
+      cacheKey,
+      async () => {
+        console.log('发送请求: GET /api/events')
+        return await $api.get('/events', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      },
+      { forceRefresh, expiry: 3 * 60 * 1000 }
+    )
     
     console.log('响应状态:', response.status)
     console.log('响应数据:', response.data)
@@ -129,8 +145,15 @@ const loadData = async () => {
     console.error('错误状态码:', error.response?.status)
     console.error('错误消息:', error.message)
   } finally {
-    console.log('=== 总览面板：数据加载结束 ===')
+    const loadTime = performance.now() - startTime
+    console.log(`=== 总览面板：数据加载结束，总耗时: ${loadTime.toFixed(2)}ms ===`)
+    console.log('缓存统计:', cacheStore.getStats)
   }
+}
+
+const refreshData = () => {
+  console.log('手动刷新数据')
+  loadData(true)
 }
 </script>
 
