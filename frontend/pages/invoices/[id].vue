@@ -51,7 +51,7 @@
 
     <!-- 添加发票弹窗 -->
     <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
-      <div class="modal-content">
+      <div class="modal-content modal-large">
         <div class="modal-header">
           <h2>添加发票</h2>
           <button @click="showAddModal = false" class="close-button">×</button>
@@ -59,46 +59,84 @@
         <form @submit.prevent="addInvoice" class="modal-body">
           <div class="form-group">
             <label>发票图片 *</label>
-            <input 
-              type="file" 
-              @change="handleFileUpload" 
-              accept=".pdf,.png,.jpg,.jpeg"
-              required
-            />
-            <div class="file-hint">支持格式：PDF、PNG、JPG、JPEG</div>
-            <div v-if="fileError" class="file-error">{{ fileError }}</div>
+            <div class="file-upload-section">
+              <input 
+                type="file" 
+                @change="handleFileUpload" 
+                accept=".pdf,.png,.jpg,.jpeg"
+                required
+                ref="fileInput"
+              />
+              <div class="file-hint">支持格式：PDF、PNG、JPG、JPEG</div>
+              <div v-if="fileError" class="file-error">{{ fileError }}</div>
+              <button 
+                type="button" 
+                @click="parseInvoice" 
+                class="parse-button"
+                :disabled="!newInvoice.file || parsing"
+              >
+                {{ parsing ? '解析中...' : '一键解析' }}
+              </button>
+            </div>
           </div>
-          <div class="form-group">
-            <label>发票类型</label>
-            <input v-model="newInvoice.invoice_type" type="text" required placeholder="如：餐饮、交通、住宿" />
+          
+          <div v-if="parseError" class="parse-error">
+            <span class="error-icon">⚠️</span>
+            {{ parseError }}
           </div>
-          <div class="form-group">
-            <label>项目名称 *</label>
-            <input v-model="newInvoice.project_name" type="text" required />
+          
+          <div v-if="parseSuccess" class="parse-success">
+            <span class="success-icon">✅</span>
+            发票数据已自动填充，请核对后提交
+            <div v-if="fieldPermissions.readonly.length > 0" class="field-notice">
+              <strong>⚠️ 注意：</strong>以下字段为系统自动提取，不可手动修改：
+              <span class="readonly-fields">{{ fieldPermissions.readonly.join('、') }}</span>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label>发票类型 <span v-if="fieldPermissions.editable.includes('invoice_type')" class="editable-tag">可编辑</span></label>
+              <input v-model="newInvoice.invoice_type" type="text" placeholder="如：餐饮、交通、住宿" />
+            </div>
+            <div class="form-group">
+              <label>项目名称 * <span v-if="fieldPermissions.editable.includes('project_name')" class="editable-tag">可编辑</span></label>
+              <input v-model="newInvoice.project_name" type="text" required />
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>金额 *</label>
-              <input v-model.number="newInvoice.amount" type="number" step="0.01" min="0" required />
+              <label>价税合计（不可编辑）<span class="readonly-tag">系统提取</span></label>
+              <input 
+                v-model.number="newInvoice.total_amount" 
+                type="number" 
+                step="0.01" 
+                min="0" 
+                disabled
+                :class="{ 'readonly-field': fieldPermissions.readonly.includes('total_amount') }"
+              />
             </div>
             <div class="form-group">
-              <label>开票日期 *</label>
-              <input v-model="newInvoice.invoice_date" type="date" required />
+              <label>开票日期（不可编辑）<span class="readonly-tag">系统提取</span></label>
+              <input 
+                v-model="newInvoice.invoice_date" 
+                type="date" 
+                required
+                disabled
+                :class="{ 'readonly-field': fieldPermissions.readonly.includes('invoice_date') }"
+              />
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>发票代码</label>
-              <input v-model="newInvoice.invoice_code" type="text" />
+              <label>发票号码（不可编辑）<span class="readonly-tag">系统提取</span></label>
+              <input 
+                v-model="newInvoice.invoice_number" 
+                type="text" 
+                disabled
+                :class="{ 'readonly-field': fieldPermissions.readonly.includes('invoice_number') }"
+              />
             </div>
-            <div class="form-group">
-              <label>发票号码</label>
-              <input v-model="newInvoice.invoice_number" type="text" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>税号</label>
-            <input v-model="newInvoice.tax_number" type="text" />
           </div>
           <div class="form-group">
             <label>备注</label>
@@ -113,17 +151,27 @@
         </form>
       </div>
     </div>
+    
+    <div v-if="showDuplicateAlert" class="duplicate-alert-overlay" @click.self="showDuplicateAlert = false">
+      <div class="duplicate-alert-modal">
+        <h3>⚠️ 重复上传检测</h3>
+        <p class="duplicate-message">{{ duplicateMessage }}</p>
+        <button @click="showDuplicateAlert = false" class="duplicate-close-btn">我知道了</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useCacheStore } from '~/stores/cache'
 
 definePageMeta({
   layout: 'default'
 })
 
 const { $api } = useNuxtApp()
+const cacheStore = useCacheStore()
 const route = useRoute()
 
 const eventId = route.params.id
@@ -133,17 +181,28 @@ const selectedInvoices = ref([])
 const showAddModal = ref(false)
 const uploading = ref(false)
 const fileError = ref('')
+const parsing = ref(false)
+const parseError = ref('')
+const parseSuccess = ref(false)
+const fileInput = ref(null)
+const showDuplicateAlert = ref(false)
+const duplicateMessage = ref('')
+const needInvoiceReview = ref(true)
 
 const newInvoice = ref({
   invoice_type: '',
   project_name: '',
   amount: 0,
+  total_amount: 0,
   invoice_date: '',
-  invoice_code: '',
   invoice_number: '',
-  tax_number: '',
   remarks: '',
   file: null
+})
+
+const fieldPermissions = ref({
+  readonly: [],
+  editable: []
 })
 
 const selectAll = computed({
@@ -162,8 +221,14 @@ onMounted(async () => {
     return
   }
   
+  cacheStore.restoreFromLocalStorage()
+  
   await loadEvent()
   await loadInvoices()
+})
+
+onUnmounted(() => {
+  cacheStore.persistToLocalStorage()
 })
 
 const loadEvent = async () => {
@@ -244,6 +309,8 @@ const toggleSelectAll = () => {
 const handleFileUpload = (e) => {
   const file = e.target.files[0]
   fileError.value = ''
+  parseError.value = ''
+  parseSuccess.value = false
   
   if (!file) {
     return
@@ -262,6 +329,79 @@ const handleFileUpload = (e) => {
   
   console.log('文件验证通过:', file.name, file.type)
   newInvoice.value.file = file
+}
+
+const parseInvoice = async () => {
+  if (!newInvoice.value.file) {
+    parseError.value = '请先上传发票文件'
+    return
+  }
+  
+  parsing.value = true
+  parseError.value = ''
+  parseSuccess.value = false
+  
+  console.log('=== 开始解析发票 ===')
+  console.log('文件名:', newInvoice.value.file.name)
+  
+  try {
+    const token = localStorage.getItem('token')
+    const formData = new FormData()
+    formData.append('file', newInvoice.value.file)
+    
+    console.log('发送解析请求: POST /api/parse-invoice')
+    const response = await $api.post('/parse-invoice', formData, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+    
+    console.log('解析响应:', response.data)
+    
+    if (response.data.code === 200) {
+      const data = response.data.data
+      console.log('解析数据:', data)
+      
+      if (data.invoice_number) {
+        newInvoice.value.invoice_number = data.invoice_number
+      }
+      if (data.invoice_date) {
+        newInvoice.value.invoice_date = data.invoice_date
+      }
+      if (data.total_amount && data.total_amount > 0) {
+        newInvoice.value.total_amount = data.total_amount
+        newInvoice.value.amount = data.amount || data.total_amount
+      } else if (data.amount && data.amount > 0) {
+        newInvoice.value.amount = data.amount
+        newInvoice.value.total_amount = data.amount
+      }
+      if (data.project_name) {
+        newInvoice.value.project_name = data.project_name
+      }
+      
+      if (response.data.field_permissions) {
+        fieldPermissions.value = response.data.field_permissions
+        console.log('字段权限:', fieldPermissions.value)
+      }
+      
+      parseSuccess.value = true
+      console.log('发票解析成功，数据已填充')
+    } else {
+      parseError.value = response.data.message || '解析失败，请手动填写'
+      console.error('解析失败:', response.data.message)
+    }
+  } catch (error) {
+    console.error('=== 发票解析异常 ===')
+    console.error('错误对象:', error)
+    console.error('错误响应:', error.response)
+    
+    const message = error.response?.data?.message || '解析服务暂时不可用，请手动填写'
+    parseError.value = message
+  } finally {
+    parsing.value = false
+    console.log('=== 发票解析流程结束 ===')
+  }
 }
 
 const addInvoice = async () => {
@@ -300,9 +440,18 @@ const addInvoice = async () => {
     
     if (response.data.code === 200) {
       console.log('发票添加成功')
+      cacheStore.invalidateInvoiceCache(parseInt(eventId))
+      cacheStore.invalidateEventCache(parseInt(eventId))
       showAddModal.value = false
       resetForm()
       await loadInvoices()
+    } else if (response.data.code === 4001) {
+      console.error('重复上传检测:', response.data.message)
+      const existingTime = response.data.data?.upload_time 
+        ? new Date(response.data.data.upload_time).toLocaleString('zh-CN') 
+        : '未知时间'
+      showDuplicateAlert.value = true
+      duplicateMessage.value = `⚠️ ${response.data.message}\n\n首次上传时间：${existingTime}`
     } else {
       console.error('添加发票失败，错误码:', response.data.code)
       console.error('错误信息:', response.data.message)
@@ -342,6 +491,8 @@ const deleteSelected = async () => {
     }
     
     console.log('发票删除成功')
+    cacheStore.invalidateInvoiceCache(parseInt(eventId))
+    cacheStore.invalidateEventCache(parseInt(eventId))
     selectedInvoices.value = []
     await loadInvoices()
   } catch (error) {
@@ -362,12 +513,15 @@ const resetForm = () => {
     invoice_type: '',
     project_name: '',
     amount: 0,
+    total_amount: 0,
     invoice_date: '',
-    invoice_code: '',
     invoice_number: '',
-    tax_number: '',
     remarks: '',
     file: null
+  }
+  fieldPermissions.value = {
+    readonly: [],
+    editable: []
   }
   fileError.value = ''
 }
@@ -550,6 +704,10 @@ const getStatusText = (status) => {
   overflow-y: auto;
 }
 
+.modal-large {
+  max-width: 800px;
+}
+
 .modal-header {
   padding: 1.5rem;
   border-bottom: 1px solid #ecf0f1;
@@ -646,6 +804,108 @@ const getStatusText = (status) => {
   margin-top: 0.3rem;
 }
 
+.file-upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.parse-button {
+  margin-top: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  background: linear-gradient(135deg, #3498db, #2ecc71);
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.parse-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+}
+
+.parse-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.parse-error {
+  background: #fee;
+  border: 1px solid #fcc;
+  color: #c0392b;
+  padding: 0.8rem 1rem;
+  border-radius: 5px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.parse-success {
+  background: #efe;
+  border: 1px solid #afa;
+  color: #27ae60;
+  padding: 0.8rem 1rem;
+  border-radius: 5px;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.error-icon, .success-icon {
+  font-size: 1.2rem;
+}
+
+.editable-tag {
+  background: #d4edda;
+  color: #155724;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  font-weight: normal;
+}
+
+.readonly-tag {
+  background: #fff3cd;
+  color: #856404;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  font-weight: normal;
+}
+
+.readonly-field {
+  background-color: #f8f9fa;
+  cursor: not-allowed;
+}
+
+.field-notice {
+  margin-top: 0.5rem;
+  padding: 0.7rem;
+  background: #e8f4f8;
+  border-left: 4px solid #3498db;
+  border-radius: 3px;
+  font-size: 0.9rem;
+}
+
+.readonly-fields {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
 @media (max-width: 768px) {
   .form-row {
     grid-template-columns: 1fr;
@@ -663,5 +923,54 @@ const getStatusText = (status) => {
   .action-button {
     flex: 1;
   }
+}
+
+.duplicate-alert-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.duplicate-alert-modal {
+  background: white;
+  padding: 2rem;
+  border-radius: 10px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.duplicate-alert-modal h3 {
+  color: #f39c12;
+  margin-bottom: 1rem;
+}
+
+.duplicate-message {
+  color: #555;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+  white-space: pre-line;
+}
+
+.duplicate-close-btn {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  border-radius: 5px;
+  cursor: pointer;
+  width: 100%;
+  font-size: 1rem;
+}
+
+.duplicate-close-btn:hover {
+  background: #5568d3;
 }
 </style>

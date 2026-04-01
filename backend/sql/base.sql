@@ -68,6 +68,7 @@ CREATE TABLE events (
     remaining_budget DECIMAL(12, 2) DEFAULT 0.00 CHECK (remaining_budget >= 0),
     invoice_count INTEGER DEFAULT 0, -- 发票总数量
     invoice_total_amount DECIMAL(12, 2) DEFAULT 0.00, -- 发票总金额
+    need_invoice_review BOOLEAN NOT NULL DEFAULT TRUE, -- 是否需要审核发票
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -106,11 +107,10 @@ CREATE TABLE invoices (
     
     -- 发票具体信息
     invoice_type VARCHAR(50), -- 发票类型 (如：餐饮、交通、住宿)
-    invoice_code VARCHAR(50), -- 发票代码 (可选)
     invoice_number VARCHAR(50), -- 发票号码 (可选)
-    tax_number VARCHAR(100), -- 发票税号
     project_name VARCHAR(200) NOT NULL, -- 发票项目名称
-    amount DECIMAL(12, 2) NOT NULL CHECK (amount > 0), -- 发票金额
+    amount DECIMAL(12, 2) NOT NULL CHECK (amount >= 0), -- 不含税金额
+    total_amount DECIMAL(12, 2) NOT NULL DEFAULT 0.00 CHECK (total_amount >= 0), -- 价税合计（系统自动提取，用户不可修改）
     invoice_date DATE NOT NULL, -- 开票日期
     
     -- 审核信息 (当前状态)
