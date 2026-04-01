@@ -126,6 +126,19 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label class="switch-label">
+            <span>是否需要审核发票</span>
+            <label class="switch">
+              <input type="checkbox" v-model="form.need_invoice_review" />
+              <span class="slider round"></span>
+            </label>
+          </label>
+          <p class="switch-hint">
+            {{ form.need_invoice_review ? '开启后，上传的发票需要管理员审核通过后才生效' : '关闭后，上传的发票将自动通过审核' }}
+          </p>
+        </div>
+
         <div v-if="error" class="error-message">{{ error }}</div>
         <div v-if="success" class="success-message">{{ success }}</div>
 
@@ -161,7 +174,8 @@ const form = ref({
   upload_start_time: '',
   upload_end_time: '',
   total_budget: 0,
-  leader_id: null
+  leader_id: null,
+  need_invoice_review: true
 })
 
 const loading = ref(false)
@@ -323,7 +337,8 @@ const resetForm = () => {
     upload_start_time: '',
     upload_end_time: '',
     total_budget: 0,
-    leader_id: null
+    leader_id: null,
+    need_invoice_review: true
   }
   leaderSearch.value = ''
   error.value = ''
@@ -502,6 +517,65 @@ const resetForm = () => {
 .submit-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.switch-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 500;
+  color: #555;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 34px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 34px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 26px;
+  width: 26px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #667eea;
+}
+
+input:checked + .slider:before {
+  transform: translateX(26px);
+}
+
+.switch-hint {
+  font-size: 0.85rem;
+  color: #7f8c8d;
+  margin-top: 0.25rem;
 }
 
 @media (max-width: 768px) {

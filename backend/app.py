@@ -25,9 +25,13 @@ def create_app():
     
     from routes.auth import auth_bp
     from routes.events import events_bp
+    from routes.invoices import invoices_bp
+    from routes.parse import parse_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api')
     app.register_blueprint(events_bp, url_prefix='/api')
+    app.register_blueprint(invoices_bp, url_prefix='/api')
+    app.register_blueprint(parse_bp, url_prefix='/api')
     logger.info('蓝图注册完成')
     
     with app.app_context():

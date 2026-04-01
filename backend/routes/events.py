@@ -57,7 +57,8 @@ def create_event():
             creator_id=current_user_id,
             leader_id=data.get('leader_id'),
             total_budget=total_budget,
-            remaining_budget=total_budget
+            remaining_budget=total_budget,
+            need_invoice_review=data.get('need_invoice_review', True)
         )
         
         db.session.add(event)
@@ -83,7 +84,8 @@ def create_event():
                 'reimbursed_amount': float(event.reimbursed_amount),
                 'remaining_budget': float(event.remaining_budget),
                 'invoice_count': event.invoice_count,
-                'invoice_total_amount': float(event.invoice_total_amount)
+                'invoice_total_amount': float(event.invoice_total_amount),
+                'need_invoice_review': event.need_invoice_review
             }
         }), 201
         
