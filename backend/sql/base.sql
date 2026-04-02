@@ -68,6 +68,8 @@ CREATE TABLE events (
     remaining_budget DECIMAL(12, 2) DEFAULT 0.00 CHECK (remaining_budget >= 0),
     invoice_count INTEGER DEFAULT 0, -- 发票总数量
     invoice_total_amount DECIMAL(12, 2) DEFAULT 0.00, -- 发票总金额
+    voucher_count INTEGER DEFAULT 0, -- 凭证总数量
+    voucher_total_amount DECIMAL(12, 2) DEFAULT 0.00, -- 凭证总金额
     need_invoice_review BOOLEAN NOT NULL DEFAULT TRUE, -- 是否需要审核发票
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -104,6 +106,7 @@ CREATE TABLE invoices (
     file_name VARCHAR(255) NOT NULL,
     file_md5 VARCHAR(64), -- 用于文件去重校验
     image_url TEXT NOT NULL, -- 对象存储URL
+    preview_image_url TEXT, -- 预览图URL（PDF转JPG后存储）
     
     -- 发票具体信息
     invoice_type VARCHAR(50), -- 发票类型 (如：餐饮、交通、住宿)
@@ -115,6 +118,8 @@ CREATE TABLE invoices (
     
     -- 审核信息 (当前状态)
     status invoice_status_enum NOT NULL DEFAULT 'approved', -- 默认审核通过
+    is_reimbursed BOOLEAN NOT NULL DEFAULT FALSE, -- 是否已报销
+    reimbursed_at TIMESTAMP WITH TIME ZONE, -- 报销时间
     reviewer_id BIGINT REFERENCES users(user_id), -- 当前审核人ID
     review_time TIMESTAMP WITH TIME ZONE, -- 当前审核时间
     rejection_reason TEXT, -- 拒绝原因
@@ -126,6 +131,51 @@ CREATE TABLE invoices (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     is_deleted BOOLEAN DEFAULT FALSE,
     extra_fields JSONB
+);
+
+-- 2.6 凭证表 (vouchers)
+CREATE TABLE vouchers (
+    voucher_id BIGSERIAL PRIMARY KEY,
+    
+    -- 关联信息
+    event_id BIGINT NOT NULL REFERENCES events(event_id),
+    uploader_id BIGINT NOT NULL REFERENCES users(user_id),
+    
+    -- 文件信息
+    file_name VARCHAR(255) NOT NULL,
+    file_md5 VARCHAR(64), -- 用于文件去重校验
+    file_url TEXT NOT NULL, -- 对象存储URL
+    
+    -- 凭证具体信息
+    item_name VARCHAR(200) NOT NULL, -- 物品名称
+    voucher_type VARCHAR(50), -- 类型（如：办公用品、设备、耗材等）
+    purchase_channel VARCHAR(100), -- 购买渠道
+    purchase_date DATE, -- 购入日期
+    amount DECIMAL(12, 2) NOT NULL CHECK (amount >= 0), -- 购入金额
+    
+    -- 报销状态
+    is_reimbursed BOOLEAN NOT NULL DEFAULT FALSE, -- 是否已报销
+    reimbursed_at TIMESTAMP WITH TIME ZONE, -- 报销时间
+    
+    -- 辅助信息
+    remarks TEXT, -- 备注
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE
+);
+
+-- 2.7 邀请码表 (invitation_codes)
+CREATE TABLE invitation_codes (
+    id BIGSERIAL PRIMARY KEY,
+    code VARCHAR(64) UNIQUE NOT NULL, -- 邀请码
+    target_user_type user_type_enum NOT NULL DEFAULT 'student', -- 目标用户类型
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL, -- 过期时间
+    max_uses INTEGER NOT NULL DEFAULT -1, -- 最大使用次数(-1为无限)
+    used_count INTEGER NOT NULL DEFAULT 0, -- 已使用次数
+    created_by BIGINT NOT NULL REFERENCES users(user_id), -- 创建人
+    is_active BOOLEAN NOT NULL DEFAULT TRUE, -- 是否有效
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 2.5 审核记录表 (audit_logs)
@@ -170,6 +220,16 @@ CREATE INDEX idx_invoices_date ON invoices(invoice_date);
 CREATE INDEX idx_audit_logs_invoice ON audit_logs(invoice_id);
 CREATE INDEX idx_audit_logs_reviewer ON audit_logs(reviewer_id);
 
+-- 凭证表索引
+CREATE INDEX idx_vouchers_event ON vouchers(event_id);
+CREATE INDEX idx_vouchers_uploader ON vouchers(uploader_id);
+CREATE INDEX idx_vouchers_md5 ON vouchers(file_md5);
+
+-- 邀请码索引
+CREATE INDEX idx_invitation_codes_code ON invitation_codes(code);
+CREATE INDEX idx_invitation_codes_creator ON invitation_codes(created_by);
+CREATE INDEX idx_invitation_codes_active ON invitation_codes(is_active, expires_at);
+
 -- ============================================
 -- 4. 触发器设计 (自动维护 updated_at)
 -- ============================================
@@ -193,6 +253,9 @@ CREATE TRIGGER trigger_invoices_update BEFORE UPDATE ON invoices
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 CREATE TRIGGER trigger_event_members_update BEFORE UPDATE ON event_members
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER trigger_vouchers_update BEFORE UPDATE ON vouchers
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 -- ============================================

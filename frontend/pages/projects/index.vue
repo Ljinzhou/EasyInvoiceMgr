@@ -15,12 +15,43 @@
             </span>
           </div>
           <div class="action-buttons">
+            <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 发票</button>
+            <button @click="toggleEventStatus(event)" v-if="event.status === 'ongoing'" class="action-btn end-btn">⏹ 结束</button>
+            <button @click="showAddMemberModal(event)" class="action-btn member-btn">👥 添加人员</button>
+            <button @click="viewMembers(event)" class="action-btn view-btn">📋 查看人员</button>
             <button @click="editEvent(event)" class="edit-button">编辑</button>
             <button @click="confirmDelete(event)" class="delete-button">删除</button>
           </div>
         </div>
         
         <div class="project-body">
+          <!-- 预算信息面板 -->
+          <div class="budget-overview">
+            <div class="budget-item total">
+              <span class="b-label">总预算</span>
+              <span class="b-value">¥ {{ formatMoney(event.total_budget) }}</span>
+            </div>
+            <div class="budget-item invoice">
+              <span class="b-label">发票总额</span>
+              <span class="b-value">¥ {{ formatMoney(event.invoice_total_amount) }}</span>
+            </div>
+            <div class="budget-item reimbursed">
+              <span class="b-label">已报销</span>
+              <span class="b-value">¥ {{ formatMoney(event.reimbursed_amount) }}</span>
+            </div>
+            <div class="budget-item remaining" :class="{ 'low': getRemainingPercent(event) < 20 }">
+              <span class="b-label">剩余</span>
+              <span class="b-value">¥ {{ formatMoney(getRemainingBudget(event)) }}</span>
+              <div class="mini-progress">
+                <div class="mini-fill" :style="{ width: getRemainingPercent(event) + '%' }"></div>
+              </div>
+            </div>
+            <div class="budget-item count">
+              <span class="b-label">发票数</span>
+              <span class="b-value">{{ event.invoice_count || 0 }} 张</span>
+            </div>
+          </div>
+
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">类别</span>
@@ -359,6 +390,52 @@ const formatDateTime = (dateStr) => {
 const confirmDelete = (event) => {
   deletingEvent.value = event
   showDeleteModal.value = true
+}
+
+const goToInvoiceManage = (event) => {
+  navigateTo(`/invoices/${event.event_id}`)
+}
+
+const toggleEventStatus = async (event) => {
+  if (!confirm(`确定要将比赛 "${event.event_name}" 结束吗？`)) return
+  
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.put(`/events/${event.event_id}`, { status: 'finished' }, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    if (response.data.code === 200) {
+      alert('比赛已结束')
+      await loadEvents(true)
+    }
+  } catch (error) {
+    alert('操作失败，请稍后重试')
+  }
+}
+
+const showAddMemberModal = (event) => {
+  alert(`添加人员功能 - 比赛: ${event.event_name}`)
+}
+
+const viewMembers = (event) => {
+  navigateTo(`/events/${event.event_id}/members`)
+}
+
+const formatMoney = (value) => {
+  if (!value && value !== 0) return '0.00'
+  return Number(value).toFixed(2)
+}
+
+const getRemainingBudget = (event) => {
+  if (!event) return 0
+  return Number(event.total_budget || 0) - Number(event.reimbursed_amount || 0)
+}
+
+const getRemainingPercent = (event) => {
+  const total = Number(event.total_budget || 0)
+  if (total === 0) return 100
+  return Math.max(0, Math.min(100, (getRemainingBudget(event) / total) * 100))
 }
 
 const deleteEvent = async () => {
@@ -779,5 +856,85 @@ const deleteEvent = async () => {
   .info-grid {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+/* 操作按钮样式 */
+.action-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: white;
+}
+
+.invoice-btn { background: #3498db; }
+.invoice-btn:hover { background: #2980b9; }
+
+.end-btn { background: #e67e22; }
+.end-btn:hover { background: #d35400; }
+
+.member-btn { background: #9b59b6; }
+.member-btn:hover { background: #8e44ad; }
+
+.view-btn { background: #1abc9c; }
+.view-btn:hover { background: #16a085; }
+
+/* 预算概览面板 */
+.budget-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 1.2rem;
+  padding: 14px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 10px;
+  border: 1px solid #dee2e6;
+}
+
+.budget-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 8px;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.b-label {
+  font-size: 11px;
+  color: #7f8c8d;
+  margin-bottom: 4px;
+}
+
+.b-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+.budget-item.total .b-value { color: #3498db; }
+.budget-item.invoice .b-value { color: #f39c12; }
+.budget-item.reimbursed .b-value { color: #27ae60; }
+.budget-item.remaining .b-value { color: #9b59b6; }
+.budget-item.remaining.low .b-value { color: #e74c3c; }
+.budget-item.count .b-value { color: #1abc9c; }
+
+.mini-progress {
+  width: 100%;
+  height: 3px;
+  background: #ecf0f1;
+  border-radius: 2px;
+  margin-top: 5px;
+  overflow: hidden;
+}
+
+.mini-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #9b59b6, #8e44ad);
+  border-radius: 2px;
+  transition: width 0.4s ease;
 }
 </style>
