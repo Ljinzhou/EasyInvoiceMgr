@@ -1,10 +1,15 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Invoice, Event, User
 from utils.cos_manager import cos_manager
 from datetime import datetime
 import logging
 import hashlib
+import fitz
+import io
+import os
+import urllib.parse
+import tempfile
 
 logger = logging.getLogger(__name__)
 invoices_bp = Blueprint('invoices', __name__)
@@ -54,6 +59,8 @@ def get_invoices():
                 'review_time': invoice.review_time.isoformat() if invoice.review_time else None,
                 'rejection_reason': invoice.rejection_reason,
                 'remarks': invoice.remarks,
+                'is_reimbursed': invoice.is_reimbursed,
+                'reimbursed_at': invoice.reimbursed_at.isoformat() if invoice.reimbursed_at else None,
                 'created_at': invoice.created_at.isoformat() if invoice.created_at else None
             }
             
@@ -311,5 +318,346 @@ def approve_invoice(invoice_id):
         
     except Exception as e:
         logger.error(f'审核发票异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@invoices_bp.route('/invoices/<int:invoice_id>/preview', methods=['GET'])
+@jwt_required()
+def get_preview(invoice_id):
+    logger.info(f'=== 获取发票预览图: invoice_id={invoice_id} ===')
+    try:
+        invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
+        
+        if not invoice:
+            logger.warning(f'发票不存在: invoice_id={invoice_id}')
+            return jsonify({'code': 3001, 'message': '发票不存在', 'data': None}), 404
+        
+        preview_url = None
+        if invoice.preview_image_url:
+            if cos_manager.is_available():
+                try:
+                    preview_url = cos_manager.get_presigned_url(
+                        invoice.preview_image_url,
+                        expires=3600
+                    )
+                except Exception as e:
+                    logger.error(f'生成预览图临时URL失败: {str(e)}')
+                    preview_url = invoice.preview_image_url
+            else:
+                preview_url = invoice.preview_image_url
+        
+        logger.info(f'获取预览图成功: has_preview={bool(preview_url)}')
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'preview_url': preview_url,
+                'has_preview': bool(preview_url)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'获取预览图异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@invoices_bp.route('/invoices/<int:invoice_id>/generate-preview', methods=['POST'])
+@jwt_required()
+def generate_preview(invoice_id):
+    logger.info(f'=== 生成预览图: invoice_id={invoice_id} ===')
+    try:
+        invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
+        
+        if not invoice:
+            logger.warning(f'发票不存在: invoice_id={invoice_id}')
+            return jsonify({'code': 3001, 'message': '发票不存在', 'data': None}), 404
+        
+        if not invoice.image_url:
+            logger.warning(f'发票没有文件: invoice_id={invoice_id}')
+            return jsonify({'code': 400, 'message': '发票没有关联的文件', 'data': None}), 400
+        
+        file_ext = invoice.file_name.rsplit('.', 1)[1].lower() if '.' in invoice.file_name else ''
+        
+        if file_ext == 'pdf':
+            pdf_content = cos_manager.download_file(invoice.image_url) if cos_manager.is_available() else None
+            
+            if not pdf_content and os.path.exists(invoice.image_url.lstrip('/')):
+                with open(invoice.image_url.lstrip('/'), 'rb') as f:
+                    pdf_content = f.read()
+            
+            if not pdf_content:
+                logger.error(f'无法下载PDF文件: {invoice.image_url}')
+                return jsonify({'code': 500, 'message': '无法获取PDF文件', 'data': None}), 500
+            
+            pdf_doc = fitz.open(stream=pdf_content, filetype='pdf')
+            
+            if len(pdf_doc) == 0:
+                pdf_doc.close()
+                return jsonify({'code': 400, 'message': 'PDF文件为空', 'data': None}), 400
+            
+            page = pdf_doc[0]
+            mat = fitz.Matrix(2.0, 2.0)
+            pix = page.get_pixmap(matrix=mat)
+            
+            img_data = pix.tobytes('jpeg', jpg_quality=85)
+            pdf_doc.close()
+            
+            img_filename = f'preview_{invoice.invoice_id}.jpg'
+            
+            if cos_manager.is_available():
+                img_file_obj = io.BytesIO(img_data)
+                upload_result = cos_manager.upload_file_from_bytes(
+                    int(invoice.event_id),
+                    img_file_obj,
+                    img_filename,
+                    content_type='image/jpeg'
+                )
+                preview_url = upload_result['file_key']
+                
+                invoice.preview_image_url = preview_url
+                db.session.commit()
+                
+                presigned_url = cos_manager.get_presigned_url(preview_url, expires=3600)
+            else:
+                preview_path = os.path.join('uploads', 'previews', img_filename)
+                os.makedirs(os.path.dirname(preview_path), exist_ok=True)
+                with open(preview_path, 'wb') as f:
+                    f.write(img_data)
+                
+                invoice.preview_image_url = f'/{preview_path}'
+                db.session.commit()
+                presigned_url = f'/{preview_path}'
+            
+            logger.info(f'预览图生成成功: invoice_id={invoice_id}')
+            return jsonify({
+                'code': 200,
+                'message': '预览图生成成功',
+                'data': {
+                    'preview_url': presigned_url
+                }
+            }), 200
+            
+        elif file_ext in ['png', 'jpg', 'jpeg']:
+            if cos_manager.is_available():
+                try:
+                    preview_url = cos_manager.get_presigned_url(invoice.image_url, expires=3600)
+                except Exception as e:
+                    logger.error(f'生成图片预览URL失败: {str(e)}')
+                    preview_url = invoice.image_url
+                
+                invoice.preview_image_url = invoice.image_url
+                db.session.commit()
+                
+                return jsonify({
+                    'code': 200,
+                    'message': '图片格式发票，直接使用原图',
+                    'data': {
+                        'preview_url': preview_url
+                    }
+                }), 200
+            else:
+                return jsonify({
+                    'code': 200,
+                    'message': '图片格式发票，直接使用原图',
+                    'data': {
+                        'preview_url': invoice.image_url
+                    }
+                }), 200
+        else:
+            return jsonify({'code': 400, 'message': '不支持的文件格式', 'data': None}), 400
+            
+    except Exception as e:
+        logger.error(f'生成预览图异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@invoices_bp.route('/invoices/<int:invoice_id>/download', methods=['GET'])
+@jwt_required()
+def download_invoice(invoice_id):
+    logger.info(f'=== 下载发票文件: invoice_id={invoice_id} ===')
+    try:
+        invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
+        
+        if not invoice:
+            logger.warning(f'发票不存在: invoice_id={invoice_id}')
+            return jsonify({'code': 3001, 'message': '发票不存在', 'data': None}), 404
+        
+        if not invoice.image_url:
+            logger.warning(f'发票没有文件: invoice_id={invoice_id}')
+            return jsonify({'code': 400, 'message': '发票没有关联的文件', 'data': None}), 400
+        
+        if cos_manager.is_available():
+            file_content = cos_manager.download_file(invoice.image_url)
+            
+            if not file_content:
+                logger.error(f'无法下载文件: {invoice.image_url}')
+                return jsonify({'code': 500, 'message': '无法获取文件', 'data': None}), 500
+            
+            file_obj = io.BytesIO(file_content)
+            
+            from flask import Response
+            safe_filename = urllib.parse.quote(invoice.file_name)
+            response = Response(
+                file_content,
+                mimetype='application/octet-stream',
+                headers={
+                    'Content-Disposition': f"attachment; filename*=UTF-8''{safe_filename}"
+                }
+            )
+            return response
+        else:
+            local_path = invoice.image_url.lstrip('/')
+            if not os.path.exists(local_path):
+                logger.error(f'本地文件不存在: {local_path}')
+                return jsonify({'code': 500, 'message': '文件不存在', 'data': None}), 500
+            
+            return send_file(
+                local_path,
+                as_attachment=True,
+                download_name=invoice.file_name
+            )
+            
+    except Exception as e:
+        logger.error(f'下载发票异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@invoices_bp.route('/invoices/<int:invoice_id>', methods=['PUT'])
+@jwt_required()
+def update_invoice(invoice_id):
+    logger.info(f'=== 更新发票信息: invoice_id={invoice_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        logger.info(f'当前用户ID: {current_user_id}')
+        
+        user = User.query.get(current_user_id)
+        if not user:
+            logger.warning(f'用户不存在: {current_user_id}')
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+        
+        invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
+        
+        if not invoice:
+            logger.warning(f'发票不存在: invoice_id={invoice_id}')
+            return jsonify({'code': 3001, 'message': '发票不存在', 'data': None}), 404
+        
+        data = request.get_json()
+        logger.info(f'更新数据: {data}')
+        
+        from decimal import Decimal
+        
+        if 'invoice_type' in data:
+            invoice.invoice_type = data['invoice_type']
+        if 'project_name' in data and data['project_name']:
+            invoice.project_name = data['project_name']
+        if 'amount' in data:
+            new_amount = Decimal(str(data['amount']))
+            old_amount = invoice.amount
+            event = Event.query.get(invoice.event_id)
+            if event:
+                event.invoice_total_amount = event.invoice_total_amount - old_amount + new_amount
+                if invoice.status == 'approved':
+                    event.reimbursed_amount = event.reimbursed_amount - old_amount + new_amount
+                    event.remaining_budget = event.total_budget - event.reimbursed_amount
+            invoice.amount = new_amount
+        if 'invoice_date' in data and data['invoice_date']:
+            invoice.invoice_date = datetime.strptime(data['invoice_date'], '%Y-%m-%d').date()
+        if 'invoice_number' in data:
+            invoice.invoice_number = data['invoice_number']
+        if 'remarks' in data:
+            invoice.remarks = data['remarks']
+        
+        db.session.commit()
+        
+        logger.info(f'发票更新成功: invoice_id={invoice_id}')
+        return jsonify({
+            'code': 200,
+            'message': '发票信息更新成功',
+            'data': None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'更新发票异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@invoices_bp.route('/invoices/batch-reimburse', methods=['POST'])
+@jwt_required()
+def batch_reimburse_invoices():
+    logger.info('=== 批量报销发票 ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user or user.user_type not in ['admin', 'teacher']:
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+        
+        data = request.get_json()
+        invoice_ids = data.get('invoice_ids', [])
+        
+        if not invoice_ids:
+            return jsonify({'code': 400, 'message': '请选择要报销的发票', 'data': None}), 400
+        
+        count = 0
+        for iid in invoice_ids:
+            invoice = Invoice.query.filter_by(invoice_id=iid, is_deleted=False).first()
+            if invoice and invoice.status == 'approved' and not invoice.is_reimbursed:
+                invoice.is_reimbursed = True
+                invoice.reimbursed_at = datetime.utcnow()
+                
+                event = Event.query.get(invoice.event_id)
+                if event:
+                    event.reimbursed_amount += invoice.amount
+                    event.remaining_budget = event.total_budget - event.reimbursed_amount
+                
+                count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'code': 200,
+            'message': f'成功报销 {count} 张发票',
+            'data': {'count': count}
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'批量报销发票异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@invoices_bp.route('/invoices/<int:invoice_id>/reimburse', methods=['POST'])
+@jwt_required()
+def reimburse_invoice(invoice_id):
+    logger.info(f'=== 报销发票: invoice_id={invoice_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user or user.user_type not in ['admin', 'teacher']:
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+        
+        invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
+        if not invoice:
+            return jsonify({'code': 3001, 'message': '发票不存在', 'data': None}), 404
+        
+        if invoice.status != 'approved':
+            return jsonify({'code': 400, 'message': '只能报销已审核通过的发票', 'data': None}), 400
+        
+        if invoice.is_reimbursed:
+            return jsonify({'code': 400, 'message': '该发票已报销', 'data': None}), 400
+        
+        invoice.is_reimbursed = True
+        invoice.reimbursed_at = datetime.utcnow()
+        
+        event = Event.query.get(invoice.event_id)
+        if event:
+            event.reimbursed_amount += invoice.amount
+            event.remaining_budget = event.total_budget - event.reimbursed_amount
+        
+        db.session.commit()
+        
+        return jsonify({
+            'code': 200,
+            'message': '发票报销成功',
+            'data': None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'报销发票异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500

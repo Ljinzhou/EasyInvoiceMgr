@@ -1,7 +1,7 @@
 <template>
   <div class="create-event-container">
     <div class="create-event-card">
-      <h1 class="create-event-title">创建比赛</h1>
+      <h1 class="create-event-title">{{ isEditMode ? '编辑比赛' : '创建比赛' }}</h1>
       <form @submit.prevent="handleSubmit" class="create-event-form">
         <div class="form-group">
           <label for="event_name">比赛名称 *</label>
@@ -163,6 +163,10 @@ definePageMeta({
 })
 
 const { $api } = useNuxtApp()
+const route = useRoute()
+
+const isEditMode = computed(() => !!route.params.id)
+const eventId = computed(() => route.params.id)
 
 const form = ref({
   event_name: '',
@@ -187,8 +191,8 @@ const filteredUsers = ref([])
 const showDropdown = ref(false)
 let searchTimeout = null
 
-onMounted(() => {
-  console.log('=== 创建比赛：页面加载 ===')
+onMounted(async () => {
+  console.log('=== 创建/编辑比赛：页面加载 ===')
   const token = localStorage.getItem('token')
   console.log('检查token:', token ? '已登录' : '未登录')
   
@@ -197,7 +201,12 @@ onMounted(() => {
     navigateTo('/login')
     return
   }
-  console.log('用户已登录，可以创建比赛')
+  console.log('用户已登录，可以操作比赛')
+  
+  // 如果是编辑模式，加载现有数据
+  if (isEditMode.value && eventId.value) {
+    await loadEventData()
+  }
   
   const userStr = localStorage.getItem('user')
   if (userStr) {
@@ -288,6 +297,39 @@ const validateForm = () => {
   return true
 }
 
+const loadEventData = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.get(`/events/${eventId.value}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    if (response.data.code === 200) {
+      const event = response.data.data
+      form.value = {
+        event_name: event.event_name || '',
+        description: event.description || '',
+        category: event.category || '',
+        location: event.location || '',
+        event_start_time: event.event_start_time ? event.event_start_time.split('T')[0] : '',
+        event_end_time: event.event_end_time ? event.event_end_time.split('T')[0] : '',
+        upload_start_time: event.upload_start_time ? event.upload_start_time.split('T')[0] : '',
+        upload_end_time: event.upload_end_time ? event.upload_end_time.split('T')[0] : '',
+        total_budget: parseFloat(event.total_budget) || 0,
+        leader_id: event.leader_id || null,
+        need_invoice_review: event.need_invoice_review !== false // 默认为true
+      }
+      
+      console.log('比赛数据加载成功:', form.value)
+    } else {
+      error.value = '加载比赛数据失败'
+    }
+  } catch (err) {
+    console.error('加载比赛数据异常:', err)
+    error.value = err.response?.data?.message || '加载失败，请稍后重试'
+  }
+}
+
 const handleSubmit = async () => {
   error.value = ''
   success.value = ''
@@ -300,15 +342,25 @@ const handleSubmit = async () => {
   
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.post('/events', form.value, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    })
+    
+    let response
+    if (isEditMode.value) {
+      // 编辑模式：PUT请求
+      response = await $api.put(`/events/${eventId.value}`, form.value, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+    } else {
+      // 创建模式：POST请求
+      response = await $api.post('/events', form.value, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+    }
     
     if (response.data.code === 200) {
-      success.value = '比赛创建成功！'
-      resetForm()
+      success.value = isEditMode.value ? '比赛更新成功！' : '比赛创建成功！'
+      if (!isEditMode.value) {
+        resetForm()
+      }
     } else {
       error.value = response.data.message
     }
