@@ -176,7 +176,8 @@ export const useCacheStore = defineStore('cache', {
     invalidateEventCache(eventId?: number): void {
       if (eventId) {
         this.deleteByPrefix(`/events/${eventId}`)
-        this.deleteByPrefix(`/invoices?event_id=${eventId}`)
+        this.deleteByPrefix(`/purchases?event_id=${eventId}`)
+        this.deleteByPrefix(`/events/${eventId}/records`)
       }
       this.deleteByPrefix('/events')
       console.log(`[Cache] INVALIDATE_EVENT: event_id=${eventId || 'all'}`)
@@ -184,9 +185,10 @@ export const useCacheStore = defineStore('cache', {
 
     invalidateInvoiceCache(eventId?: number): void {
       if (eventId) {
-        this.deleteByPrefix(`/invoices?event_id=${eventId}`)
+        this.deleteByPrefix(`/purchases?event_id=${eventId}`)
+        this.deleteByPrefix(`/events/${eventId}/records`)
       }
-      this.deleteByPrefix('/invoices')
+      this.deleteByPrefix('/purchases')
       console.log(`[Cache] INVALIDATE_INVOICE: event_id=${eventId || 'all'}`)
     },
 

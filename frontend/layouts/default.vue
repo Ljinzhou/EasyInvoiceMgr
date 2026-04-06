@@ -2,16 +2,16 @@
   <div class="layout-container">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h2>发票管理系统</h2>
+        <h2>财务管理系统</h2>
       </div>
       <nav class="sidebar-nav">
         <NuxtLink to="/dashboard" class="nav-item" :class="{ active: $route.path === '/dashboard' }">
           <span class="nav-icon">📊</span>
           <span class="nav-text">总览面板</span>
         </NuxtLink>
-        <NuxtLink to="/invoices" class="nav-item" :class="{ active: $route.path.startsWith('/invoices') }">
-          <span class="nav-icon">📄</span>
-          <span class="nav-text">发票管理</span>
+        <NuxtLink to="/purchases" class="nav-item" :class="{ active: $route.path.startsWith('/purchases') }">
+          <span class="nav-icon">🛒</span>
+          <span class="nav-text">购买记录</span>
         </NuxtLink>
         <NuxtLink to="/projects" class="nav-item" :class="{ active: $route.path.startsWith('/projects') }">
           <span class="nav-icon">📁</span>
