@@ -1,4 +1,5 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, make_response
+from flask_cors import cross_origin
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User
@@ -8,8 +9,16 @@ import logging
 logger = logging.getLogger(__name__)
 auth_bp = Blueprint('auth', __name__)
 
-@auth_bp.route('/register', methods=['POST'])
+@auth_bp.route('/register', methods=['POST', 'OPTIONS'])
+@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
 def register():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
+        return response
+    
     logger.info('=== 用户注册请求 ===')
     try:
         data = request.get_json()
@@ -30,7 +39,6 @@ def register():
             email=data.get('email'),
             phone=data.get('phone'),
             user_type=data.get('user_type', 'student'),
-            organization=data.get('organization'),
             student_or_staff_id=data.get('student_or_staff_id')
         )
         
@@ -48,7 +56,6 @@ def register():
                 'email': user.email,
                 'phone': user.phone,
                 'user_type': user.user_type,
-                'organization': user.organization,
                 'student_or_staff_id': user.student_or_staff_id,
                 'account_status': user.account_status
             }
@@ -59,8 +66,16 @@ def register():
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
-@auth_bp.route('/login', methods=['POST'])
+@auth_bp.route('/login', methods=['POST', 'OPTIONS'])
+@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
 def login():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
+        return response
+    
     logger.info('=== 用户登录请求 ===')
     try:
         data = request.get_json()
@@ -94,7 +109,6 @@ def login():
                     'email': user.email,
                     'phone': user.phone,
                     'user_type': user.user_type,
-                    'organization': user.organization,
                     'student_or_staff_id': user.student_or_staff_id
                 }
             }
@@ -138,7 +152,7 @@ def get_users():
                 'email': user.email,
                 'phone': user.phone,
                 'user_type': user.user_type,
-                'organization': user.organization
+                'student_or_staff_id': user.student_or_staff_id
             })
         
         logger.info('用户列表返回成功')
@@ -180,7 +194,6 @@ def get_user(user_id):
                 'email': user.email,
                 'phone': user.phone,
                 'user_type': user.user_type,
-                'organization': user.organization,
                 'student_or_staff_id': user.student_or_staff_id,
                 'avatar_url': user.avatar_url,
                 'account_status': user.account_status,
@@ -191,4 +204,129 @@ def get_user(user_id):
         
     except Exception as e:
         logger.error(f'获取用户信息异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@auth_bp.route('/users/<int:user_id>', methods=['PUT', 'OPTIONS'])
+@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@jwt_required()
+def update_user(user_id):
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'PUT,OPTIONS')
+        return response
+    
+    logger.info(f'=== 更新用户信息请求: user_id={user_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+        
+        if not current_user:
+            return jsonify({'code': 401, 'message': '用户未登录', 'data': None}), 401
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'code': 1003, 'message': '用户不存在', 'data': None}), 404
+        
+        data = request.get_json()
+        
+        if current_user.user_type == 'admin':
+            if 'real_name' in data:
+                user.real_name = data['real_name']
+            if 'email' in data:
+                user.email = data['email']
+            if 'phone' in data:
+                user.phone = data['phone']
+            if 'student_or_staff_id' in data:
+                user.student_or_staff_id = data['student_or_staff_id']
+            if 'user_type' in data:
+                user.user_type = data['user_type']
+            if 'account_status' in data:
+                user.account_status = data['account_status']
+        elif current_user.user_type in ['teacher', 'student_admin']:
+            if 'real_name' in data:
+                user.real_name = data['real_name']
+            if 'email' in data:
+                user.email = data['email']
+            if 'phone' in data:
+                user.phone = data['phone']
+            if 'student_or_staff_id' in data:
+                user.student_or_staff_id = data['student_or_staff_id']
+            if 'account_status' in data:
+                user.account_status = data['account_status']
+        elif current_user_id == user_id:
+            if 'real_name' in data:
+                user.real_name = data['real_name']
+            if 'email' in data:
+                user.email = data['email']
+            if 'phone' in data:
+                user.phone = data['phone']
+            if 'student_or_staff_id' in data:
+                user.student_or_staff_id = data['student_or_staff_id']
+        else:
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+        
+        db.session.commit()
+        logger.info(f'用户信息更新成功: {user.username}')
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'user_id': user.user_id,
+                'username': user.username,
+                'real_name': user.real_name,
+                'email': user.email,
+                'phone': user.phone,
+                'user_type': user.user_type,
+                'student_or_staff_id': user.student_or_staff_id,
+                'account_status': user.account_status
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'更新用户信息异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@auth_bp.route('/users/<int:user_id>', methods=['DELETE', 'OPTIONS'])
+@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@jwt_required()
+def delete_user(user_id):
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'DELETE,OPTIONS')
+        return response
+    
+    logger.info(f'=== 删除用户请求: user_id={user_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+        
+        if not current_user or current_user.user_type not in ['admin', 'teacher', 'student_admin']:
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'code': 1003, 'message': '用户不存在', 'data': None}), 404
+        
+        if user.user_type == 'admin':
+            return jsonify({'code': 403, 'message': '不能删除管理员账户', 'data': None}), 403
+        
+        user.is_deleted = True
+        db.session.commit()
+        logger.info(f'用户删除成功: {user.username}')
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'删除用户异常: {str(e)}', exc_info=True)
+        db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500

@@ -116,7 +116,7 @@
                   @mousedown="selectLeader(user)"
                 >
                   <div class="user-name">{{ user.real_name }}</div>
-                  <div class="user-info">{{ user.organization || '' }} {{ getUserTypeText(user.user_type) }}</div>
+                  <div class="user-info">{{ getUserTypeText(user.user_type) }}</div>
                 </div>
               </div>
               <div v-if="showDropdown && leaderSearch && filteredUsers.length === 0" class="dropdown empty">
@@ -233,7 +233,7 @@ const searchUsers = async () => {
   searchTimeout = setTimeout(async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await $api.get(`/users?search=${leaderSearch.value}`, {
+      const response = await $api.get(`/auth/users?search=${leaderSearch.value}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       

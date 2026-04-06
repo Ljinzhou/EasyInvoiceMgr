@@ -18,7 +18,14 @@ def create_app():
     app.config.from_object(Config)
     logger.info('配置加载完成')
     
-    CORS(app)
+    CORS(app, resources={
+        r"/api/*": {
+            "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True
+        }
+    })
     JWTManager(app)
     db.init_app(app)
     logger.info('扩展初始化完成')
@@ -27,11 +34,15 @@ def create_app():
     from routes.events import events_bp
     from routes.invoices import invoices_bp
     from routes.parse import parse_bp
+    from routes.invitation_codes import invitation_codes_bp
+    from routes.vouchers import vouchers_bp
     
-    app.register_blueprint(auth_bp, url_prefix='/api')
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(events_bp, url_prefix='/api')
     app.register_blueprint(invoices_bp, url_prefix='/api')
     app.register_blueprint(parse_bp, url_prefix='/api')
+    app.register_blueprint(invitation_codes_bp, url_prefix='/api')
+    app.register_blueprint(vouchers_bp, url_prefix='/api')
     logger.info('蓝图注册完成')
     
     with app.app_context():

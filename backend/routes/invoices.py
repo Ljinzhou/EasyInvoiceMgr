@@ -274,9 +274,9 @@ def approve_invoice(invoice_id):
             logger.warning(f'用户不存在: {current_user_id}')
             return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
         
-        if user.user_type not in ['admin', 'teacher']:
+        if user.user_type not in ['admin', 'teacher', 'student_admin']:
             logger.warning(f'权限不足: 用户类型={user.user_type}')
-            return jsonify({'code': 403, 'message': '权限不足，只有管理员或教师可以审核发票', 'data': None}), 403
+            return jsonify({'code': 403, 'message': '权限不足，只有管理员、教师或学生管理员可以审核发票', 'data': None}), 403
         
         invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
         

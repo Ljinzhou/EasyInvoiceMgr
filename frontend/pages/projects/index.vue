@@ -364,7 +364,7 @@ const searchUsers = async () => {
   
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.get(`/users?search=${leaderSearch.value}&user_type=admin,teacher`, {
+    const response = await $api.get(`/auth/users?search=${leaderSearch.value}&user_type=admin,teacher`, {
       headers: { Authorization: `Bearer ${token}` }
     })
     
