@@ -77,22 +77,13 @@
               />
             </div>
             <div class="form-group">
-              <label>组织/学校</label>
+              <label>学号/工号</label>
               <input 
-                v-model="form.organization" 
+                v-model="form.student_or_staff_id" 
                 type="text" 
-                placeholder="请输入所属组织或学校"
+                placeholder="请输入学号或工号（可选）"
               />
             </div>
-          </div>
-
-          <div class="form-group">
-            <label>学号/工号</label>
-            <input 
-              v-model="form.student_or_staff_id" 
-              type="text" 
-              placeholder="请输入学号或工号（可选）"
-            />
           </div>
         </div>
 
@@ -165,7 +156,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 
-definePageMeta({ layout: 'default', auth: false })
+definePageMeta({ layout: false })
 
 const { $api } = useNuxtApp()
 
@@ -176,7 +167,6 @@ const form = ref({
   real_name: '',
   email: '',
   phone: '',
-  organization: '',
   student_or_staff_id: '',
   invitation_code: ''
 })
@@ -270,7 +260,6 @@ const handleRegister = async () => {
       real_name: form.value.real_name,
       email: form.value.email || null,
       phone: form.value.phone || null,
-      organization: form.value.organization || null,
       student_or_staff_id: form.value.student_or_staff_id || null,
       user_type: user_type,
       invitation_code: form.value.invitation_code?.trim() || null

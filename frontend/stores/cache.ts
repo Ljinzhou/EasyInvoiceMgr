@@ -191,7 +191,7 @@ export const useCacheStore = defineStore('cache', {
     },
 
     invalidateUserCache(): void {
-      this.deleteByPrefix('/users')
+      this.deleteByPrefix('/auth/users')
       console.log(`[Cache] INVALIDATE_USER`)
     },
 

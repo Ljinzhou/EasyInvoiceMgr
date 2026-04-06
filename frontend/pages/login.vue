@@ -27,6 +27,9 @@
         <button type="submit" :disabled="loading" class="login-button">
           {{ loading ? '登录中...' : '登录' }}
         </button>
+        <div class="register-link">
+          还没有账号？<NuxtLink to="/register">立即注册</NuxtLink>
+        </div>
       </form>
     </div>
   </div>
@@ -57,8 +60,8 @@ const handleLogin = async () => {
   console.log('登录表单数据:', form.value)
   
   try {
-    console.log('发送登录请求到: /api/login')
-    const response = await $api.post('/login', form.value)
+    console.log('发送登录请求到: /api/auth/login')
+    const response = await $api.post('/auth/login', form.value)
     
     console.log('登录响应状态:', response.status)
     console.log('登录响应数据:', response.data)
@@ -168,6 +171,22 @@ const handleLogin = async () => {
 .login-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.register-link {
+  text-align: center;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.register-link a {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.register-link a:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 480px) {

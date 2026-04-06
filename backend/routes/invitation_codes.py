@@ -28,7 +28,7 @@ def get_invitation_codes():
     try:
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
-        if not user or user.user_type not in ['admin', 'teacher']:
+        if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
         
         page = request.args.get('page', 1, type=int)
@@ -93,8 +93,8 @@ def create_invitation_code():
     try:
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
-        if not user or user.user_type not in ['admin', 'teacher']:
-            return jsonify({'code': 403, 'message': '权限不足，只有管理员和老师可以生成邀请码', 'data': None}), 403
+        if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
+            return jsonify({'code': 403, 'message': '权限不足，只有管理员、教师和学生管理员可以生成邀请码', 'data': None}), 403
         
         data = request.get_json()
         
@@ -102,6 +102,12 @@ def create_invitation_code():
         valid_types = ['admin', 'teacher', 'student_admin', 'student']
         if target_user_type not in valid_types:
             return jsonify({'code': 400, 'message': f'无效的用户类型，可选值: {valid_types}', 'data': None}), 400
+        
+        if user.user_type == 'student_admin' and target_user_type in ['admin', 'teacher']:
+            return jsonify({'code': 403, 'message': '学生管理员只能生成学生或学生管理员类型的邀请码', 'data': None}), 403
+        
+        if user.user_type == 'teacher' and target_user_type == 'admin':
+            return jsonify({'code': 403, 'message': '教师不能生成管理员类型的邀请码', 'data': None}), 403
         
         expires_days = data.get('expires_days', 30)
         try:
@@ -219,7 +225,7 @@ def toggle_invitation_code(code_id):
     try:
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
-        if not user or user.user_type not in ['admin', 'teacher']:
+        if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
         
         code = InvitationCode.query.get(code_id)

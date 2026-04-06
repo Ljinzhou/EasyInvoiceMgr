@@ -72,7 +72,7 @@
             <th>真实姓名</th>
             <th>邮箱</th>
             <th>角色</th>
-            <th>组织/学号</th>
+            <th>学号/工号</th>
             <th>状态</th>
             <th>注册时间</th>
             <th v-if="canManageUsers">操作</th>
@@ -91,7 +91,7 @@
                 {{ getUserTypeText(user.user_type) }}
               </span>
             </td>
-            <td>{{ user.organization || user.student_or_staff_id || '-' }}</td>
+            <td>{{ user.student_or_staff_id || '-' }}</td>
             <td>
               <span class="status-badge" :class="user.account_status">
                 {{ user.account_status === 'active' ? '正常' : '禁用' }}
@@ -153,15 +153,11 @@
               <input v-model="editForm.phone" type="tel" />
             </div>
             <div class="form-group">
-              <label>组织</label>
-              <input v-model="editForm.organization" type="text" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
               <label>学号/工号</label>
               <input v-model="editForm.student_or_staff_id" type="text" />
             </div>
+          </div>
+          <div class="form-row">
             <div class="form-group" v-if="canChangeRole">
               <label>角色</label>
               <select v-model="editForm.user_type">
@@ -193,8 +189,8 @@
             <select v-model="inviteForm.target_user_type" required>
               <option value="student">学生</option>
               <option value="student_admin">学生管理员</option>
-              <option value="teacher">老师</option>
-              <option value="admin">管理员（谨慎使用）</option>
+              <option v-if="currentUser?.user_type === 'admin' || currentUser?.user_type === 'teacher'" value="teacher">老师</option>
+              <option v-if="currentUser?.user_type === 'admin'" value="admin">管理员（谨慎使用）</option>
             </select>
             <div class="field-hint">
               学生：仅可查看 | 学生管理员：可查看+部分管理 | 老师：完全管理权限
@@ -254,7 +250,22 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 
-definePageMeta({ layout: 'default' })
+definePageMeta({ 
+  layout: 'default',
+  middleware: [
+    function(to, from) {
+      const userStr = localStorage.getItem('user')
+      if (userStr) {
+        const user = JSON.parse(userStr)
+        if (!['admin', 'teacher', 'student_admin'].includes(user.user_type)) {
+          return navigateTo('/dashboard')
+        }
+      } else {
+        return navigateTo('/login')
+      }
+    }
+  ]
+})
 
 const { $api } = useNuxtApp()
 
@@ -275,7 +286,6 @@ const editForm = ref({
   real_name: '',
   email: '',
   phone: '',
-  organization: '',
   student_or_staff_id: '',
   user_type: 'student'
 })
@@ -293,10 +303,12 @@ const currentUser = computed(() => {
 
 const canManageUsers = computed(() => {
   const userType = currentUser.value?.user_type
-  return ['admin', 'teacher'].includes(userType)
+  return ['admin', 'teacher', 'student_admin'].includes(userType)
 })
 
 const canChangeRole = computed(() => currentUser.value?.user_type === 'admin')
+
+const canGenerateInviteCode = computed(() => ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type))
 
 const adminCount = computed(() => users.value.filter(u => u.user_type === 'admin').length)
 const teacherCount = computed(() => users.value.filter(u => u.user_type === 'teacher').length)
@@ -329,7 +341,7 @@ onMounted(async () => {
 const loadUsers = async () => {
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.get('/users', {
+    const response = await $api.get('/auth/users', {
       headers: { Authorization: `Bearer ${token}` }
     })
     
@@ -368,7 +380,6 @@ const editUser = (user) => {
     real_name: user.real_name,
     email: user.email || '',
     phone: user.phone || '',
-    organization: user.organization || '',
     student_or_staff_id: user.student_or_staff_id || '',
     user_type: user.user_type
   }
@@ -379,7 +390,7 @@ const updateUser = async () => {
   updating.value = true
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.put(`/users/${editingUserId.value}`, editForm.value, {
+    const response = await $api.put(`/auth/users/${editingUserId.value}`, editForm.value, {
       headers: { Authorization: `Bearer ${token}` }
     })
     
@@ -403,7 +414,7 @@ const toggleUserStatus = async (user) => {
   
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.put(`/users/${user.user_id}`, { account_status: newStatus }, {
+    const response = await $api.put(`/auth/users/${user.user_id}`, { account_status: newStatus }, {
       headers: { Authorization: `Bearer ${token}` }
     })
     
@@ -426,7 +437,7 @@ const deleteUser = async () => {
   
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.delete(`/users/${deletingUser.value.user_id}`, {
+    const response = await $api.delete(`/auth/users/${deletingUser.value.user_id}`, {
       headers: { Authorization: `Bearer ${token}` }
     })
     
