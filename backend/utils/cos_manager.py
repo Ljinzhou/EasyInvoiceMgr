@@ -40,6 +40,49 @@ class COSManager:
     def is_available(self):
         return self.client is not None
     
+    def upload_bytes(self, file_bytes: bytes, cos_path: str) -> str:
+        if not self.is_available():
+            raise Exception('COS服务不可用')
+        
+        try:
+            logger.info(f'开始上传文件: {cos_path}')
+            
+            self.client.put_object(
+                Bucket=self.bucket,
+                Body=file_bytes,
+                Key=cos_path,
+                EnableMD5=False
+            )
+            
+            signed_url = self.client.get_presigned_url(
+                Method='GET',
+                Bucket=self.bucket,
+                Key=cos_path,
+                Expired=3600 * 24 * 7  # 7天有效期
+            )
+            
+            logger.info(f'文件上传成功: {cos_path}')
+            
+            return signed_url
+            
+        except Exception as e:
+            logger.error(f'文件上传失败: {str(e)}', exc_info=True)
+            raise Exception(f'文件上传失败: {str(e)}')
+    
+    def get_preview_url(self, file_key: str) -> str:
+        if not self.is_available():
+            return f'https://{self.bucket}.cos.{self.region}.myqcloud.com/{file_key}'
+        
+        try:
+            return self.client.get_presigned_url(
+                Method='GET',
+                Bucket=self.bucket,
+                Key=file_key,
+                Expired=3600 * 24 * 7
+            )
+        except:
+            return f'https://{self.bucket}.cos.{self.region}.myqcloud.com/{file_key}'
+    
     def generate_file_key(self, event_id: int, original_filename: str) -> str:
         ext = os.path.splitext(original_filename)[1]
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')

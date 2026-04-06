@@ -393,7 +393,7 @@ const confirmDelete = (event) => {
 }
 
 const goToInvoiceManage = (event) => {
-  navigateTo(`/invoices/${event.event_id}`)
+  navigateTo(`/purchases/${event.event_id}`)
 }
 
 const toggleEventStatus = async (event) => {

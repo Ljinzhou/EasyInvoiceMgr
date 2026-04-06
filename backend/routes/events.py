@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Event, User, Invoice
+from models import db, Event, User, Invoice, PurchaseRecord
 from datetime import datetime
 import logging
 
@@ -114,6 +114,21 @@ def get_events():
         
         events_data = []
         for event in events.items:
+            leader = User.query.get(event.leader_id) if event.leader_id else None
+            
+            invoice_count = Invoice.query.filter_by(event_id=event.event_id, is_deleted=False).count()
+            purchase_count = PurchaseRecord.query.filter_by(event_id=event.event_id, is_deleted=False).count()
+            
+            invoice_total = db.session.query(db.func.sum(Invoice.amount)).filter_by(
+                event_id=event.event_id, is_deleted=False
+            ).scalar() or 0
+            
+            purchase_total = db.session.query(db.func.sum(PurchaseRecord.amount)).filter_by(
+                event_id=event.event_id, is_deleted=False
+            ).scalar() or 0
+            
+            total_spent = float(invoice_total) + float(purchase_total)
+            
             events_data.append({
                 'event_id': event.event_id,
                 'event_name': event.event_name,
@@ -126,7 +141,13 @@ def get_events():
                 'total_budget': float(event.total_budget),
                 'reimbursed_amount': float(event.reimbursed_amount),
                 'remaining_budget': float(event.remaining_budget),
-                'invoice_count': event.invoice_count
+                'spent_amount': total_spent,
+                'invoice_total_amount': float(invoice_total),
+                'purchase_total_amount': float(purchase_total),
+                'invoice_count': invoice_count,
+                'purchase_record_count': purchase_count,
+                'voucher_count': invoice_count + purchase_count,
+                'leader_name': leader.real_name if leader else None
             })
         
         return jsonify({
@@ -219,6 +240,21 @@ def get_event(event_id):
         if not event:
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
         
+        leader = User.query.get(event.leader_id) if event.leader_id else None
+        
+        invoice_count = Invoice.query.filter_by(event_id=event_id, is_deleted=False).count()
+        purchase_count = PurchaseRecord.query.filter_by(event_id=event_id, is_deleted=False).count()
+        
+        invoice_total = db.session.query(db.func.sum(Invoice.amount)).filter_by(
+            event_id=event_id, is_deleted=False
+        ).scalar() or 0
+        
+        purchase_total = db.session.query(db.func.sum(PurchaseRecord.amount)).filter_by(
+            event_id=event_id, is_deleted=False
+        ).scalar() or 0
+        
+        total_spent = float(invoice_total) + float(purchase_total)
+        
         return jsonify({
             'code': 200,
             'message': 'success',
@@ -235,11 +271,16 @@ def get_event(event_id):
                 'upload_end_time': event.upload_end_time.isoformat() if event.upload_end_time else None,
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
+                'leader_name': leader.real_name if leader else None,
                 'total_budget': float(event.total_budget),
                 'reimbursed_amount': float(event.reimbursed_amount),
                 'remaining_budget': float(event.remaining_budget),
-                'invoice_count': event.invoice_count,
-                'invoice_total_amount': float(event.invoice_total_amount)
+                'spent_amount': total_spent,
+                'invoice_total_amount': float(invoice_total),
+                'purchase_total_amount': float(purchase_total),
+                'invoice_count': invoice_count,
+                'purchase_record_count': purchase_count,
+                'voucher_count': invoice_count + purchase_count
             }
         }), 200
         
