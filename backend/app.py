@@ -1,9 +1,10 @@
-from flask import Flask
+from flask import Flask, send_from_directory, send_file
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from config import Config
 from models import db
 import logging
+import os
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -18,11 +19,18 @@ def create_app():
     app.config.from_object(Config)
     logger.info('配置加载完成')
     
+    # 配置CORS - 允许API和静态文件访问
     CORS(app, resources={
         r"/api/*": {
             "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True
+        },
+        r"/uploads/*": {
+            "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+            "methods": ["GET", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Range"],
             "supports_credentials": True
         }
     })
@@ -46,6 +54,66 @@ def create_app():
     app.register_blueprint(vouchers_bp, url_prefix='/api')
     app.register_blueprint(purchase_records_bp, url_prefix='/api')
     logger.info('蓝图注册完成')
+    
+    # 配置静态文件服务（用于本地文件访问）
+    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+    if not os.path.exists(uploads_dir):
+        os.makedirs(uploads_dir)
+        logger.info(f'创建uploads目录: {uploads_dir}')
+    
+    @app.route('/uploads/<path:filename>')
+    def serve_upload_file(filename):
+        """提供上传文件的静态访问"""
+        try:
+            logger.info(f'📷 静态文件请求: /uploads/{filename}')
+            
+            # 安全检查：防止路径遍历攻击
+            if '..' in filename or filename.startswith('/'):
+                logger.warning(f'⚠️ 可疑的文件路径: {filename}')
+                return jsonify({'error': '非法请求'}), 400
+            
+            # 检查文件是否存在
+            file_path = os.path.join(uploads_dir, filename)
+            if not os.path.exists(file_path):
+                logger.error(f'❌ 文件不存在: {file_path}')
+                
+                # 列出uploads目录中的所有文件用于调试
+                existing_files = os.listdir(uploads_dir) if os.path.exists(uploads_dir) else []
+                logger.debug(f'📁 uploads目录现有文件: {existing_files[:10]}')  # 只显示前10个
+                
+                return jsonify({'error': '文件不存在', 'available_files': existing_files[:5]}), 404
+            
+            # 返回文件并设置正确的Content-Type
+            response = send_from_directory(uploads_dir, filename, as_attachment=False)
+            
+            # 根据文件扩展名设置MIME类型
+            ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+            mime_types = {
+                'png': 'image/png',
+                'jpg': 'image/jpeg',
+                'jpeg': 'image/jpeg',
+                'gif': 'image/gif',
+                'pdf': 'application/pdf'
+            }
+            if ext in mime_types:
+                response.headers['Content-Type'] = mime_types[ext]
+            
+            # 设置缓存控制
+            response.headers['Cache-Control'] = 'public, max-age=3600'
+            
+            logger.info(f'✅ 文件发送成功: {filename} ({os.path.getsize(file_path)} bytes)')
+            return response
+            
+        except Exception as e:
+            logger.error(f'❌ 无法访问文件 {filename}: {str(e)}', exc_info=True)
+            return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+    
+    @app.route('/api/uploads/<path:filename>')
+    def serve_api_upload_file(filename):
+        """通过API路径访问上传文件（兼容性）- 委托给主路由"""
+        return serve_upload_file(filename)
+    
+    logger.info('静态文件路由配置完成')
     
     with app.app_context():
         db.create_all()

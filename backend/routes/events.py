@@ -202,6 +202,8 @@ def update_event(event_id):
         if 'total_budget' in data:
             event.total_budget = data['total_budget']
             event.remaining_budget = data['total_budget'] - float(event.reimbursed_amount)
+        if 'need_invoice_review' in data:
+            event.need_invoice_review = bool(data['need_invoice_review'])
         
         db.session.commit()
         
@@ -223,7 +225,8 @@ def update_event(event_id):
                 'leader_id': event.leader_id,
                 'total_budget': float(event.total_budget),
                 'reimbursed_amount': float(event.reimbursed_amount),
-                'remaining_budget': float(event.remaining_budget)
+                'remaining_budget': float(event.remaining_budget),
+                'need_invoice_review': event.need_invoice_review
             }
         }), 200
         
@@ -280,7 +283,8 @@ def get_event(event_id):
                 'purchase_total_amount': float(purchase_total),
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
-                'voucher_count': invoice_count + purchase_count
+                'voucher_count': invoice_count + purchase_count,
+                'need_invoice_review': event.need_invoice_review
             }
         }), 200
         

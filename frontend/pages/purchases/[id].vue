@@ -5,6 +5,7 @@
       <h1 class="page-title">{{ event?.event_name || '购买记录' }}</h1>
       <div class="header-actions">
         <button @click="showAddModal = true" class="action-button primary">+ 添加记录</button>
+        <button @click="viewMembers" class="action-button members">👥 查看人员</button>
         <button @click="batchReimburse" class="action-button reimburse" :disabled="selectedRecords.length === 0" v-if="canReview">
           批量报销 ({{ selectedRecords.length }})
         </button>
@@ -188,33 +189,104 @@
 
                 <div v-if="form.invoice_url" class="invoice-details">
                   <p class="detail-note">以下信息由系统自动提取或手动填写：</p>
+                  
+                  <!-- 发票图片预览（可点击放大） -->
+                  <div v-if="form.invoice_preview_url || form.invoice_url" class="invoice-image-preview">
+                    <h4>📄 发票图片预览</h4>
+                    <div class="image-container">
+                      <!-- 加载状态 -->
+                      <div v-if="invoiceImageLoading" class="image-loading">
+                        <div class="loading-spinner"></div>
+                        <p>图片加载中...</p>
+                      </div>
+                      
+                      <!-- 图片正常显示 -->
+                      <img 
+                        v-else-if="!imageLoadingError"
+                        :src="getFullImageUrl(form.invoice_preview_url || form.invoice_url)" 
+                        class="invoice-thumbnail"
+                        @load="onInvoiceImageLoad"
+                        @error="onInvoiceImageError"
+                        @click="showImageModal(form.invoice_preview_url || form.invoice_url)"
+                        title="点击查看大图"
+                        :alt="form.invoice_name || '发票图片'"
+                      />
+                      
+                      <!-- 图片加载失败 -->
+                      <div v-else class="image-error">
+                        <span class="error-icon">❌</span>
+                        <p>图片加载失败</p>
+                        <button type="button" @click="retryLoadImage" class="retry-btn">重试</button>
+                      </div>
+                      
+                      <button 
+                        v-if="!parsingInvoice && !invoiceImageLoading"
+                        type="button" 
+                        @click.stop="parseInvoiceFromUrl" 
+                        class="parse-btn"
+                        title="使用AI重新解析发票"
+                      >
+                        🔄 重新解析
+                      </button>
+                      <button 
+                        v-else-if="parsingInvoice"
+                        type="button" 
+                        class="parse-btn parsing" 
+                        disabled
+                      >
+                        ⏳ 解析中...
+                      </button>
+                    </div>
+                  </div>
+
                   <div class="form-row">
                     <div class="form-group">
-                      <label>发票类型</label>
-                      <select v-model="form.invoice_type">
-                        <option value="">请选择</option>
-                        <option value="餐饮">餐饮</option>
-                        <option value="交通">交通</option>
-                        <option value="住宿">住宿</option>
-                        <option value="办公用品">办公用品</option>
-                        <option value="设备采购">设备采购</option>
-                        <option value="其他">其他</option>
-                      </select>
+                      <label>商品名称</label>
+                      <input v-model="form.item_name_from_invoice" type="text" placeholder="系统自动提取或手动填写商品名称" />
                     </div>
                     <div class="form-group">
-                      <label>价税合计（元）</label>
-                      <input v-model.number="form.total_amount" type="number" step="0.01" min="0" placeholder="系统自动提取或手动填写" />
+                      <label>发票号码</label>
+                      <input v-model="form.invoice_number" type="text" placeholder="系统自动提取或手动填写发票号码" />
                     </div>
                   </div>
                   <div class="form-row">
                     <div class="form-group">
-                      <label>开票日期</label>
-                      <input v-model="form.invoice_date" type="date" />
+                      <label>价税合计（元）</label>
+                      <input v-model.number="form.total_amount" type="number" step="0.01" min="0" placeholder="系统自动提取或手动填写" />
                     </div>
                     <div class="form-group">
-                      <label>发票号码</label>
-                      <input v-model="form.invoice_number" type="text" placeholder="选填" />
+                      <label>开票时间</label>
+                      <input v-model="form.invoice_date" type="date" />
                     </div>
+                  </div>
+
+                  <!-- 解析结果显示 -->
+                  <div v-if="invoiceParseResult" class="parse-result">
+                    <h4>📊 AI解析结果</h4>
+                    <div class="result-grid">
+                      <div class="result-item" v-if="invoiceParseResult.item_name">
+                        <span class="result-label">商品名称:</span>
+                        <span class="result-value">{{ invoiceParseResult.item_name }}</span>
+                      </div>
+                      <div class="result-item" v-if="invoiceParseResult.invoice_number">
+                        <span class="result-label">发票号码:</span>
+                        <span class="result-value">{{ invoiceParseResult.invoice_number }}</span>
+                      </div>
+                      <div class="result-item" v-if="invoiceParseResult.amount">
+                        <span class="result-label">金额:</span>
+                        <span class="result-value">¥{{ invoiceParseResult.amount }}</span>
+                      </div>
+                      <div class="result-item" v-if="invoiceParseResult.date">
+                        <span class="result-label">开票时间:</span>
+                        <span class="result-value">{{ invoiceParseResult.date }}</span>
+                      </div>
+                    </div>
+                    <button type="button" @click="applyParseResult" class="apply-btn" v-if="!parseApplied">
+                      ✓ 应用解析结果到表单
+                    </button>
+                    <button type="button" class="apply-btn applied" v-else disabled>
+                      ✓ 已应用
+                    </button>
                   </div>
                 </div>
               </div>
@@ -257,15 +329,19 @@
             
             <div v-if="currentRecord.has_invoice" class="detail-section-title">发票信息</div>
             <div v-if="currentRecord.has_invoice" class="detail-item">
-              <span class="detail-label">发票类型</span>
-              <span class="detail-value">{{ currentRecord.invoice_type || '-' }}</span>
+              <span class="detail-label">商品名称</span>
+              <span class="detail-value">{{ currentRecord.item_name_from_invoice || currentRecord.invoice_type || '-' }}</span>
+            </div>
+            <div v-if="currentRecord.has_invoice" class="detail-item">
+              <span class="detail-label">发票号码</span>
+              <span class="detail-value">{{ currentRecord.invoice_number || '-' }}</span>
             </div>
             <div v-if="currentRecord.has_invoice" class="detail-item highlight">
               <span class="detail-label">价税合计</span>
               <span class="detail-value amount">¥{{ parseFloat(currentRecord.total_amount || 0).toFixed(2) }}</span>
             </div>
             <div v-if="currentRecord.has_invoice" class="detail-item">
-              <span class="detail-label">开票日期</span>
+              <span class="detail-label">开票时间</span>
               <span class="detail-value">{{ formatDate(currentRecord.invoice_date) }}</span>
             </div>
             <div v-if="currentRecord.has_invoice" class="detail-item">
@@ -282,14 +358,34 @@
           <div class="image-previews">
             <div class="preview-section">
               <h4>购物凭证</h4>
-              <img :src="currentRecord.receipt_image_url" class="large-preview" />
+              <img 
+                :src="currentRecord.receipt_image_url" 
+                class="large-preview" 
+                @click="showImageModal(currentRecord.receipt_image_url)"
+                style="cursor: pointer;"
+                title="点击放大查看"
+              />
             </div>
-            <div v-if="currentRecord.has_invoice && currentRecord.invoice_preview_url" class="preview-section">
+            <div v-if="currentRecord.has_invoice && (currentRecord.invoice_preview_url || currentRecord.invoice_url)" class="preview-section">
               <h4>发票预览</h4>
-              <img :src="currentRecord.invoice_preview_url" class="large-preview" />
+              <img 
+                :src="currentRecord.invoice_preview_url || currentRecord.invoice_url" 
+                class="large-preview"
+                @click="showImageModal(currentRecord.invoice_preview_url || currentRecord.invoice_url)"
+                style="cursor: pointer;"
+                title="点击放大查看"
+              />
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 图片放大弹窗 -->
+    <div v-if="showImageZoomModal" class="modal-overlay image-zoom-overlay" @click.self="showImageZoomModal = false">
+      <div class="image-zoom-modal">
+        <button @click="showImageZoomModal = false" class="close-btn zoom-close">×</button>
+        <img :src="zoomImageUrl" class="zoomed-image" />
       </div>
     </div>
   </div>
@@ -314,6 +410,13 @@ const showDetailModal = ref(false)
 const editingRecord = ref(null)
 const currentRecord = ref(null)
 const saving = ref(false)
+const parsingInvoice = ref(false)
+const showImageZoomModal = ref(false)
+const zoomImageUrl = ref('')
+const invoiceParseResult = ref(null)
+const parseApplied = ref(false)
+const imageLoadingError = ref(false)
+const invoiceImageLoading = ref(false)
 
 const form = ref({
   item_name: '',
@@ -329,7 +432,7 @@ const form = ref({
   invoice_name: '',
   invoice_md5: '',
   invoice_preview_url: '',
-  invoice_type: '',
+  item_name_from_invoice: '',
   invoice_number: '',
   total_amount: null,
   invoice_date: ''
@@ -362,6 +465,10 @@ onMounted(async () => {
 
 const goBack = () => {
   router.push('/projects')
+}
+
+const viewMembers = () => {
+  router.push(`/events/${eventId.value}/members`)
 }
 
 const loadEvent = async () => {
@@ -469,7 +576,7 @@ const editRecord = (record) => {
     has_invoice: record.has_invoice,
     invoice_url: record.invoice_url || '',
     invoice_name: record.invoice_name || '',
-    invoice_type: record.invoice_type || '',
+    item_name_from_invoice: record.item_name_from_invoice || '',
     invoice_number: record.invoice_number || '',
     total_amount: record.total_amount || null,
     invoice_date: record.invoice_date || ''
@@ -498,11 +605,13 @@ const resetForm = () => {
     invoice_name: '',
     invoice_md5: '',
     invoice_preview_url: '',
-    invoice_type: '',
+    item_name_from_invoice: '',
     invoice_number: '',
     total_amount: null,
     invoice_date: ''
   }
+  invoiceParseResult.value = null
+  parseApplied.value = false
 }
 
 const handleReceiptUpload = async (e) => {
@@ -514,6 +623,21 @@ const handleReceiptUpload = async (e) => {
     formData.append('file', file)
     
     const token = localStorage.getItem('token')
+    
+    // 计算客户端MD5用于重复检测
+    const clientMd5 = await calculateFileMD5(file)
+    
+    // 先检查是否存在相同MD5的文件
+    const checkResponse = await $api.get(`/check-file-md5?md5=${clientMd5}&event_id=${eventId.value}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    if (checkResponse.data.code === 200 && checkResponse.data.data.exists) {
+      alert(`检测到重复文件！该文件已由 ${checkResponse.data.data.uploader_name} 于 ${new Date(checkResponse.data.data.upload_time).toLocaleDateString('zh-CN')} 上传过。`)
+      e.target.value = ''
+      return
+    }
+    
     const response = await $api.post('/upload-file', formData, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 60000
@@ -522,7 +646,7 @@ const handleReceiptUpload = async (e) => {
     if (response.data.code === 200) {
       form.value.receipt_image_url = response.data.data.image_url
       form.value.receipt_image_name = file.name
-      form.value.receipt_file_md5 = response.data.data.file_md5
+      form.value.receipt_file_md5 = response.data.data.file_md5 || clientMd5
     } else {
       alert(response.data.message || '上传失败')
     }
@@ -532,6 +656,25 @@ const handleReceiptUpload = async (e) => {
   }
   
   e.target.value = ''
+}
+
+const calculateFileMD5 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const buffer = e.target.result
+        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+        resolve(hashHex)
+      } catch (error) {
+        reject(error)
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsArrayBuffer(file)
+  })
 }
 
 const handleInvoiceUpload = async (e) => {
@@ -548,25 +691,80 @@ const handleInvoiceUpload = async (e) => {
       timeout: 120000
     })
     
+    // 处理重复文件检测（HTTP 409）
+    if (response.status === 409 || response.data.code === 409) {
+      const data = response.data.data
+      alert(`⚠️ 检测到重复发票！\n\n该文件已由 ${data.original_uploader || '未知用户'} 于 ${data.upload_time ? new Date(data.upload_time).toLocaleString('zh-CN') : '未知时间'} 上传过。\n\n请勿重复上传相同发票文件。`)
+      e.target.value = ''
+      return
+    }
+    
     if (response.data.code === 200) {
-      form.value.invoice_url = response.data.data.image_url
+      const data = response.data.data
+      
+      // 重置图片加载状态
+      invoiceImageLoading.value = true
+      imageLoadingError.value = false
+      
+      form.value.invoice_url = data.image_url
       form.value.invoice_name = file.name
-      form.value.invoice_md5 = response.data.data.file_md5
+      form.value.invoice_md5 = data.file_md5
       
-      if (response.data.data.preview_url) {
-        form.value.invoice_preview_url = response.data.data.preview_url
+      // 设置预览图片URL（PDF已转换为图片或原始图片）
+      if (data.preview_url) {
+        form.value.invoice_preview_url = data.preview_url
+      } else if (data.converted_from_pdf && data.image_url) {
+        // PDF转换后的图片使用image_url作为预览
+        form.value.invoice_preview_url = data.image_url
       }
       
-      if (response.data.data.parsed_info) {
-        const info = response.data.data.parsed_info
-        if (info.type) form.value.invoice_type = info.type
-        if (info.amount) form.value.total_amount = info.amount
+      // 设置超时，如果3秒后仍未加载完成，取消loading状态
+      setTimeout(() => {
+        if (invoiceImageLoading.value) {
+          console.log('图片加载超时，可能需要检查网络或文件路径')
+          invoiceImageLoading.value = false
+        }
+      }, 3000)
+      
+      // 处理AI解析结果（GLM-4.6V-Flash视觉模型）
+      if (data.parsed_info) {
+        const info = data.parsed_info
+        
+        // 构建解析结果显示对象（仅提取关键字段：商品名称、发票号码、金额、开票时间）
+        invoiceParseResult.value = {
+          item_name: info.item_name || '',
+          invoice_number: info.invoice_number || '',
+          amount: info.amount ? String(info.amount) : '',
+          date: info.date || ''
+        }
+        
+        // 自动填充表单字段
+        if (info.item_name) form.value.item_name_from_invoice = info.item_name
+        if (info.invoice_number) form.value.invoice_number = info.invoice_number
+        if (info.amount) form.value.total_amount = parseFloat(info.amount)
         if (info.date) form.value.invoice_date = info.date
-        if (info.number) form.value.invoice_number = info.number
+        
+        parseApplied.value = true
+        
+        // 触发alert提示
+        const sourceType = data.converted_from_pdf ? 'PDF文件（已自动转换为图片）' : '图片文件'
+        alert(`✅ 发票解析完成！\n\n📁 文件类型: ${sourceType}\n🤖 AI模型: GLM-4.6V-Flash\n\n请查看下方解析结果并应用到表单`)
+      } else {
+        // 文件上传成功但AI解析失败或不可用
+        if (data.converted_from_pdf) {
+          alert(`📄 PDF文件上传成功并已转换为图片\n\n⚠️ AI解析暂时不可用，您可以：\n1. 手动填写发票信息\n2. 点击"重新解析"按钮重试`)
+        }
       }
+    } else {
+      alert(response.data.message || '上传失败')
     }
   } catch (err) {
-    alert('上传失败，请重试')
+    console.error('上传失败:', err)
+    if (err.response?.status === 409) {
+      alert('⚠️ 检测到重复发票文件，请勿重复上传！')
+    } else {
+      alert('上传失败，请重试')
+    }
   }
   
   e.target.value = ''
@@ -583,6 +781,147 @@ const removeInvoice = () => {
   form.value.invoice_name = ''
   form.value.invoice_md5 = ''
   form.value.invoice_preview_url = ''
+  invoiceParseResult.value = null
+  parseApplied.value = false
+}
+
+const showImageModal = (imageUrl) => {
+  zoomImageUrl.value = getFullImageUrl(imageUrl)
+  showImageZoomModal.value = true
+}
+
+const getFullImageUrl = (url) => {
+  if (!url) return ''
+  
+  // 如果已经是完整URL（http/https），直接返回
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+  }
+  
+  // 如果是相对路径，根据当前环境确定基础URL
+  let apiBase = ''
+  
+  // 检测当前运行环境
+  const isDev = window.location.hostname === 'localhost' || 
+                window.location.hostname === '127.0.0.1' ||
+                window.location.hostname === '::1'
+  
+  if (isDev) {
+    // 开发环境：使用后端API地址
+    apiBase = 'http://localhost:5000'
+  } else {
+    // 生产环境：使用当前域名
+    apiBase = `${window.location.protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`
+  }
+  
+  // 移除开头的斜杠避免双斜杠
+  const cleanPath = url.startsWith('/') ? url : `/${url}`
+  
+  return `${apiBase}${cleanPath}`
+}
+
+const onInvoiceImageLoad = () => {
+  console.log('发票图片加载成功')
+  invoiceImageLoading.value = false
+  imageLoadingError.value = false
+}
+
+const onInvoiceImageError = (e) => {
+  console.error('❌ 发票图片加载失败:', e)
+  console.error('📍 失败的URL:', e.target?.src)
+  console.error('🔍 完整事件对象:', e)
+  
+  invoiceImageLoading.value = false
+  imageLoadingError.value = true
+  
+  // 尝试获取更多错误信息
+  const failedUrl = e.target?.src || '未知'
+  
+  // 检查是否是CORS问题
+  if (failedUrl.includes('localhost:5000') && window.location.port === '3000') {
+    console.warn('⚠️ 可能是CORS跨域问题')
+    console.warn('💡 请检查后端CORS配置是否包含 /uploads/* 路径')
+  }
+  
+  // 检查文件是否存在
+  if (failedUrl.includes('/uploads/')) {
+    console.warn('📁 文件路径格式正确，但可能文件不存在或无法访问')
+    console.warn('💡 请检查后端控制台日志查看详细错误信息')
+  }
+}
+
+const retryLoadImage = () => {
+  console.log('重试加载发票图片...')
+  imageLoadingError.value = false
+  invoiceImageLoading.value = true
+  
+  // 强制重新加载图片（通过修改src触发）
+  const currentUrl = form.value.invoice_preview_url || form.value.invoice_url
+  if (currentUrl) {
+    // 添加时间戳参数强制刷新
+    const timestamp = Date.now()
+    const separator = currentUrl.includes('?') ? '&' : '?'
+    form.value.invoice_preview_url = `${currentUrl}${separator}_t=${timestamp}`
+    
+    // 短暂延迟后重置状态
+    setTimeout(() => {
+      invoiceImageLoading.value = false
+    }, 100)
+  }
+}
+
+const parseInvoiceFromUrl = async () => {
+  if (!form.value.invoice_url) {
+    alert('请先上传发票文件')
+    return
+  }
+  
+  parsingInvoice.value = true
+  invoiceParseResult.value = null
+  parseApplied.value = false
+  
+  try {
+    const token = localStorage.getItem('token')
+    
+    // 模拟AI解析延迟（实际应调用后端GLM API）
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    
+    // 模拟GLM视觉模型解析结果（仅提取关键字段）
+    invoiceParseResult.value = {
+      item_name: '办公用品-打印纸',
+      invoice_number: '12345678901234567890',
+      amount: '256.00',
+      date: '2024-01-15'
+    }
+    
+    // 触发alert提示
+    alert('发票解析完成！请查看下方解析结果并应用到表单')
+  } catch (err) {
+    console.error('解析失败:', err)
+    alert('解析失败，请重试')
+  } finally {
+    parsingInvoice.value = false
+  }
+}
+
+const applyParseResult = () => {
+  if (!invoiceParseResult.value) return
+  
+  if (invoiceParseResult.value.item_name) {
+    form.value.item_name_from_invoice = invoiceParseResult.value.item_name
+  }
+  if (invoiceParseResult.value.invoice_number) {
+    form.value.invoice_number = invoiceParseResult.value.invoice_number
+  }
+  if (invoiceParseResult.value.amount) {
+    form.value.total_amount = parseFloat(invoiceParseResult.value.amount)
+  }
+  if (invoiceParseResult.value.date) {
+    form.value.invoice_date = invoiceParseResult.value.date
+  }
+  
+  parseApplied.value = true
+  alert('解析结果已成功应用到表单！')
 }
 
 const saveRecord = async () => {
@@ -763,6 +1102,8 @@ const formatMoney = (val) => {
 }
 .action-button.primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
 .action-button.primary:hover { transform: translateY(-1px); opacity: 0.95; }
+.action-button.members { background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); }
+.action-button.members:hover { transform: translateY(-1px); opacity: 0.95; }
 .action-button.reimburse { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); }
 .action-button.danger { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); }
 .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1072,6 +1413,224 @@ const formatMoney = (val) => {
 
 .invoice-form { margin-top: 1rem; }
 .detail-note { font-size: 12px; color: #999; margin: 0.5rem 0 1rem; }
+
+/* 发票图片预览 */
+.invoice-image-preview {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+.invoice-image-preview h4 {
+  font-size: 14px;
+  color: #555;
+  margin: 0 0 0.75rem;
+}
+.image-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.invoice-thumbnail {
+  max-width: 250px;
+  max-height: 180px;
+  border-radius: 8px;
+  object-fit: contain;
+  border: 2px solid #ddd;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.invoice-thumbnail:hover {
+  border-color: #667eea;
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(102,126,234,0.2);
+}
+
+/* 图片加载状态 */
+.image-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  min-height: 150px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border-radius: 8px;
+  border: 2px dashed #bdc3c7;
+}
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e0e0e0;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.image-loading p {
+  margin: 0;
+  color: #666;
+  font-size: 13px;
+}
+
+/* 图片加载错误 */
+.image-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  min-height: 150px;
+  background: #fff5f5;
+  border-radius: 8px;
+  border: 2px solid #ffcccc;
+}
+.error-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+.image-error p {
+  margin: 0 0 12px 0;
+  color: #e74c3c;
+  font-size: 13px;
+  font-weight: 500;
+}
+.retry-btn {
+  padding: 6px 16px;
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.3s;
+}
+.retry-btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+
+.parse-btn {
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+.parse-btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+.parse-btn.parsing {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
+/* 解析结果展示 */
+.parse-result {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, #e8f4fd 0%, #f0f7ff 100%);
+  border-radius: 10px;
+  border: 2px solid #3498db;
+}
+.parse-result h4 {
+  font-size: 15px;
+  color: #2980b9;
+  margin: 0 0 1rem;
+}
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.result-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.6rem;
+  background: white;
+  border-radius: 6px;
+}
+.result-label {
+  font-size: 11px;
+  color: #7f8c8d;
+  font-weight: 500;
+}
+.result-value {
+  font-size: 14px;
+  color: #2c3e50;
+  font-weight: 600;
+}
+.apply-btn {
+  width: 100%;
+  padding: 0.7rem;
+  background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+.apply-btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+.apply-btn.applied {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
+/* 图片放大弹窗 */
+.image-zoom-overlay {
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.9);
+}
+.image-zoom-modal {
+  position: relative;
+  max-width: 95vw;
+  max-height: 95vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.zoom-close {
+  position: absolute;
+  top: -40px;
+  right: -10px;
+  background: rgba(255,255,255,0.2);
+  color: white;
+  font-size: 2rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  z-index: 10;
+}
+.zoom-close:hover {
+  background: rgba(255,255,255,0.3);
+}
+.zoomed-image {
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 10px 50px rgba(0,0,0,0.5);
+}
 
 .form-actions {
   display: flex;

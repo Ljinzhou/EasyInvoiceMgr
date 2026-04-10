@@ -291,6 +291,70 @@ def update_voucher(voucher_id):
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
+@vouchers_bp.route('/check-file-md5', methods=['GET'])
+@jwt_required()
+def check_file_md5():
+    logger.info('=== 检查文件MD5 ===')
+    try:
+        md5_hash = request.args.get('md5')
+        event_id = request.args.get('event_id')
+        
+        if not md5_hash:
+            return jsonify({'code': 400, 'message': '缺少md5参数', 'data': None}), 400
+        
+        # 检查购买记录中的购物凭证
+        from models import PurchaseRecord
+        existing_record = PurchaseRecord.query.filter_by(
+            receipt_file_md5=md5_hash,
+            is_deleted=False
+        ).first()
+        
+        if existing_record:
+            uploader = User.query.get(existing_record.uploader_id)
+            return jsonify({
+                'code': 200,
+                'message': '找到重复文件',
+                'data': {
+                    'exists': True,
+                    'uploader_name': uploader.real_name if uploader else '未知用户',
+                    'upload_time': existing_record.created_at.isoformat() if existing_record.created_at else None,
+                    'file_name': existing_record.receipt_image_name,
+                    'type': 'receipt'
+                }
+            }), 200
+        
+        # 检查凭证表
+        existing_voucher = Voucher.query.filter_by(
+            file_md5=md5_hash,
+            is_deleted=False
+        ).first()
+        
+        if existing_voucher:
+            uploader = User.query.get(existing_voucher.uploader_id)
+            return jsonify({
+                'code': 200,
+                'message': '找到重复文件',
+                'data': {
+                    'exists': True,
+                    'uploader_name': uploader.real_name if uploader else '未知用户',
+                    'upload_time': existing_voucher.created_at.isoformat() if existing_voucher.created_at else None,
+                    'file_name': existing_voucher.file_name,
+                    'type': 'voucher'
+                }
+            }), 200
+        
+        return jsonify({
+            'code': 200,
+            'message': '未找到重复文件',
+            'data': {
+                'exists': False
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'检查文件MD5异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
 @vouchers_bp.route('/vouchers/batch-reimburse', methods=['POST'])
 @jwt_required()
 def batch_reimburse_vouchers():

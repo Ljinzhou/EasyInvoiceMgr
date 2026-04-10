@@ -130,12 +130,15 @@
           <label class="switch-label">
             <span>是否需要审核发票</span>
             <label class="switch">
-              <input type="checkbox" v-model="form.need_invoice_review" />
+              <input type="checkbox" v-model="form.need_invoice_review" id="needInvoiceReviewSwitch" />
               <span class="slider round"></span>
             </label>
           </label>
           <p class="switch-hint">
-            {{ form.need_invoice_review ? '开启后，上传的发票需要管理员审核通过后才生效' : '关闭后，上传的发票将自动通过审核' }}
+            {{ form.need_invoice_review ? '✅ 开启后，上传的发票需要管理员审核通过后才生效' : '⚠️ 关闭后，上传的发票将自动通过审核' }}
+          </p>
+          <p class="switch-warning" v-if="!form.need_invoice_review && isEditMode">
+            ⚠️ 注意：关闭审核可能会增加错误发票的风险
           </p>
         </div>
 
@@ -357,7 +360,12 @@ const handleSubmit = async () => {
     }
     
     if (response.data.code === 200) {
-      success.value = isEditMode.value ? '比赛更新成功！' : '比赛创建成功！'
+      success.value = isEditMode.value ? '✅ 比赛更新成功！' : '✅ 比赛创建成功！'
+      
+      // 显示详细的设置信息
+      const reviewStatus = form.value.need_invoice_review ? '已开启（需要审核）' : '已关闭（自动通过）'
+      console.log(`比赛${isEditMode.value ? '更新' : '创建'}成功，发票审核设置：${reviewStatus}`)
+      
       if (!isEditMode.value) {
         resetForm()
       }
@@ -628,6 +636,16 @@ input:checked + .slider:before {
   font-size: 0.85rem;
   color: #7f8c8d;
   margin-top: 0.25rem;
+}
+
+.switch-warning {
+  font-size: 0.85rem;
+  color: #e67e22;
+  margin-top: 0.5rem;
+  padding: 8px 12px;
+  background: #fef5e7;
+  border-left: 3px solid #e67e22;
+  border-radius: 4px;
 }
 
 @media (max-width: 768px) {
