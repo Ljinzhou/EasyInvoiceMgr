@@ -129,6 +129,165 @@
       </table>
     </div>
 
+    <!-- 添加用户弹窗 -->
+    <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
+      <div class="modal-content add-modal">
+        <div class="modal-header">
+          <h2>添加人员功能{{ currentEventName ? ` - 比赛: ${currentEventName}` : '' }}</h2>
+          <button @click="showAddModal = false" class="close-button">×</button>
+        </div>
+        <form @submit.prevent="addUser" class="modal-body">
+          <div class="form-section-title">基本信息</div>
+          <div class="form-row">
+            <div class="form-group" :class="{ 'has-error': formErrors.username }">
+              <label>用户名 *</label>
+              <input 
+                v-model="addForm.username" 
+                type="text" 
+                required 
+                placeholder="请输入用户名（3-20位字母数字）"
+                :class="{ 'error-input': formErrors.username }"
+                @blur="validateUsername"
+              />
+              <span v-if="formErrors.username" class="field-error">{{ formErrors.username }}</span>
+            </div>
+            <div class="form-group" :class="{ 'has-error': formErrors.real_name }">
+              <label>真实姓名 *</label>
+              <input 
+                v-model="addForm.real_name" 
+                type="text" 
+                required 
+                placeholder="请输入真实姓名（2-10位中文或英文）"
+                :class="{ 'error-input': formErrors.real_name }"
+                @blur="validateRealName"
+              />
+              <span v-if="formErrors.real_name" class="field-error">{{ formErrors.real_name }}</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" :class="{ 'has-error': formErrors.password }">
+              <label>密码 *</label>
+              <input 
+                v-model="addForm.password" 
+                type="password" 
+                required 
+                placeholder="请输入密码（至少6位）" 
+                minlength="6"
+                :class="{ 'error-input': formErrors.password }"
+                @blur="validatePassword"
+              />
+              <span v-if="formErrors.password" class="field-error">{{ formErrors.password }}</span>
+              <!-- 密码强度指示器 -->
+              <div v-if="addForm.password" class="password-strength">
+                <div class="strength-bar">
+                  <div 
+                    class="strength-fill" 
+                    :style="{ width: passwordStrength + '%' }"
+                    :class="passwordStrengthClass"
+                  ></div>
+                </div>
+                <span class="strength-text">{{ passwordStrengthText }}</span>
+              </div>
+            </div>
+            <div class="form-group" :class="{ 'has-error': formErrors.confirm_password }">
+              <label>确认密码 *</label>
+              <input 
+                v-model="addForm.confirm_password" 
+                type="password" 
+                required 
+                placeholder="请再次输入密码"
+                :class="{ 'error-input': formErrors.confirm_password }"
+                @blur="validateConfirmPassword"
+              />
+              <span v-if="formErrors.confirm_password" class="field-error">{{ formErrors.confirm_password }}</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" :class="{ 'has-error': formErrors.email }">
+              <label>邮箱</label>
+              <input 
+                v-model="addForm.email" 
+                type="email" 
+                placeholder="请输入邮箱地址（选填）"
+                :class="{ 'error-input': formErrors.email }"
+                @blur="validateEmail"
+              />
+              <span v-if="formErrors.email" class="field-error">{{ formErrors.email }}</span>
+            </div>
+            <div class="form-group" :class="{ 'has-error': formErrors.phone }">
+              <label>手机号</label>
+              <input 
+                v-model="addForm.phone" 
+                type="tel" 
+                placeholder="请输入手机号码（选填）"
+                :class="{ 'error-input': formErrors.phone }"
+                @blur="validatePhone"
+              />
+              <span v-if="formErrors.phone" class="field-error">{{ formErrors.phone }}</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>学号/工号</label>
+              <input v-model="addForm.student_or_staff_id" type="text" placeholder="请输入学号或工号（选填）" />
+            </div>
+            <div class="form-group" :class="{ 'has-error': formErrors.user_type }">
+              <label>角色 *</label>
+              <select 
+                v-model="addForm.user_type" 
+                required
+                :class="{ 'error-input': formErrors.user_type }"
+                @change="validateUserType"
+              >
+                <option value="">请选择角色</option>
+                <option value="student">👨‍🎓 学生</option>
+                <option value="student_admin">👨‍💼 学生管理员</option>
+                <option value="teacher">👨‍🏫 老师</option>
+                <option v-if="currentUser?.user_type === 'admin'" value="admin">🔐 管理员</option>
+              </select>
+              <span v-if="formErrors.user_type" class="field-error">{{ formErrors.user_type }}</span>
+              <div v-if="addForm.user_type" class="role-hint">
+                {{ getRoleDescription(addForm.user_type) }}
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section-title">关联比赛（可选）</div>
+          <div class="form-group">
+            <label>选择比赛</label>
+            <select v-model="addForm.event_id">
+              <option value="">不关联比赛</option>
+              <option v-for="evt in availableEvents" :key="evt.event_id" :value="evt.event_id">
+                📋 {{ evt.event_name }}
+              </option>
+            </select>
+            <p class="field-hint" v-if="addForm.event_id">关联后该用户将自动获得此比赛的访问权限</p>
+          </div>
+
+          <div v-if="addError" class="error-message">
+            ⚠️ {{ addError }}
+          </div>
+
+          <!-- 成功提示 -->
+          <div v-if="addSuccess" class="success-message">
+            ✅ {{ addSuccess }}
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" @click="closeAddModal" class="cancel-button">取消</button>
+            <button 
+              type="submit" 
+              class="submit-button" 
+              :disabled="adding || !isFormValid"
+              :title="!isFormValid ? '请填写所有必填项' : ''"
+            >
+              {{ adding ? '⏳ 添加中...' : '✓ 确认添加用户' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- 编辑用户弹窗 -->
     <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
       <div class="modal-content">
@@ -272,15 +431,30 @@ const { $api } = useNuxtApp()
 const users = ref([])
 const searchQuery = ref('')
 const filterType = ref('')
+const showAddModal = ref(false)
 const showEditModal = ref(false)
 const showInviteModal = ref(false)
 const showDeleteModal = ref(false)
 const updating = ref(false)
 const generating = ref(false)
 const deleting = ref(false)
+const adding = ref(false)
+const addError = ref('')
+const addSuccess = ref('')
+const formErrors = ref({
+  username: '',
+  real_name: '',
+  password: '',
+  confirm_password: '',
+  email: '',
+  phone: '',
+  user_type: ''
+})
 const editingUserId = ref(null)
 const deletingUser = ref(null)
 const generatedCodes = ref([])
+const availableEvents = ref([])
+const currentEventName = ref('')
 
 const editForm = ref({
   real_name: '',
@@ -288,6 +462,18 @@ const editForm = ref({
   phone: '',
   student_or_staff_id: '',
   user_type: 'student'
+})
+
+const addForm = ref({
+  username: '',
+  real_name: '',
+  password: '',
+  confirm_password: '',
+  email: '',
+  phone: '',
+  student_or_staff_id: '',
+  user_type: '',
+  event_id: ''
 })
 
 const inviteForm = ref({
@@ -336,6 +522,14 @@ const filteredUsersList = computed(() => {
 
 onMounted(async () => {
   await loadUsers()
+  await loadEvents()
+  
+  const urlParams = new URLSearchParams(window.location.search)
+  const eventId = urlParams.get('event_id')
+  if (eventId) {
+    addForm.value.event_id = eventId
+    currentEventName.value = await getEventName(eventId)
+  }
 })
 
 const loadUsers = async () => {
@@ -353,7 +547,305 @@ const loadUsers = async () => {
   }
 }
 
-const filterUsers = () => {}
+const closeAddModal = () => {
+  showAddModal.value = false
+  resetAddForm()
+}
+
+const loadEvents = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.get('/events', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    if (response.data.code === 200) {
+      availableEvents.value = response.data.data.data || []
+    }
+  } catch (error) {
+    console.error('加载比赛列表失败:', error)
+  }
+}
+
+const getEventName = async (eventId) => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.get(`/events/${eventId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    if (response.data.code === 200) {
+      return response.data.data.event_name
+    }
+  } catch (error) {
+    console.error('获取比赛名称失败:', error)
+  }
+  return ''
+}
+
+const addUser = async () => {
+  addError.value = ''
+  addSuccess.value = ''
+  
+  // 执行所有验证
+  const validations = [
+    validateUsername(),
+    validateRealName(),
+    validatePassword(),
+    validateConfirmPassword(),
+    validateEmail(),
+    validatePhone(),
+    validateUserType()
+  ]
+  
+  // 检查是否有验证失败
+  if (validations.some(v => !v)) {
+    addError.value = '请修正表单中的错误后再提交'
+    return
+  }
+  
+  adding.value = true
+  
+  try {
+    const token = localStorage.getItem('token')
+    const payload = {
+      username: addForm.value.username.trim(),
+      real_name: addForm.value.real_name.trim(),
+      password: addForm.value.password,
+      email: addForm.value.email?.trim() || null,
+      phone: addForm.value.phone?.trim() || null,
+      student_or_staff_id: addForm.value.student_or_staff_id?.trim() || null,
+      user_type: addForm.value.user_type
+    }
+    
+    console.log('提交用户数据:', { ...payload, password: '***' })
+    
+    const response = await $api.post('/auth/register', payload, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    console.log('注册响应:', response.data)
+    
+    if (response.data.code === 200 || response.data.code === 201) {
+      // 显示成功消息
+      const newUser = response.data.data
+      addSuccess.value = `✅ 用户 "${newUser.real_name}"（@${newUser.username}）添加成功！`
+      
+      // 延迟关闭弹窗，让用户看到成功提示
+      setTimeout(() => {
+        closeAddModal()
+        loadUsers()
+        
+        // 显示全局成功提示
+        alert(`🎉 用户添加成功！\n\n用户名：${newUser.username}\n真实姓名：${newUser.real_name}\n角色：${getUserTypeText(newUser.user_type)}\n\n该用户现在可以使用系统了。`)
+      }, 1500)
+      
+    } else if (response.data.code === 1001) {
+      formErrors.value.username = '用户名已存在，请使用其他用户名'
+      addError.value = '用户名已被占用，请更换后重试'
+    } else if (response.data.code === 1002) {
+      formErrors.value.email = '邮箱已被注册'
+      addError.value = '邮箱已被其他账号使用，请检查后重试'
+    } else {
+      addError.value = response.data.message || '添加失败，请稍后重试'
+    }
+  } catch (error) {
+    console.error('添加用户失败:', error)
+    if (error.response?.status === 401) {
+      addError.value = '登录已过期，请重新登录后操作'
+    } else if (error.response?.status === 403) {
+      addError.value = '权限不足，只有管理员可以添加用户'
+    } else if (error.response?.data?.message) {
+      addError.value = `服务器返回错误：${error.response.data.message}`
+    } else {
+      addError.value = '网络错误或服务器异常，请稍后重试'
+    }
+  } finally {
+    adding.value = false
+  }
+}
+
+const resetAddForm = () => {
+  addForm.value = {
+    username: '',
+    real_name: '',
+    password: '',
+    confirm_password: '',
+    email: '',
+    phone: '',
+    student_or_staff_id: '',
+    user_type: '',
+    event_id: ''
+  }
+  addError.value = ''
+  addSuccess.value = ''
+  formErrors.value = {
+    username: '',
+    real_name: '',
+    password: '',
+    confirm_password: '',
+    email: '',
+    phone: '',
+    user_type: ''
+  }
+}
+
+// 表单验证计算属性
+const isFormValid = computed(() => {
+  return (
+    addForm.value.username &&
+    addForm.value.real_name &&
+    addForm.value.password &&
+    addForm.value.confirm_password &&
+    addForm.value.user_type &&
+    !Object.values(formErrors.value).some(error => error !== '')
+  )
+})
+
+// 密码强度计算
+const passwordStrength = computed(() => {
+  const password = addForm.value.password || ''
+  let strength = 0
+  
+  if (password.length >= 6) strength += 25
+  if (password.length >= 10) strength += 15
+  if (/[a-z]/.test(password)) strength += 15
+  if (/[A-Z]/.test(password)) strength += 15
+  if (/[0-9]/.test(password)) strength += 15
+  if (/[^a-zA-Z0-9]/.test(password)) strength += 15
+  
+  return Math.min(strength, 100)
+})
+
+const passwordStrengthClass = computed(() => {
+  if (passwordStrength.value < 40) return 'weak'
+  if (passwordStrength.value < 70) return 'medium'
+  return 'strong'
+})
+
+const passwordStrengthText = computed(() => {
+  if (passwordStrength.value < 40) return '⚠️ 弱 - 建议使用更复杂的密码'
+  if (passwordStrength.value < 70) return '👍 中等强度'
+  return '✅ 强 - 密码安全性良好'
+})
+
+// 验证函数
+const validateUsername = () => {
+  const username = addForm.value.username
+  if (!username) {
+    formErrors.value.username = '用户名不能为空'
+    return false
+  }
+  if (username.length < 3 || username.length > 20) {
+    formErrors.value.username = '用户名长度应在3-20位之间'
+    return false
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    formErrors.value.username = '用户名只能包含字母、数字和下划线'
+    return false
+  }
+  formErrors.value.username = ''
+  return true
+}
+
+const validateRealName = () => {
+  const name = addForm.value.real_name
+  if (!name) {
+    formErrors.value.real_name = '真实姓名不能为空'
+    return false
+  }
+  if (name.length < 2 || name.length > 10) {
+    formErrors.value.real_name = '姓名长度应在2-10位之间'
+    return false
+  }
+  formErrors.value.real_name = ''
+  return true
+}
+
+const validatePassword = () => {
+  const password = addForm.value.password
+  if (!password) {
+    formErrors.value.password = '密码不能为空'
+    return false
+  }
+  if (password.length < 6) {
+    formErrors.value.password = '密码长度至少6位'
+    return false
+  }
+  formErrors.value.password = ''
+  
+  // 同时验证确认密码
+  if (addForm.value.confirm_password && password !== addForm.value.confirm_password) {
+    formErrors.value.confirm_password = '两次输入的密码不一致'
+  } else {
+    formErrors.value.confirm_password = ''
+  }
+  
+  return true
+}
+
+const validateConfirmPassword = () => {
+  const confirmPassword = addForm.value.confirm_password
+  if (!confirmPassword) {
+    formErrors.value.confirm_password = '请再次输入密码'
+    return false
+  }
+  if (confirmPassword !== addForm.value.password) {
+    formErrors.value.confirm_password = '两次输入的密码不一致'
+    return false
+  }
+  formErrors.value.confirm_password = ''
+  return true
+}
+
+const validateEmail = () => {
+  const email = addForm.value.email
+  if (!email) {
+    formErrors.value.email = ''
+    return true // 邮箱是选填的
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email)) {
+    formErrors.value.email = '邮箱格式不正确'
+    return false
+  }
+  formErrors.value.email = ''
+  return true
+}
+
+const validatePhone = () => {
+  const phone = addForm.value.phone
+  if (!phone) {
+    formErrors.value.phone = ''
+    return true // 手机号是选填的
+  }
+  const phoneRegex = /^1[3-9]\d{9}$/
+  if (!phoneRegex.test(phone)) {
+    formErrors.value.phone = '手机号格式不正确（11位数字）'
+    return false
+  }
+  formErrors.value.phone = ''
+  return true
+}
+
+const validateUserType = () => {
+  if (!addForm.value.user_type) {
+    formErrors.value.user_type = '请选择用户角色'
+    return false
+  }
+  formErrors.value.user_type = ''
+  return true
+}
+
+const getRoleDescription = (type) => {
+  const descriptions = {
+    student: '📚 仅可查看比赛信息和自己的记录',
+    student_admin: '🛠️ 可查看+部分管理功能（审核、统计）',
+    teacher: '🎓 完全管理权限（创建、编辑、删除）',
+    admin: '🔐 系统管理员权限（最高权限，谨慎使用）'
+  }
+  return descriptions[type] || ''
+}
 
 const getUserTypeText = (type) => {
   const map = { admin: '管理员', teacher: '老师', student_admin: '学生管理员', student: '学生' }
@@ -703,6 +1195,81 @@ const copyCode = (code) => {
 }
 
 .invite-modal { max-width: 650px; }
+.add-modal { max-width: 700px; }
+
+.form-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #667eea;
+}
+
+/* 表单错误状态 */
+.has-error {
+  position: relative;
+}
+.has-error .error-input {
+  border-color: #e74c3c;
+  background-color: #fff5f5;
+}
+.has-error .error-input:focus {
+  outline: none;
+  border-color: #e74c3c;
+  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
+.field-error {
+  display: block;
+  font-size: 11px;
+  color: #e74c3c;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+/* 密码强度指示器 */
+.password-strength {
+  margin-top: 8px;
+}
+.strength-bar {
+  width: 100%;
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.strength-fill {
+  height: 100%;
+  transition: all 0.3s ease;
+  border-radius: 3px;
+}
+.strength-fill.weak {
+  background: linear-gradient(90deg, #e74c3c 0%, #f39c12 100%);
+}
+.strength-fill.medium {
+  background: linear-gradient(90deg, #f39c12 0%, #f1c40f 100%);
+}
+.strength-fill.strong {
+  background: linear-gradient(90deg, #27ae60 0%, #2ecc71 100%);
+}
+.strength-text {
+  font-size: 11px;
+  color: #666;
+}
+
+/* 角色提示 */
+.role-hint {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: #f0f7ff;
+  border-left: 3px solid #3498db;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #2980b9;
+  line-height: 1.5;
+}
 
 .modal-header {
   padding: 1.2rem 1.5rem;
@@ -807,6 +1374,32 @@ const copyCode = (code) => {
 
 .delete-modal { max-width: 420px; }
 .warning-text { color: #e74c3c; font-size: 13px; margin-top: 0.5rem; }
+
+.error-message {
+  background: #fff5f5;
+  color: #e74c3c;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 13px;
+  border-left: 4px solid #e74c3c;
+}
+
+.success-message {
+  background: #f0fff0;
+  color: #27ae60;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 13px;
+  border-left: 4px solid #27ae60;
+}
+
+.field-hint {
+  font-size: 11px;
+  color: #7f8c8d;
+  margin-top: 4px;
+}
 
 /* 生成的邀请码 */
 .generated-codes {
