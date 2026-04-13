@@ -6,6 +6,7 @@
       <div class="header-actions">
         <button @click="showAddModal = true" class="action-button primary">+ 添加记录</button>
         <button @click="viewMembers" class="action-button members">👥 查看人员</button>
+        <button @click="exportData" class="action-button export">📤 导出数据</button>
         <button @click="batchReimburse" class="action-button reimburse" :disabled="selectedRecords.length === 0" v-if="canReview">
           批量报销 ({{ selectedRecords.length }})
         </button>
@@ -35,6 +36,64 @@
       </div>
     </div>
 
+    <!-- 过滤面板 -->
+    <div class="filter-panel">
+      <div class="filter-header">
+        <h3>筛选条件</h3>
+        <button @click="resetFilters" class="reset-btn">重置</button>
+      </div>
+      <div class="filter-grid">
+        <div class="filter-group">
+          <label>日期范围</label>
+          <div class="date-range">
+            <input v-model="filters.startDate" type="date" placeholder="开始日期" />
+            <span class="range-separator">至</span>
+            <input v-model="filters.endDate" type="date" placeholder="结束日期" />
+          </div>
+        </div>
+        <div class="filter-group">
+          <label>金额范围</label>
+          <div class="amount-range">
+            <input v-model.number="filters.minAmount" type="number" step="0.01" min="0" placeholder="最小金额" />
+            <span class="range-separator">至</span>
+            <input v-model.number="filters.maxAmount" type="number" step="0.01" min="0" placeholder="最大金额" />
+          </div>
+        </div>
+        <div class="filter-group">
+          <label>上传人</label>
+          <input v-model="filters.uploader" type="text" placeholder="搜索上传人" />
+        </div>
+        <div class="filter-group">
+          <label>发票状态</label>
+          <select v-model="filters.invoiceStatus">
+            <option value="">全部</option>
+            <option value="has_invoice">有发票</option>
+            <option value="no_invoice">无发票</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>审核状态</label>
+          <select v-model="filters.reviewStatus">
+            <option value="">全部</option>
+            <option value="pending">待审核</option>
+            <option value="approved">已通过</option>
+            <option value="rejected">已拒绝</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>报销状态</label>
+          <select v-model="filters.reimburseStatus">
+            <option value="">全部</option>
+            <option value="reimbursed">已报销</option>
+            <option value="not_reimbursed">未报销</option>
+          </select>
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button @click="applyFilters" class="apply-btn">应用筛选</button>
+      </div>
+    </div>
+
     <!-- 购买记录列表 -->
     <div class="records-table-container">
       <table class="records-table">
@@ -45,6 +104,7 @@
             <th>平台</th>
             <th>金额</th>
             <th>购物日期</th>
+            <th>上传人</th>
             <th>发票状态</th>
             <th>审核状态</th>
             <th>报销状态</th>
@@ -52,7 +112,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="record in records" :key="record.display_id || record.record_id" :class="{ 'has-invoice': record.has_invoice, 'is-invoice-record': record.record_type === 'invoice' }">
+          <tr v-for="record in filteredRecords" :key="record.display_id || record.record_id" :class="{ 'has-invoice': record.has_invoice, 'is-invoice-record': record.record_type === 'invoice' }">
             <td class="checkbox-col">
               <input type="checkbox" :value="record.display_id || record.record_id" v-model="selectedRecords" />
             </td>
@@ -64,6 +124,7 @@
             <td><span class="platform-badge">{{ record.purchase_platform || '-' }}</span></td>
             <td class="amount">¥{{ parseFloat(record.amount).toFixed(2) }}</td>
             <td>{{ formatDate(record.purchase_date) }}</td>
+            <td>{{ record.uploader_name || '未知' }}</td>
             <td>
               <span class="invoice-badge" :class="record.has_invoice ? 'yes' : 'no'">
                 {{ record.has_invoice ? '有发票' : '无发票' }}
@@ -87,8 +148,8 @@
               </div>
             </td>
           </tr>
-          <tr v-if="records.length === 0">
-            <td :colspan="9" class="empty-row">暂无购买记录，点击"添加记录"开始使用</td>
+          <tr v-if="filteredRecords.length === 0">
+            <td :colspan="10" class="empty-row">没有符合条件的购买记录</td>
           </tr>
         </tbody>
       </table>
@@ -438,6 +499,90 @@ const form = ref({
 
 const currentUser = ref(null)
 
+// 过滤条件
+const filters = ref({
+  startDate: '',
+  endDate: '',
+  minAmount: null,
+  maxAmount: null,
+  uploader: '',
+  invoiceStatus: '',
+  reviewStatus: '',
+  reimburseStatus: ''
+})
+
+// 过滤后的记录
+const filteredRecords = computed(() => {
+  return records.value.filter(record => {
+    // 日期过滤
+    if (filters.value.startDate) {
+      const recordDate = new Date(record.purchase_date)
+      const startDate = new Date(filters.value.startDate)
+      if (recordDate < startDate) return false
+    }
+    if (filters.value.endDate) {
+      const recordDate = new Date(record.purchase_date)
+      const endDate = new Date(filters.value.endDate)
+      endDate.setHours(23, 59, 59, 999)
+      if (recordDate > endDate) return false
+    }
+    
+    // 金额过滤
+    if (filters.value.minAmount !== null && filters.value.minAmount !== '') {
+      if (parseFloat(record.amount) < filters.value.minAmount) return false
+    }
+    if (filters.value.maxAmount !== null && filters.value.maxAmount !== '') {
+      if (parseFloat(record.amount) > filters.value.maxAmount) return false
+    }
+    
+    // 上传人过滤
+    if (filters.value.uploader) {
+      const uploaderName = record.uploader_name || ''
+      if (!uploaderName.toLowerCase().includes(filters.value.uploader.toLowerCase())) return false
+    }
+    
+    // 发票状态过滤
+    if (filters.value.invoiceStatus) {
+      if (filters.value.invoiceStatus === 'has_invoice' && !record.has_invoice) return false
+      if (filters.value.invoiceStatus === 'no_invoice' && record.has_invoice) return false
+    }
+    
+    // 审核状态过滤
+    if (filters.value.reviewStatus && record.status) {
+      if (record.status !== filters.value.reviewStatus) return false
+    }
+    
+    // 报销状态过滤
+    if (filters.value.reimburseStatus) {
+      if (filters.value.reimburseStatus === 'reimbursed' && !record.is_reimbursed) return false
+      if (filters.value.reimburseStatus === 'not_reimbursed' && record.is_reimbursed) return false
+    }
+    
+    return true
+  })
+})
+
+// 应用过滤
+const applyFilters = () => {
+  // 过滤逻辑已在computed中实现，这里可以添加额外的逻辑
+  console.log('应用过滤条件:', filters.value)
+}
+
+// 重置过滤
+const resetFilters = () => {
+  filters.value = {
+    startDate: '',
+    endDate: '',
+    minAmount: null,
+    maxAmount: null,
+    uploader: '',
+    invoiceStatus: '',
+    reviewStatus: '',
+    reimburseStatus: ''
+  }
+  console.log('重置过滤条件')
+}
+
 const canReview = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
 })
@@ -541,13 +686,12 @@ const loadRecords = async () => {
     
     records.value = allRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     
-    if (!stats.value) {
-      stats.value = {
-        total_amount: allRecords.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0),
-        invoice_total: allRecords.filter(r => r.has_invoice).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
-        pending_reimburse: allRecords.filter(r => r.has_invoice && !r.is_reimbursed).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
-        total_count: allRecords.length
-      }
+    // 每次加载记录时都更新统计数据
+    stats.value = {
+      total_amount: allRecords.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0),
+      invoice_total: allRecords.filter(r => r.has_invoice).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
+      pending_reimburse: allRecords.filter(r => r.has_invoice && !r.is_reimbursed).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
+      total_count: allRecords.length
     }
   } catch (e) {
     console.error('加载记录失败:', e)
@@ -1031,6 +1175,35 @@ const batchReimburse = async () => {
   await loadRecords()
 }
 
+const exportData = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const response = await fetch(`/api/events/${eventId.value}/export`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    
+    if (response.ok) {
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${event.value?.event_name || '导出数据'}_${new Date().toISOString().split('T')[0]}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } else {
+      alert('导出失败，请重试')
+    }
+  } catch (error) {
+    console.error('导出失败:', error)
+    alert('导出失败，请重试')
+  }
+}
+
 const getStatusText = (status) => {
   const map = { pending: '待审核', approved: '已通过', rejected: '已拒绝' }
   return map[status] || status
@@ -1098,6 +1271,8 @@ const formatMoney = (val) => {
 .action-button.primary:hover { transform: translateY(-1px); opacity: 0.95; }
 .action-button.members { background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); }
 .action-button.members:hover { transform: translateY(-1px); opacity: 0.95; }
+.action-button.export { background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); }
+.action-button.export:hover { transform: translateY(-1px); opacity: 0.95; }
 .action-button.reimburse { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); }
 .action-button.danger { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); }
 .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -1223,6 +1398,141 @@ const formatMoney = (val) => {
 .btn-reimburse-sm { background: #9b59b6; color: white; }
 
 .empty-row { text-align: center; padding: 40px !important; color: #999; }
+
+/* 过滤面板样式 */
+.filter-panel {
+  background: white;
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  border: 1px solid #e9ecef;
+}
+
+.filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.2rem;
+}
+
+.filter-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.reset-btn {
+  padding: 0.5rem 1rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #6c757d;
+  transition: all 0.3s;
+}
+
+.reset-btn:hover {
+  background: #e9ecef;
+  border-color: #ced4da;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.filter-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+}
+
+.filter-group input,
+.filter-group select {
+  padding: 0.6rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
+}
+
+.date-range,
+.amount-range {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.date-range input,
+.amount-range input {
+  flex: 1;
+}
+
+.range-separator {
+  font-size: 14px;
+  color: #6c757d;
+  white-space: nowrap;
+}
+
+.filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f0f0f0;
+}
+
+.apply-btn {
+  padding: 0.7rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 14px;
+}
+
+.apply-btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+
+@media (max-width: 768px) {
+  .filter-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .date-range,
+  .amount-range {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .range-separator {
+    text-align: center;
+    padding: 0.2rem 0;
+  }
+}
 
 .modal-overlay {
   position: fixed;

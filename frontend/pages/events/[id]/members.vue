@@ -131,23 +131,21 @@ const loadEvent = async () => {
 const loadMembers = async () => {
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.get('/auth/users', {
+    const response = await $api.get(`/events/${eventId.value}/members`, {
       headers: { Authorization: `Bearer ${token}` }
     })
     
     if (response.data.code === 200) {
-      const allUsers = response.data.data.data || response.data.data || []
+      const membersList = response.data.data.members || []
       
-      // TODO: 这里应该根据实际的后端API获取比赛的成员列表
-      // 目前先显示所有用户，后续可以根据event_members关联表筛选
-      members.value = allUsers
+      members.value = membersList
       
       // 计算统计数据
       stats.value = {
-        total: allUsers.length,
-        admins: allUsers.filter(u => u.user_type === 'admin' || u.user_type === 'teacher').length,
-        studentAdmins: allUsers.filter(u => u.user_type === 'student_admin').length,
-        students: allUsers.filter(u => u.user_type === 'student').length
+        total: membersList.length,
+        admins: membersList.filter(u => u.user_type === 'admin' || u.user_type === 'teacher').length,
+        studentAdmins: membersList.filter(u => u.user_type === 'student_admin').length,
+        students: membersList.filter(u => u.user_type === 'student').length
       }
     }
   } catch (e) {

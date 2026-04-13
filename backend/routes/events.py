@@ -340,3 +340,159 @@ def delete_event(event_id):
         logger.error(f'删除赛事异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@events_bp.route('/events/<int:event_id>/members', methods=['GET'])
+@jwt_required()
+def get_event_members(event_id):
+    logger.info(f'=== 获取赛事成员列表: event_id={event_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+        
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+        
+        # 获取赛事成员
+        members = db.session.query(User, EventMember.role_in_event).join(
+            EventMember, User.user_id == EventMember.user_id
+        ).filter(
+            EventMember.event_id == event_id,
+            EventMember.is_deleted == False,
+            User.is_deleted == False
+        ).all()
+        
+        members_data = []
+        for user, role in members:
+            members_data.append({
+                'user_id': user.user_id,
+                'username': user.username,
+                'real_name': user.real_name,
+                'email': user.email,
+                'phone': user.phone,
+                'user_type': user.user_type,
+                'student_or_staff_id': user.student_or_staff_id,
+                'avatar_url': user.avatar_url,
+                'role_in_event': role,
+                'created_at': user.created_at.isoformat() if user.created_at else None
+            })
+        
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'members': members_data,
+                'total_count': len(members_data)
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'获取赛事成员列表异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@events_bp.route('/events/<int:event_id>/members', methods=['POST'])
+@jwt_required()
+def add_event_member(event_id):
+    logger.info(f'=== 添加赛事成员: event_id={event_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+        
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+        
+        data = request.get_json()
+        user_id = data.get('user_id')
+        role_in_event = data.get('role_in_event', 'member')
+        
+        if not user_id:
+            return jsonify({'code': 400, 'message': '用户ID不能为空', 'data': None}), 400
+        
+        # 检查用户是否存在
+        target_user = User.query.filter_by(user_id=user_id, is_deleted=False).first()
+        if not target_user:
+            return jsonify({'code': 404, 'message': '目标用户不存在', 'data': None}), 404
+        
+        # 检查用户是否已经是赛事成员
+        existing_member = EventMember.query.filter_by(
+            event_id=event_id,
+            user_id=user_id,
+            is_deleted=False
+        ).first()
+        
+        if existing_member:
+            return jsonify({'code': 400, 'message': '该用户已经是赛事成员', 'data': None}), 400
+        
+        # 添加成员
+        member = EventMember(
+            event_id=event_id,
+            user_id=user_id,
+            role_in_event=role_in_event
+        )
+        
+        db.session.add(member)
+        db.session.commit()
+        
+        logger.info(f'赛事成员添加成功: event_id={event_id}, user_id={user_id}, role={role_in_event}')
+        return jsonify({
+            'code': 200,
+            'message': '添加成员成功',
+            'data': {
+                'member_id': member.id,
+                'user_id': user_id,
+                'role_in_event': role_in_event
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f'添加赛事成员异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@events_bp.route('/events/<int:event_id>/members/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+def remove_event_member(event_id, user_id):
+    logger.info(f'=== 移除赛事成员: event_id={event_id}, user_id={user_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+        
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+        
+        # 检查成员是否存在
+        member = EventMember.query.filter_by(
+            event_id=event_id,
+            user_id=user_id,
+            is_deleted=False
+        ).first()
+        
+        if not member:
+            return jsonify({'code': 404, 'message': '成员不存在', 'data': None}), 404
+        
+        # 标记为删除
+        member.is_deleted = True
+        db.session.commit()
+        
+        logger.info(f'赛事成员移除成功: event_id={event_id}, user_id={user_id}')
+        return jsonify({
+            'code': 200,
+            'message': '移除成员成功',
+            'data': None
+        }), 200
+        
+    except Exception as e:
+        logger.error(f'移除赛事成员异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
