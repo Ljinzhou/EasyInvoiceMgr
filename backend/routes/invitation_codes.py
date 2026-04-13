@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, InvitationCode, User
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import secrets
 import string
@@ -47,8 +47,8 @@ def get_invitation_codes():
         
         code_list = []
         for code in codes.items:
-            is_expired = code.expires_at < datetime.utcnow() if code.expires_at else False
-            is_used_out = (code.max_uses > 0 and code.used_count >= code.max_uses) if code.max_uses > 0 else False
+            is_expired = code.expires_at < datetime.now(timezone.utc) if code.expires_at else False
+            is_used_out = (code.max_uses > 0 and code.used_count >= code.max_uses) if code.max_uses and code.max_uses > 0 else False
             
             code_list.append({
                 'id': code.id,
@@ -126,7 +126,7 @@ def create_invitation_code():
             return jsonify({'code': 400, 'message': '数量必须是数字', 'data': None}), 400
         
         created_codes = []
-        expires_at = datetime.utcnow() + timedelta(days=expires_days)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
         
         for _ in range(quantity):
             code_str = generate_invitation_code(target_user_type)
@@ -191,7 +191,7 @@ def verify_invitation_code():
                 'data': {'valid': False, 'reason': 'disabled'}
             }), 200
         
-        if invitation_code.expires_at < datetime.utcnow():
+        if invitation_code.expires_at < datetime.now(timezone.utc):
             return jsonify({
                 'code': 200,
                 'message': '该邀请码已过期',

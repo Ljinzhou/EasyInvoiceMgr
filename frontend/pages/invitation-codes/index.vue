@@ -189,14 +189,16 @@ definePageMeta({
   layout: 'default',
   middleware: [
     function(to, from) {
-      const userStr = localStorage.getItem('user')
-      if (userStr) {
-        const user = JSON.parse(userStr)
-        if (!['admin', 'teacher', 'student_admin'].includes(user.user_type)) {
-          return navigateTo('/dashboard')
+      if (import.meta.client) {
+        const userStr = localStorage.getItem('user')
+        if (userStr) {
+          const user = JSON.parse(userStr)
+          if (!['admin', 'teacher', 'student_admin'].includes(user.user_type)) {
+            return navigateTo('/dashboard')
+          }
+        } else {
+          return navigateTo('/login')
         }
-      } else {
-        return navigateTo('/login')
       }
     }
   ]
@@ -224,10 +226,7 @@ const createForm = ref({
   max_uses: -1
 })
 
-const currentUser = computed(() => {
-  const userStr = localStorage.getItem('user')
-  return userStr ? JSON.parse(userStr) : null
-})
+const currentUser = ref(null)
 
 const canDelete = computed(() => currentUser.value?.user_type === 'admin')
 
@@ -236,6 +235,9 @@ const expiredCodes = computed(() => codes.value.filter(c => c.status === 'expire
 const usedCodes = computed(() => codes.value.filter(c => c.status === 'used_out').length)
 
 onMounted(async () => {
+  const userStr = localStorage.getItem('user')
+  currentUser.value = userStr ? JSON.parse(userStr) : null
+  
   await loadCodes()
 })
 

@@ -1,12 +1,33 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, PurchaseRecord, Event, User
-from datetime import datetime
+from datetime import datetime, timezone
+from utils.cos_manager import cos_manager
 import logging
 import os
 
 logger = logging.getLogger(__name__)
 purchase_records_bp = Blueprint('purchase_records', __name__)
+
+
+def get_presigned_url(file_key: str, expires: int = 3600 * 24) -> str:
+    """获取文件预签名URL"""
+    if not file_key:
+        return None
+    
+    if cos_manager.is_available():
+        if file_key.startswith('invoices/') or file_key.startswith('uploads/'):
+            try:
+                return cos_manager.get_presigned_url(file_key, expires=expires)
+            except Exception as e:
+                logger.warning(f'生成预签名URL失败: {file_key}, 错误: {str(e)}')
+                return None
+    
+    if file_key.startswith('/uploads/'):
+        return file_key
+    
+    return None
+
 
 @purchase_records_bp.route('/events/<int:event_id>/records', methods=['GET'])
 @jwt_required()
@@ -32,6 +53,10 @@ def get_purchase_records(event_id):
             uploader = User.query.get(record.uploader_id)
             reviewer = User.query.get(record.reviewer_id) if record.reviewer_id else None
             
+            invoice_file_url = get_presigned_url(record.invoice_file_key)
+            invoice_preview_url = get_presigned_url(record.invoice_preview_key) or invoice_file_url
+            receipt_image_url = get_presigned_url(record.receipt_image_url) or record.receipt_image_url
+            
             records_data.append({
                 'record_id': record.record_id,
                 'event_id': record.event_id,
@@ -39,10 +64,14 @@ def get_purchase_records(event_id):
                 'purchase_platform': record.purchase_platform,
                 'purchase_date': record.purchase_date.isoformat() if record.purchase_date else None,
                 'amount': float(record.amount),
-                'receipt_image_url': record.receipt_image_url,
+                'receipt_image_url': receipt_image_url,
                 'receipt_image_name': record.receipt_image_name,
                 'has_invoice': record.has_invoice,
-                'invoice_url': record.invoice_url,
+                'invoice_file_key': record.invoice_file_key,
+                'invoice_preview_key': record.invoice_preview_key,
+                'invoice_url': invoice_file_url,
+                'invoice_preview_url': invoice_preview_url,
+                'invoice_original_filename': record.invoice_original_filename,
                 'invoice_type': record.invoice_type,
                 'invoice_number': record.invoice_number,
                 'total_amount': float(record.total_amount) if record.total_amount else 0,
@@ -77,6 +106,7 @@ def get_purchase_records(event_id):
         logger.error(f'获取购买记录异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
+
 @purchase_records_bp.route('/events/<int:event_id>/records', methods=['POST'])
 @jwt_required()
 def create_purchase_record(event_id):
@@ -101,6 +131,8 @@ def create_purchase_record(event_id):
         if 'receipt_image_url' not in data or not data['receipt_image_url']:
             return jsonify({'code': 400, 'message': '必须上传购物凭证图片', 'data': None}), 400
         
+        has_invoice = bool(data.get('invoice_file_key'))
+        
         record = PurchaseRecord(
             event_id=event_id,
             uploader_id=current_user_id,
@@ -111,11 +143,11 @@ def create_purchase_record(event_id):
             receipt_image_url=data['receipt_image_url'],
             receipt_image_name=data.get('receipt_image_name'),
             receipt_file_md5=data.get('receipt_file_md5'),
-            has_invoice=bool(data.get('invoice_url')),
-            invoice_url=data.get('invoice_url'),
-            invoice_name=data.get('invoice_name'),
+            has_invoice=has_invoice,
+            invoice_file_key=data.get('invoice_file_key'),
+            invoice_preview_key=data.get('invoice_preview_key'),
+            invoice_original_filename=data.get('invoice_original_filename'),
             invoice_md5=data.get('invoice_md5'),
-            invoice_preview_url=data.get('invoice_preview_url'),
             invoice_type=data.get('invoice_type'),
             invoice_number=data.get('invoice_number'),
             total_amount=float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0,
@@ -142,6 +174,7 @@ def create_purchase_record(event_id):
         logger.error(f'创建购买记录异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
 
 @purchase_records_bp.route('/records/<int:record_id>', methods=['PUT'])
 @jwt_required()
@@ -172,17 +205,17 @@ def update_purchase_record(record_id):
         if 'receipt_image_name' in data:
             record.receipt_image_name = data['receipt_image_name']
         
-        if 'invoice_url' in data:
-            has_invoice = bool(data['invoice_url'])
+        if 'invoice_file_key' in data:
+            has_invoice = bool(data['invoice_file_key'])
             record.has_invoice = has_invoice
-            record.invoice_url = data['invoice_url'] if has_invoice else None
-            
-        if 'invoice_name' in data:
-            record.invoice_name = data['invoice_name']
+            record.invoice_file_key = data['invoice_file_key'] if has_invoice else None
+        
+        if 'invoice_preview_key' in data:
+            record.invoice_preview_key = data['invoice_preview_key']
+        if 'invoice_original_filename' in data:
+            record.invoice_original_filename = data['invoice_original_filename']
         if 'invoice_md5' in data:
             record.invoice_md5 = data['invoice_md5']
-        if 'invoice_preview_url' in data:
-            record.invoice_preview_url = data['invoice_preview_url']
         if 'invoice_type' in data:
             record.invoice_type = data['invoice_type']
         if 'invoice_number' in data:
@@ -208,6 +241,7 @@ def update_purchase_record(record_id):
         logger.error(f'更新购买记录异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
 
 @purchase_records_bp.route('/records/<int:record_id>', methods=['DELETE'])
 @jwt_required()
@@ -245,6 +279,7 @@ def delete_purchase_record(record_id):
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
+
 @purchase_records_bp.route('/records/<int:record_id>/approve', methods=['POST'])
 @jwt_required()
 def approve_purchase_record(record_id):
@@ -271,7 +306,7 @@ def approve_purchase_record(record_id):
         
         record.status = status
         record.reviewer_id = int(current_user_id)
-        record.review_time = datetime.utcnow()
+        record.review_time = datetime.now(timezone.utc)
         record.rejection_reason = rejection_reason if status == 'rejected' else None
         
         db.session.commit()
@@ -286,6 +321,7 @@ def approve_purchase_record(record_id):
         logger.error(f'审核购买记录异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
 
 @purchase_records_bp.route('/records/<int:record_id>/reimburse', methods=['POST'])
 @jwt_required()
@@ -308,7 +344,7 @@ def reimburse_purchase_record(record_id):
             return jsonify({'code': 400, 'message': '该记录已经报销过了', 'data': None}), 400
         
         record.is_reimbursed = True
-        record.reimbursed_at = datetime.utcnow()
+        record.reimbursed_at = datetime.now(timezone.utc)
         
         event = Event.query.get(record.event_id)
         if event:
@@ -328,38 +364,86 @@ def reimburse_purchase_record(record_id):
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
-@purchase_records_bp.route('/records/<int:record_id>/download', methods=['GET'])
+
+@purchase_records_bp.route('/records/<int:record_id>/download-invoice', methods=['GET'])
 @jwt_required()
-def download_purchase_record(record_id):
-    logger.info(f'=== 下载购买记录文件: record_id={record_id} ===')
+def download_invoice(record_id):
+    """下载原始发票文件（PDF或图片）"""
+    logger.info(f'=== 下载发票文件: record_id={record_id} ===')
     try:
+        current_user_id = get_jwt_identity()
+        
         record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
         
-        files = []
-        if record.receipt_image_url:
-            files.append({
-                'name': record.receipt_image_name or '购物凭证',
-                'url': record.receipt_image_url,
-                'type': 'receipt'
-            })
-        if record.invoice_url:
-            files.append({
-                'name': record.invoice_name or '发票文件',
-                'url': record.invoice_url,
-                'type': 'invoice'
-            })
+        if not record.invoice_file_key:
+            return jsonify({'code': 404, 'message': '该记录没有发票文件', 'data': None}), 404
+        
+        file_key = record.invoice_file_key
+        original_filename = record.invoice_original_filename or file_key.split('/')[-1]
+        
+        if cos_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
+            file_bytes = cos_manager.download_file(file_key)
+            
+            content_type = 'application/pdf' if file_key.endswith('.pdf') else 'image/jpeg'
+            
+            logger.info(f'发票文件下载成功: {file_key}')
+            
+            return Response(
+                file_bytes,
+                mimetype=content_type,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{original_filename}"'
+                }
+            )
+        else:
+            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+            filename = file_key.replace('/uploads/', '').replace('uploads/', '')
+            file_path = os.path.join(uploads_dir, filename)
+            
+            if not os.path.exists(file_path):
+                logger.error(f'本地文件不存在: {file_path}')
+                return jsonify({'code': 404, 'message': '文件不存在', 'data': None}), 404
+            
+            logger.info(f'本地发票文件下载: {file_path}')
+            return send_file(file_path, as_attachment=True, download_name=original_filename)
+            
+    except Exception as e:
+        logger.error(f'下载发票文件异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@purchase_records_bp.route('/records/<int:record_id>/preview-invoice', methods=['GET'])
+@jwt_required()
+def get_invoice_preview(record_id):
+    """获取发票预览图片URL"""
+    logger.info(f'=== 获取发票预览URL: record_id={record_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        
+        record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
+        if not record:
+            return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
+        
+        if not record.has_invoice:
+            return jsonify({'code': 404, 'message': '该记录没有发票', 'data': None}), 404
+        
+        preview_key = record.invoice_preview_key or record.invoice_file_key
+        preview_url = get_presigned_url(preview_key, expires=3600)
+        
+        if not preview_url:
+            return jsonify({'code': 500, 'message': '无法生成预览URL', 'data': None}), 500
         
         return jsonify({
             'code': 200,
             'message': 'success',
             'data': {
-                'record_id': record_id,
-                'files': files
+                'preview_url': preview_url,
+                'is_pdf': record.invoice_file_key.endswith('.pdf') if record.invoice_file_key else False
             }
         }), 200
         
     except Exception as e:
-        logger.error(f'下载购买记录异常: {str(e)}', exc_info=True)
+        logger.error(f'获取发票预览URL异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500

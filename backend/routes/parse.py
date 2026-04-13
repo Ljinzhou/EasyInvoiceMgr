@@ -6,9 +6,175 @@ from utils.cos_manager import cos_manager
 import logging
 import uuid
 import os
+import hashlib
+import io
 
 logger = logging.getLogger(__name__)
 parse_bp = Blueprint('parse', __name__)
+
+
+class PDFConverter:
+    """PDF转JPG服务端转换器"""
+    
+    @staticmethod
+    def is_pdf_available():
+        """检查PDF转换库是否可用"""
+        try:
+            import fitz
+            return True
+        except ImportError:
+            return False
+    
+    @staticmethod
+    def convert_pdf_to_jpg(pdf_bytes: bytes, dpi: float = 2.0) -> tuple:
+        """
+        将PDF转换为JPG图片
+        
+        Args:
+            pdf_bytes: PDF文件字节流
+            dpi: 分辨率倍数，默认2.0表示双倍分辨率
+            
+        Returns:
+            tuple: (jpg_bytes, width, height, page_count) 或 (None, None, None, None) 失败时
+        """
+        try:
+            import fitz
+            from PIL import Image
+            
+            pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page_count = len(pdf_document)
+            
+            if page_count == 0:
+                logger.warning('PDF文件没有页面')
+                pdf_document.close()
+                return None, None, None, 0
+            
+            page = pdf_document[0]
+            mat = fitz.Matrix(dpi, dpi)
+            pix = page.get_pixmap(matrix=mat)
+            
+            img_buffer = io.BytesIO()
+            
+            try:
+                pix.pil_save(img_buffer, format='JPEG', quality=95)
+            except AttributeError:
+                img_data = pix.tobytes('jpeg', jpeg_quality=95)
+                img_buffer.write(img_data)
+            
+            jpg_bytes = img_buffer.getvalue()
+            
+            width, height = pix.width, pix.height
+            pdf_document.close()
+            
+            logger.info(f'PDF转JPG成功: 尺寸={width}x{height}, 页数={page_count}, 大小={len(jpg_bytes)} bytes')
+            return jpg_bytes, width, height, page_count
+            
+        except ImportError:
+            logger.error('PyMuPDF库未安装，无法转换PDF')
+            return None, None, None, 0
+        except Exception as e:
+            logger.error(f'PDF转JPG失败: {str(e)}', exc_info=True)
+            return None, None, None, 0
+
+
+class InvoiceUploadService:
+    """发票上传服务"""
+    
+    ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
+    
+    @staticmethod
+    def validate_file(file) -> dict:
+        """
+        验证上传的文件
+        
+        Returns:
+            dict: {'valid': bool, 'error': str, 'ext': str, 'bytes': bytes}
+        """
+        if not file:
+            return {'valid': False, 'error': '请上传发票文件'}
+        
+        if file.filename == '':
+            return {'valid': False, 'error': '请选择文件'}
+        
+        if '.' not in file.filename:
+            return {'valid': False, 'error': '文件名需要包含扩展名'}
+        
+        file_ext = file.filename.rsplit('.', 1)[1].lower()
+        if file_ext not in InvoiceUploadService.ALLOWED_EXTENSIONS:
+            return {'valid': False, 'error': f'文件格式不支持，请上传 PDF、PNG、JPG 或 JPEG 格式的文件'}
+        
+        try:
+            file_bytes = file.read()
+        except Exception as e:
+            return {'valid': False, 'error': f'读取文件失败: {str(e)}'}
+        
+        return {
+            'valid': True,
+            'ext': file_ext,
+            'bytes': file_bytes,
+            'original_filename': file.filename
+        }
+    
+    @staticmethod
+    def check_duplicate(md5: str) -> dict:
+        """检查文件是否重复"""
+        from models import PurchaseRecord
+        
+        existing = PurchaseRecord.query.filter_by(
+            invoice_md5=md5,
+            is_deleted=False
+        ).first()
+        
+        if existing:
+            return {
+                'duplicate': True,
+                'uploader': existing.uploader.real_name if existing.uploader else '未知用户',
+                'upload_time': existing.created_at.strftime('%Y-%m-%d %H:%M') if existing.created_at else '未知时间'
+            }
+        return {'duplicate': False}
+    
+    @staticmethod
+    def upload_to_storage(file_bytes: bytes, file_key: str, content_type: str = None) -> bool:
+        """上传文件到对象存储"""
+        if cos_manager.is_available():
+            try:
+                extra_args = {}
+                if content_type:
+                    extra_args['ContentType'] = content_type
+                
+                cos_manager.client.put_object(
+                    Bucket=cos_manager.bucket,
+                    Body=file_bytes,
+                    Key=file_key,
+                    EnableMD5=False,
+                    **extra_args
+                )
+                logger.info(f'文件上传到COS成功: {file_key}')
+                return True
+            except Exception as e:
+                logger.error(f'COS上传失败: {str(e)}', exc_info=True)
+                return False
+        else:
+            logger.warning('COS服务不可用，无法上传')
+            return False
+    
+    @staticmethod
+    def save_to_local(file_bytes: bytes, filename: str, uploads_dir: str) -> bool:
+        """保存文件到本地存储"""
+        try:
+            if not os.path.exists(uploads_dir):
+                os.makedirs(uploads_dir)
+            
+            local_path = os.path.join(uploads_dir, filename)
+            with open(local_path, 'wb') as f:
+                f.write(file_bytes)
+            
+            logger.info(f'文件保存到本地成功: {local_path}')
+            return True
+        except Exception as e:
+            logger.error(f'本地保存失败: {str(e)}', exc_info=True)
+            return False
+
 
 @parse_bp.route('/upload-file', methods=['POST', 'OPTIONS'])
 @cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
@@ -30,259 +196,196 @@ def upload_file():
         return jsonify({'code': 401, 'message': '请先登录', 'data': None}), 401
     
     logger.info('=== 文件上传请求（不解析）===')
-    try:
-        
-        if 'file' not in request.files:
-            logger.warning('请求中没有文件')
-            return jsonify({'code': 400, 'message': '请上传文件', 'data': None}), 400
-        
-        file = request.files['file']
-        logger.info(f'收到文件: {file.filename}')
-        
-        if file.filename == '':
-            logger.warning('文件名为空')
-            return jsonify({'code': 400, 'message': '请选择文件', 'data': None}), 400
-        
-        allowed_extensions = {'pdf', 'png', 'jpg', 'jpeg'}
-        
-        if '.' not in file.filename:
-            logger.warning(f'文件名没有扩展名: {file.filename}')
-            return jsonify({'code': 400, 'message': '文件名需要包含扩展名', 'data': None}), 400
-        
-        file_ext = file.filename.rsplit('.', 1)[1].lower()
-        logger.info(f'文件扩展名: {file_ext}')
-        
-        if file_ext not in allowed_extensions:
-            logger.warning(f'不支持的文件格式: {file_ext}')
-            return jsonify({'code': 400, 'message': f'文件格式不支持，请上传 PDF、PNG、JPG 或 JPEG 格式', 'data': None}), 400
-        
-        file_bytes = file.read()
-        logger.info(f'文件大小: {len(file_bytes)} bytes')
-        
-        unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
-        cos_path = f"uploads/{unique_filename}"
-        
-        image_url = None
-        preview_url = None
-        
-        try:
-            if cos_manager.is_available():
-                logger.info('COS服务可用，开始上传')
-                image_url = cos_manager.upload_bytes(file_bytes, cos_path)
-                logger.info(f'文件上传成功: {image_url}')
-                
-                if file_ext in ['png', 'jpg', 'jpeg']:
-                    preview_url = image_url
-                elif file_ext == 'pdf':
-                    preview_url = cos_manager.get_preview_url(cos_path)
-            else:
-                logger.warning('COS服务不可用')
-                image_url = f'/uploads/{unique_filename}'
-        except Exception as e:
-            logger.error(f'COS上传失败: {str(e)}', exc_info=True)
-            image_url = f'/uploads/{unique_filename}'
-        
-        file_md5 = None
-        try:
-            import hashlib
-            file_md5 = hashlib.md5(file_bytes).hexdigest()
-        except Exception as e:
-            logger.warning(f'计算MD5失败: {str(e)}')
-        
-        logger.info(f'上传完成，返回URL: {image_url}')
-        
-        return jsonify({
-            'code': 200,
-            'message': '上传成功',
-            'data': {
-                'image_url': image_url,
-                'preview_url': preview_url,
-                'file_md5': file_md5
-            }
-        }), 200
-        
-    except Exception as e:
-        logger.error(f'文件上传异常: {str(e)}', exc_info=True)
-        return jsonify({'code': 500, 'message': f'上传失败: {str(e)}', 'data': None}), 500
+    
+    if 'file' not in request.files:
+        return jsonify({'code': 400, 'message': '请上传文件', 'data': None}), 400
+    
+    file = request.files['file']
+    validation = InvoiceUploadService.validate_file(file)
+    
+    if not validation['valid']:
+        return jsonify({'code': 400, 'message': validation['error'], 'data': None}), 400
+    
+    file_bytes = validation['bytes']
+    file_ext = validation['ext']
+    original_filename = validation['original_filename']
+    
+    logger.info(f'收到文件: {original_filename}, 大小: {len(file_bytes)} bytes, 格式: {file_ext}')
+    
+    unique_id = uuid.uuid4().hex
+    file_key = f"invoices/{unique_id}.{file_ext}"
+    
+    content_type_map = {
+        'pdf': 'application/pdf',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg'
+    }
+    
+    if cos_manager.is_available():
+        success = InvoiceUploadService.upload_to_storage(
+            file_bytes, 
+            file_key, 
+            content_type_map.get(file_ext)
+        )
+        if not success:
+            return jsonify({'code': 500, 'message': '文件上传失败', 'data': None}), 500
+    else:
+        uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+        local_filename = f"{unique_id}.{file_ext}"
+        if not InvoiceUploadService.save_to_local(file_bytes, local_filename, uploads_dir):
+            return jsonify({'code': 500, 'message': '文件保存失败', 'data': None}), 500
+        file_key = f"/uploads/{local_filename}"
+    
+    file_md5 = hashlib.md5(file_bytes).hexdigest()
+    
+    preview_url = None
+    if cos_manager.is_available() and file_key.startswith('invoices/'):
+        preview_url = cos_manager.get_presigned_url(file_key, expires=3600 * 24)
+    elif file_key.startswith('/uploads/'):
+        preview_url = file_key
+    
+    return jsonify({
+        'code': 200,
+        'message': '上传成功',
+        'data': {
+            'image_url': preview_url,
+            'file_key': file_key,
+            'preview_url': preview_url,
+            'file_md5': file_md5,
+            'original_filename': original_filename,
+            'file_type': file_ext
+        }
+    }), 200
+
 
 @parse_bp.route('/parse-invoice', methods=['POST'])
 @jwt_required()
 def parse_invoice():
     logger.info('=== 发票解析请求 ===')
+    
     try:
         current_user_id = get_jwt_identity()
         logger.info(f'当前用户ID: {current_user_id}')
-        
+    except Exception as e:
+        logger.warning(f'JWT验证失败: {str(e)}')
+        return jsonify({'code': 401, 'message': '请先登录', 'data': None}), 401
+    
+    try:
         if 'file' not in request.files:
-            logger.warning('未上传文件')
-            return jsonify({
-                'code': 400,
-                'message': '请上传发票文件',
-                'data': None
-            }), 400
+            return jsonify({'code': 400, 'message': '请上传发票文件', 'data': None}), 400
         
         file = request.files['file']
-        if file.filename == '':
-            logger.warning('文件名为空')
-            return jsonify({
-                'code': 400,
-                'message': '请选择文件',
-                'data': None
-            }), 400
+        validation = InvoiceUploadService.validate_file(file)
         
-        allowed_extensions = {'pdf', 'png', 'jpg', 'jpeg'}
-        file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-        if file_ext not in allowed_extensions:
-            logger.warning(f'文件格式不支持: {file_ext}')
-            return jsonify({
-                'code': 400,
-                'message': f'文件格式不支持，请上传 PDF、PNG、JPG 或 JPEG 格式的文件',
-                'data': None
-            }), 400
+        if not validation['valid']:
+            return jsonify({'code': 400, 'message': validation['error'], 'data': None}), 400
         
-        file_bytes = file.read()
-        logger.info(f'文件大小: {len(file_bytes)} bytes, 格式: {file_ext}')
+        file_bytes = validation['bytes']
+        file_ext = validation['ext']
+        original_filename = validation['original_filename']
         
-        # 计算原始文件的MD5值（用于重复检测）
-        import hashlib
+        logger.info(f'文件: {original_filename}, 大小: {len(file_bytes)} bytes, 格式: {file_ext}')
+        
         original_md5 = hashlib.md5(file_bytes).hexdigest()
         
-        # 检查是否存在相同MD5的文件（防止重复上传）
-        from models import PurchaseRecord, Voucher
-        existing_record = PurchaseRecord.query.filter_by(
-            invoice_md5=original_md5,
-            is_deleted=False
-        ).first()
-        
-        if existing_record:
+        duplicate_check = InvoiceUploadService.check_duplicate(original_md5)
+        if duplicate_check['duplicate']:
             logger.warning(f'检测到重复发票文件，MD5: {original_md5}')
             return jsonify({
                 'code': 409,
-                'message': f'该发票文件已存在（由{existing_record.uploader.real_name if existing_record.uploader else "未知用户"}于{existing_record.created_at.strftime("%Y-%m-%d %H:%M")}上传）',
+                'message': f'该发票文件已存在（由{duplicate_check["uploader"]}于{duplicate_check["upload_time"]}上传）',
                 'data': {
                     'duplicate': True,
-                    'original_uploader': existing_record.uploader.real_name if existing_record.uploader else None,
-                    'upload_time': existing_record.created_at.isoformat() if existing_record.created_at else None
+                    'original_uploader': duplicate_check['uploader'],
+                    'upload_time': duplicate_check['upload_time']
                 }
             }), 409
         
-        # 处理PDF转图片逻辑
-        image_bytes_for_ai = file_bytes
-        preview_image_bytes = file_bytes
-        converted_from_pdf = False
+        unique_id = uuid.uuid4().hex
         
-        if file_ext == 'pdf':
-            logger.info('检测到PDF文件，开始转换为图片...')
-            try:
-                import fitz
-                import io
-                
-                pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
-                
-                if len(pdf_document) > 0:
-                    page = pdf_document[0]
-                    
-                    # 设置高分辨率以保证GLM识别质量
-                    mat = fitz.Matrix(2.0, 2.0)
-                    pix = page.get_pixmap(matrix=mat)
-                    
-                    # 转换为PNG格式的图片字节
-                    img_buffer = io.BytesIO()
-                    pix.save(img_buffer, format='PNG')
-                    image_bytes_for_ai = img_buffer.getvalue()
-                    preview_image_bytes = img_buffer.getvalue()
-                    
-                    converted_from_pdf = True
-                    logger.info(f'PDF成功转换为图片，尺寸: {pix.width}x{pix.height}, 大小: {len(image_bytes_for_ai)} bytes')
-                    
-                    # 更新文件扩展名为png用于存储
-                    file_ext = 'png'
-                    
-                pdf_document.close()
-                
-            except ImportError:
-                logger.warning('PyMuPDF库未安装，PDF将直接处理')
-            except Exception as e:
-                logger.error(f'PDF转图片失败: {str(e)}，将继续使用原始文件')
+        is_pdf = file_ext == 'pdf'
+        jpg_bytes = None
+        pdf_page_count = 0
         
-        unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
-        cos_path = f"uploads/{unique_filename}"
+        if is_pdf:
+            logger.info('检测到PDF文件，开始服务端转换...')
+            jpg_bytes, jpg_width, jpg_height, pdf_page_count = PDFConverter.convert_pdf_to_jpg(file_bytes)
+            
+            if jpg_bytes is None:
+                logger.error('PDF转换失败')
+                return jsonify({
+                    'code': 500,
+                    'message': 'PDF文件转换失败，请确保上传的是有效的PDF文件',
+                    'data': None
+                }), 500
         
-        image_url = None
-        preview_url = None
+        invoice_file_key = f"invoices/{unique_id}.{file_ext}"
+        preview_file_key = None
         
-        # 上传原始文件或转换后的图片到COS
-        upload_bytes = preview_image_bytes if converted_from_pdf else file_bytes
+        content_type_map = {
+            'pdf': 'application/pdf',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg'
+        }
         
         if cos_manager.is_available():
-            try:
-                image_url = cos_manager.upload_bytes(upload_bytes, cos_path)
-                logger.info(f'文件上传成功: {image_url}')
+            upload_success = InvoiceUploadService.upload_to_storage(
+                file_bytes,
+                invoice_file_key,
+                content_type_map.get(file_ext)
+            )
+            
+            if not upload_success:
+                return jsonify({
+                    'code': 500,
+                    'message': '发票文件上传失败',
+                    'data': None
+                }), 500
+            
+            if is_pdf and jpg_bytes:
+                preview_file_key = f"invoices/{unique_id}_preview.jpg"
+                preview_success = InvoiceUploadService.upload_to_storage(
+                    jpg_bytes,
+                    preview_file_key,
+                    'image/jpeg'
+                )
                 
-                # 如果是图片格式，直接作为预览URL
-                if file_ext in ['png', 'jpg', 'jpeg']:
-                    preview_url = image_url
-                elif converted_from_pdf:
-                    # PDF已转换为图片，使用同一个URL
-                    preview_url = image_url
-                    
-            except Exception as e:
-                logger.error(f'COS上传失败: {str(e)}')
-                # 保存到本地
-                import os
-                local_uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-                if not os.path.exists(local_uploads_dir):
-                    os.makedirs(local_uploads_dir)
-                
-                local_file_path = os.path.join(local_uploads_dir, unique_filename)
-                with open(local_file_path, 'wb') as f:
-                    f.write(upload_bytes)
-                
-                # 验证文件保存
-                saved_size = os.path.getsize(local_file_path) if os.path.exists(local_file_path) else 0
-                logger.info(f'💾 COS上传失败，已回退到本地存储: {local_file_path}')
-                logger.info(f'📊 本地文件大小: {saved_size} bytes')
-                
-                image_url = f'/uploads/{unique_filename}'
-                preview_url = image_url if converted_from_pdf else None
+                if not preview_success:
+                    logger.warning('预览图上传失败，将使用原始PDF')
+                    preview_file_key = None
+            
+            logger.info(f'文件上传成功: 原始文件={invoice_file_key}, 预览图={preview_file_key}')
         else:
-            # COS不可用，直接保存到本地
-            import os
-            local_uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-            if not os.path.exists(local_uploads_dir):
-                os.makedirs(local_uploads_dir)
+            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
             
-            local_file_path = os.path.join(local_uploads_dir, unique_filename)
-            with open(local_file_path, 'wb') as f:
-                f.write(upload_bytes)
+            local_filename = f"{unique_id}.{file_ext}"
+            if not InvoiceUploadService.save_to_local(file_bytes, local_filename, uploads_dir):
+                return jsonify({'code': 500, 'message': '文件保存失败', 'data': None}), 500
             
-            # 验证文件是否保存成功
-            saved_size = os.path.getsize(local_file_path) if os.path.exists(local_file_path) else 0
-            logger.info(f'💾 文件已保存到本地: {local_file_path}')
-            logger.info(f'📊 文件大小: {saved_size} bytes (原始: {len(upload_bytes)} bytes)')
+            invoice_file_key = f"/uploads/{local_filename}"
             
-            image_url = f'/uploads/{unique_filename}'
-            preview_url = image_url if converted_from_pdf else None
-            logger.info(f'🔗 生成的访问URL: {image_url}')
-            logger.warning(f'COS服务不可用，使用本地存储模式')
+            if is_pdf and jpg_bytes:
+                preview_filename = f"{unique_id}_preview.jpg"
+                if InvoiceUploadService.save_to_local(jpg_bytes, preview_filename, uploads_dir):
+                    preview_file_key = f"/uploads/{preview_filename}"
+            
+            logger.info(f'本地存储: 原始文件={invoice_file_key}, 预览图={preview_file_key}')
         
-        # 计算最终上传文件的MD5
-        file_md5 = hashlib.md5(upload_bytes).hexdigest() if upload_bytes else original_md5
+        image_bytes_for_ai = jpg_bytes if is_pdf else file_bytes
         
-        # 调用GLM-4.6V-Flash视觉推理模型进行发票信息提取
         parsed_info = None
-        
         if invoice_parser.is_available():
             logger.info('开始调用AI模型解析发票...')
             
-            # 使用转换后的图片进行AI识别（如果是PDF的话）
-            result = invoice_parser.parse_file(image_bytes_for_ai, f'{unique_filename}.png' if converted_from_pdf else file.filename)
+            ai_filename = f'{unique_id}.jpg' if is_pdf else original_filename
+            result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
             
             if result.get('success'):
-                logger.info('✅ AI发票解析成功')
+                logger.info('AI发票解析成功')
                 parsed_info = result.get('data')
                 
-                # 确保返回的字段符合前端需求（仅包含：商品名称、发票号码、金额、开票时间）
                 if parsed_info:
                     parsed_info = {
                         'item_name': parsed_info.get('project_name', '') or parsed_info.get('item_name', ''),
@@ -290,30 +393,112 @@ def parse_invoice():
                         'amount': parsed_info.get('total_amount', 0) or parsed_info.get('amount', 0),
                         'date': parsed_info.get('invoice_date', '')
                     }
-                    logger.info(f'标准化解析结果: {parsed_info}')
+                    logger.info(f'解析结果: {parsed_info}')
             else:
-                logger.warning(f'⚠️ AI解析失败: {result.get("message")}')
+                logger.warning(f'AI解析失败: {result.get("message")}')
         else:
-            logger.warning('AI解析服务不可用，仅返回文件URL')
+            logger.warning('AI解析服务不可用')
+        
+        preview_url = None
+        file_url = None
+        
+        if cos_manager.is_available():
+            if invoice_file_key.startswith('invoices/'):
+                file_url = cos_manager.get_presigned_url(invoice_file_key, expires=3600 * 24)
+            if preview_file_key and preview_file_key.startswith('invoices/'):
+                preview_url = cos_manager.get_presigned_url(preview_file_key, expires=3600 * 24)
+            elif not preview_file_key and invoice_file_key.startswith('invoices/'):
+                preview_url = file_url
+        else:
+            file_url = invoice_file_key
+            preview_url = preview_file_key or invoice_file_key
         
         return jsonify({
             'code': 200,
-            'message': '解析完成' if parsed_info else '文件上传成功（AI解析不可用）',
+            'message': '解析完成' if parsed_info else '文件上传成功',
             'data': {
-                'image_url': image_url,
+                'file_key': invoice_file_key,
+                'preview_key': preview_file_key,
+                'file_url': file_url,
                 'preview_url': preview_url,
-                'file_md5': file_md5,
-                'original_file_md5': original_md5,
-                'converted_from_pdf': converted_from_pdf,
+                'original_filename': original_filename,
+                'file_type': file_ext,
+                'is_pdf': is_pdf,
+                'pdf_page_count': pdf_page_count,
+                'file_md5': original_md5,
                 'parsed_info': parsed_info,
                 'extraction_method': 'glm_vision' if parsed_info else None
             }
         }), 200
-        
+    
     except Exception as e:
-        logger.error(f'发票解析异常: {str(e)}', exc_info=True)
+        logger.error(f'发票解析请求处理失败: {str(e)}', exc_info=True)
         return jsonify({
             'code': 500,
-            'message': f'解析失败: {str(e)}',
+            'message': f'服务器处理请求时发生错误: {str(e)}',
             'data': None
         }), 500
+
+
+@parse_bp.route('/invoices/<path:file_key>/preview', methods=['GET'])
+@jwt_required()
+def get_invoice_preview_url(file_key):
+    """获取发票预览图片的临时访问URL"""
+    logger.info(f'=== 获取发票预览URL: {file_key} ===')
+    
+    try:
+        current_user_id = get_jwt_identity()
+        
+        if cos_manager.is_available():
+            preview_url = cos_manager.get_presigned_url(file_key, expires=3600)
+            return jsonify({
+                'code': 200,
+                'message': 'success',
+                'data': {'preview_url': preview_url}
+            }), 200
+        else:
+            return jsonify({
+                'code': 200,
+                'message': 'success',
+                'data': {'preview_url': f'/uploads/{file_key}'}
+            }), 200
+    except Exception as e:
+        logger.error(f'获取预览URL失败: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@parse_bp.route('/invoices/<path:file_key>/download', methods=['GET'])
+@jwt_required()
+def download_invoice_file(file_key):
+    """下载原始发票文件（PDF）"""
+    logger.info(f'=== 下载发票文件: {file_key} ===')
+    
+    try:
+        current_user_id = get_jwt_identity()
+        
+        if cos_manager.is_available():
+            file_bytes = cos_manager.download_file(file_key)
+            
+            from flask import Response
+            content_type = 'application/pdf' if file_key.endswith('.pdf') else 'image/jpeg'
+            
+            return Response(
+                file_bytes,
+                mimetype=content_type,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{file_key.split("/")[-1]}"'
+                }
+            )
+        else:
+            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+            filename = file_key.replace('uploads/', '')
+            file_path = os.path.join(uploads_dir, filename)
+            
+            if not os.path.exists(file_path):
+                return jsonify({'code': 404, 'message': '文件不存在', 'data': None}), 404
+            
+            from flask import send_file
+            return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        logger.error(f'下载发票文件失败: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
