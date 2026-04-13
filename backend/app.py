@@ -45,6 +45,7 @@ def create_app():
     from routes.invitation_codes import invitation_codes_bp
     from routes.vouchers import vouchers_bp
     from routes.purchase_records import purchase_records_bp
+    from routes.export import export_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(events_bp, url_prefix='/api')
@@ -53,6 +54,7 @@ def create_app():
     app.register_blueprint(invitation_codes_bp, url_prefix='/api')
     app.register_blueprint(vouchers_bp, url_prefix='/api')
     app.register_blueprint(purchase_records_bp, url_prefix='/api')
+    app.register_blueprint(export_bp, url_prefix='/api')
     logger.info('蓝图注册完成')
     
     # 配置静态文件服务（用于本地文件访问）

@@ -17,7 +17,7 @@
           <div class="action-buttons">
             <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 发票</button>
             <button @click="toggleEventStatus(event)" v-if="event.status === 'ongoing'" class="action-btn end-btn">⏹ 结束</button>
-            <button @click="showAddMemberModal(event)" class="action-btn member-btn">👥 添加人员</button>
+            <button @click="openAddMemberModal(event)" class="action-btn member-btn">👥 添加人员</button>
             <button @click="viewMembers(event)" class="action-btn view-btn">📋 查看人员</button>
             <button @click="editEvent(event)" class="edit-button">编辑</button>
             <button @click="confirmDelete(event)" class="delete-button">删除</button>
@@ -182,6 +182,13 @@
               </div>
             </div>
           </div>
+          <div class="form-group">
+            <label>是否需要审核发票</label>
+            <div class="checkbox-group">
+              <input type="checkbox" id="need_invoice_review" v-model="editForm.need_invoice_review" />
+              <label for="need_invoice_review">需要审核发票</label>
+            </div>
+          </div>
           <div class="modal-footer">
             <button type="button" @click="showEditModal = false" class="cancel-button">取消</button>
             <button type="submit" class="submit-button" :disabled="updating">
@@ -210,6 +217,63 @@
           <button type="button" @click="showDeleteModal = false" class="cancel-button">取消</button>
           <button type="button" @click="deleteEvent" class="delete-confirm-button" :disabled="deleting">
             {{ deleting ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加人员弹窗 -->
+    <div v-if="showAddMemberModal" class="modal-overlay" @click.self="showAddMemberModal = false">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>添加成员 - {{ currentEvent?.event_name }}</h2>
+          <button @click="showAddMemberModal = false" class="close-button">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>搜索用户</label>
+            <div class="autocomplete-wrapper">
+              <input
+                v-model="memberSearch"
+                type="text"
+                placeholder="输入用户名或真实姓名"
+                @input="searchUsersForMember"
+                @focus="showMemberDropdown = true"
+              />
+              <div v-if="showMemberDropdown && filteredMembers.length > 0" class="dropdown">
+                <div
+                  v-for="user in filteredMembers"
+                  :key="user.user_id"
+                  class="dropdown-item"
+                  @click="selectMember(user)"
+                >
+                  {{ user.real_name }} ({{ user.username }}) - {{ getUserTypeText(user.user_type) }}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="selectedMember" class="selected-member">
+            <div class="member-info">
+              <img :src="selectedMember.avatar_url || '/default-avatar.png'" class="avatar-sm" />
+              <div>
+                <strong>{{ selectedMember.real_name }}</strong>
+                <span class="user-type">{{ getUserTypeText(selectedMember.user_type) }}</span>
+              </div>
+            </div>
+            <button @click="selectedMember = null" class="remove-button">移除</button>
+          </div>
+          <div class="form-group">
+            <label>角色</label>
+            <select v-model="memberRole">
+              <option value="member">成员</option>
+              <option value="admin">管理员</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" @click="showAddMemberModal = false" class="cancel-button">取消</button>
+          <button type="button" @click="addMember" class="submit-button" :disabled="!selectedMember || addingMember">
+            {{ addingMember ? '添加中...' : '添加' }}
           </button>
         </div>
       </div>
@@ -246,12 +310,23 @@ const editForm = ref({
   upload_start_time: '',
   upload_end_time: '',
   total_budget: 0,
-  leader_id: null
+  leader_id: null,
+  need_invoice_review: true
 })
 
 const leaderSearch = ref('')
 const filteredUsers = ref([])
 const showLeaderDropdown = ref(false)
+
+// 添加人员相关变量
+const showAddMemberModal = ref(false)
+const currentEvent = ref(null)
+const memberSearch = ref('')
+const filteredMembers = ref([])
+const showMemberDropdown = ref(false)
+const selectedMember = ref(null)
+const memberRole = ref('member')
+const addingMember = ref(false)
 
 onMounted(async () => {
   console.log('=== 项目管理：页面加载 ===')
@@ -321,7 +396,8 @@ const editEvent = (event) => {
     upload_start_time: formatDateTimeLocal(event.upload_start_time),
     upload_end_time: formatDateTimeLocal(event.upload_end_time),
     total_budget: parseFloat(event.total_budget),
-    leader_id: event.leader_id
+    leader_id: event.leader_id,
+    need_invoice_review: event.need_invoice_review !== undefined ? event.need_invoice_review : true
   }
   leaderSearch.value = ''
   showEditModal.value = true
@@ -414,12 +490,75 @@ const toggleEventStatus = async (event) => {
   }
 }
 
-const showAddMemberModal = (event) => {
-  alert(`添加人员功能 - 比赛: ${event.event_name}`)
-}
-
 const viewMembers = (event) => {
   navigateTo(`/events/${event.event_id}/members`)
+}
+
+const openAddMemberModal = (event) => {
+  currentEvent.value = event
+  memberSearch.value = ''
+  filteredMembers.value = []
+  selectedMember.value = null
+  memberRole.value = 'member'
+  showAddMemberModal.value = true
+}
+
+const searchUsersForMember = async () => {
+  if (!memberSearch.value) {
+    filteredMembers.value = []
+    return
+  }
+  
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.get(`/auth/users?search=${memberSearch.value}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    if (response.data.code === 200) {
+      filteredMembers.value = response.data.data
+    }
+  } catch (error) {
+    console.error('搜索用户失败:', error)
+  }
+}
+
+const selectMember = (user) => {
+  selectedMember.value = user
+  memberSearch.value = user.real_name
+  showMemberDropdown.value = false
+}
+
+const addMember = async () => {
+  if (!selectedMember.value || !currentEvent.value) return
+  
+  addingMember.value = true
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.post(`/events/${currentEvent.value.event_id}/members`, {
+      user_id: selectedMember.value.user_id,
+      role_in_event: memberRole.value
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    
+    if (response.data.code === 200) {
+      alert('添加成员成功')
+      showAddMemberModal.value = false
+      // 刷新成员列表
+      await loadEvents(true)
+    }
+  } catch (error) {
+    console.error('添加成员失败:', error)
+    alert('添加成员失败，请稍后重试')
+  } finally {
+    addingMember.value = false
+  }
+}
+
+const getUserTypeText = (type) => {
+  const map = { admin: '管理员', teacher: '老师', student_admin: '学生管理员', student: '学生' }
+  return map[type] || type
 }
 
 const formatMoney = (value) => {
@@ -936,5 +1075,69 @@ const deleteEvent = async () => {
   background: linear-gradient(90deg, #9b59b6, #8e44ad);
   border-radius: 2px;
   transition: width 0.4s ease;
+}
+
+/* 添加成员相关样式 */
+.selected-member {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  margin: 1rem 0;
+  border: 1px solid #e9ecef;
+}
+
+.member-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar-sm {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.user-type {
+  font-size: 12px;
+  color: #6c757d;
+  margin-left: 8px;
+}
+
+.remove-button {
+  padding: 6px 12px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.remove-button:hover {
+  background: #c82333;
+}
+
+/* Checkbox group styles */
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.checkbox-group label {
+  margin: 0;
+  cursor: pointer;
+  font-weight: normal;
 }
 </style>

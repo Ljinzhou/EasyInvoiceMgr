@@ -133,6 +133,11 @@ def create_purchase_record(event_id):
         
         has_invoice = bool(data.get('invoice_file_key'))
         
+        # 检查赛事是否需要发票审核
+        need_review = event.need_invoice_review if event else True
+        # 如果不需要审核，直接设置为已通过状态
+        status = 'approved' if not need_review else 'pending'
+        
         record = PurchaseRecord(
             event_id=event_id,
             uploader_id=current_user_id,
@@ -152,6 +157,7 @@ def create_purchase_record(event_id):
             invoice_number=data.get('invoice_number'),
             total_amount=float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0,
             invoice_date=datetime.strptime(data['invoice_date'], '%Y-%m-%d').date() if data.get('invoice_date') else None,
+            status=status,
             remarks=data.get('remarks')
         )
         

@@ -2,8 +2,8 @@ from flask import Blueprint, request, jsonify, make_response
 from flask_cors import cross_origin
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
-from models import db, User
-from datetime import datetime
+from models import db, User, InvitationCode
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,29 @@ def register():
         data = request.get_json()
         logger.info(f'注册用户名: {data.get("username")}')
         
+        # 验证邀请码
+        invitation_code = data.get('invitation_code')
+        if invitation_code:
+            logger.info(f'验证邀请码: {invitation_code}')
+            code_obj = InvitationCode.query.filter_by(code=invitation_code).first()
+            
+            if not code_obj:
+                return jsonify({'code': 400, 'message': '邀请码不存在', 'data': None}), 400
+            
+            if not code_obj.is_active:
+                return jsonify({'code': 400, 'message': '邀请码已被禁用', 'data': None}), 400
+            
+            if code_obj.expires_at < datetime.now(timezone.utc):
+                return jsonify({'code': 400, 'message': '邀请码已过期', 'data': None}), 400
+            
+            if code_obj.max_uses > 0 and code_obj.used_count >= code_obj.max_uses:
+                return jsonify({'code': 400, 'message': '邀请码使用次数已达上限', 'data': None}), 400
+            
+            # 验证用户类型
+            user_type = data.get('user_type', 'student')
+            if user_type != code_obj.target_user_type:
+                return jsonify({'code': 400, 'message': f'邀请码只能用于注册{code_obj.target_user_type}类型的账户', 'data': None}), 400
+        
         if User.query.filter_by(username=data['username']).first():
             logger.warning(f'用户名已存在: {data["username"]}')
             return jsonify({'code': 1001, 'message': '用户名已存在', 'data': None}), 400
@@ -43,6 +66,12 @@ def register():
         )
         
         db.session.add(user)
+        
+        # 更新邀请码使用次数
+        if invitation_code and code_obj:
+            code_obj.used_count += 1
+            logger.info(f'邀请码使用次数更新: {code_obj.code}, 新次数: {code_obj.used_count}')
+        
         db.session.commit()
         logger.info(f'用户注册成功: {user.username} (ID: {user.user_id})')
         
@@ -125,23 +154,27 @@ def get_users():
     try:
         search = request.args.get('search', '')
         user_type = request.args.get('user_type')
-        logger.info(f'搜索参数: search={search}, user_type={user_type}')
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 10, type=int)
+        logger.info(f'搜索参数: search={search}, user_type={user_type}, page={page}, page_size={page_size}')
         
-        query = User.query.filter_by(is_deleted=False, account_status='active')
+        query = User.query.filter_by(is_deleted=False)
         
         if search:
             query = query.filter(
                 db.or_(
                     User.username.ilike(f'%{search}%'),
-                    User.real_name.ilike(f'%{search}%')
+                    User.real_name.ilike(f'%{search}%'),
+                    User.email.ilike(f'%{search}%')
                 )
             )
         
         if user_type:
             query = query.filter_by(user_type=user_type)
         
-        users = query.limit(20).all()
-        logger.info(f'查询到 {len(users)} 个用户')
+        total = query.count()
+        users = query.order_by(User.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False).items
+        logger.info(f'查询到 {len(users)} 个用户，总共 {total} 个用户')
         
         users_data = []
         for user in users:
@@ -152,14 +185,22 @@ def get_users():
                 'email': user.email,
                 'phone': user.phone,
                 'user_type': user.user_type,
-                'student_or_staff_id': user.student_or_staff_id
+                'student_or_staff_id': user.student_or_staff_id,
+                'account_status': user.account_status,
+                'register_time': user.register_time.isoformat() if user.register_time else None,
+                'avatar_url': user.avatar_url
             })
         
         logger.info('用户列表返回成功')
         return jsonify({
             'code': 200,
             'message': 'success',
-            'data': users_data
+            'data': {
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'data': users_data
+            }
         }), 200
         
     except Exception as e:
