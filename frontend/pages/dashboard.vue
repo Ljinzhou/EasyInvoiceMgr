@@ -128,10 +128,7 @@ const stats = ref({
 
 const recentEvents = ref([])
 
-const currentUser = computed(() => {
-  const userStr = localStorage.getItem('user')
-  return userStr ? JSON.parse(userStr) : null
-})
+const currentUser = ref(null)
 
 const canManageUsers = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
@@ -149,6 +146,9 @@ onMounted(async () => {
     navigateTo('/login')
     return
   }
+
+  const userStr = localStorage.getItem('user')
+  currentUser.value = userStr ? JSON.parse(userStr) : null
   
   cacheStore.restoreFromLocalStorage()
   

@@ -182,37 +182,33 @@
                   </div>
                   <div v-else class="file-preview file-doc">
                     <span class="file-icon">📄</span>
-                    <span class="file-name">{{ form.invoice_name || '发票文件' }}</span>
+                    <span class="file-name">{{ form.invoice_original_filename || '发票文件' }}</span>
                     <button type="button" @click.stop="removeInvoice" class="remove-btn" title="移除">🗑</button>
                   </div>
                 </div>
 
-                <div v-if="form.invoice_url" class="invoice-details">
+                <div v-if="form.invoice_file_key" class="invoice-details">
                   <p class="detail-note">以下信息由系统自动提取或手动填写：</p>
                   
-                  <!-- 发票图片预览（可点击放大） -->
-                  <div v-if="form.invoice_preview_url || form.invoice_url" class="invoice-image-preview">
+                  <div v-if="form._preview_display_url || form.invoice_file_key" class="invoice-image-preview">
                     <h4>📄 发票图片预览</h4>
                     <div class="image-container">
-                      <!-- 加载状态 -->
                       <div v-if="invoiceImageLoading" class="image-loading">
                         <div class="loading-spinner"></div>
                         <p>图片加载中...</p>
                       </div>
                       
-                      <!-- 图片正常显示 -->
                       <img 
                         v-else-if="!imageLoadingError"
-                        :src="getFullImageUrl(form.invoice_preview_url || form.invoice_url)" 
+                        :src="getFullImageUrl(form._preview_display_url)" 
                         class="invoice-thumbnail"
                         @load="onInvoiceImageLoad"
                         @error="onInvoiceImageError"
-                        @click="showImageModal(form.invoice_preview_url || form.invoice_url)"
+                        @click="showImageModal(form._preview_display_url)"
                         title="点击查看大图"
-                        :alt="form.invoice_name || '发票图片'"
+                        :alt="form.invoice_original_filename || '发票图片'"
                       />
                       
-                      <!-- 图片加载失败 -->
                       <div v-else class="image-error">
                         <span class="error-icon">❌</span>
                         <p>图片加载失败</p>
@@ -428,20 +424,19 @@ const form = ref({
   receipt_image_name: '',
   receipt_file_md5: '',
   has_invoice: false,
-  invoice_url: '',
-  invoice_name: '',
+  invoice_file_key: '',
+  invoice_preview_key: '',
+  invoice_original_filename: '',
   invoice_md5: '',
-  invoice_preview_url: '',
+  _preview_display_url: '',
+  _is_pdf: false,
   item_name_from_invoice: '',
   invoice_number: '',
   total_amount: null,
   invoice_date: ''
 })
 
-const currentUser = computed(() => {
-  const userStr = localStorage.getItem('user')
-  return userStr ? JSON.parse(userStr) : null
-})
+const currentUser = ref(null)
 
 const canReview = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
@@ -459,6 +454,9 @@ const selectAll = computed({
 })
 
 onMounted(async () => {
+  const userStr = localStorage.getItem('user')
+  currentUser.value = userStr ? JSON.parse(userStr) : null
+  
   await loadEvent()
   await loadRecords()
 })
@@ -574,8 +572,12 @@ const editRecord = (record) => {
     receipt_image_url: record.receipt_image_url,
     receipt_image_name: record.receipt_image_name,
     has_invoice: record.has_invoice,
-    invoice_url: record.invoice_url || '',
-    invoice_name: record.invoice_name || '',
+    invoice_file_key: record.invoice_file_key || '',
+    invoice_preview_key: record.invoice_preview_key || '',
+    invoice_original_filename: record.invoice_original_filename || '',
+    invoice_md5: record.invoice_md5 || '',
+    _preview_display_url: record.invoice_preview_url || record.invoice_url || '',
+    _is_pdf: record.invoice_file_key?.endsWith('.pdf') || false,
     item_name_from_invoice: record.item_name_from_invoice || '',
     invoice_number: record.invoice_number || '',
     total_amount: record.total_amount || null,
@@ -601,10 +603,12 @@ const resetForm = () => {
     receipt_image_name: '',
     receipt_file_md5: '',
     has_invoice: false,
-    invoice_url: '',
-    invoice_name: '',
+    invoice_file_key: '',
+    invoice_preview_key: '',
+    invoice_original_filename: '',
     invoice_md5: '',
-    invoice_preview_url: '',
+    _preview_display_url: '',
+    _is_pdf: false,
     item_name_from_invoice: '',
     invoice_number: '',
     total_amount: null,
@@ -691,7 +695,6 @@ const handleInvoiceUpload = async (e) => {
       timeout: 120000
     })
     
-    // 处理重复文件检测（HTTP 409）
     if (response.status === 409 || response.data.code === 409) {
       const data = response.data.data
       alert(`⚠️ 检测到重复发票！\n\n该文件已由 ${data.original_uploader || '未知用户'} 于 ${data.upload_time ? new Date(data.upload_time).toLocaleString('zh-CN') : '未知时间'} 上传过。\n\n请勿重复上传相同发票文件。`)
@@ -702,23 +705,17 @@ const handleInvoiceUpload = async (e) => {
     if (response.data.code === 200) {
       const data = response.data.data
       
-      // 重置图片加载状态
       invoiceImageLoading.value = true
       imageLoadingError.value = false
       
-      form.value.invoice_url = data.image_url
-      form.value.invoice_name = file.name
+      form.value.invoice_file_key = data.file_key
+      form.value.invoice_preview_key = data.preview_key
+      form.value.invoice_original_filename = data.original_filename || file.name
       form.value.invoice_md5 = data.file_md5
+      form.value._is_pdf = data.is_pdf
       
-      // 设置预览图片URL（PDF已转换为图片或原始图片）
-      if (data.preview_url) {
-        form.value.invoice_preview_url = data.preview_url
-      } else if (data.converted_from_pdf && data.image_url) {
-        // PDF转换后的图片使用image_url作为预览
-        form.value.invoice_preview_url = data.image_url
-      }
+      form.value._preview_display_url = data.preview_url || data.file_url
       
-      // 设置超时，如果3秒后仍未加载完成，取消loading状态
       setTimeout(() => {
         if (invoiceImageLoading.value) {
           console.log('图片加载超时，可能需要检查网络或文件路径')
@@ -726,11 +723,9 @@ const handleInvoiceUpload = async (e) => {
         }
       }, 3000)
       
-      // 处理AI解析结果（GLM-4.6V-Flash视觉模型）
       if (data.parsed_info) {
         const info = data.parsed_info
         
-        // 构建解析结果显示对象（仅提取关键字段：商品名称、发票号码、金额、开票时间）
         invoiceParseResult.value = {
           item_name: info.item_name || '',
           invoice_number: info.invoice_number || '',
@@ -738,7 +733,6 @@ const handleInvoiceUpload = async (e) => {
           date: info.date || ''
         }
         
-        // 自动填充表单字段
         if (info.item_name) form.value.item_name_from_invoice = info.item_name
         if (info.invoice_number) form.value.invoice_number = info.invoice_number
         if (info.amount) form.value.total_amount = parseFloat(info.amount)
@@ -746,13 +740,11 @@ const handleInvoiceUpload = async (e) => {
         
         parseApplied.value = true
         
-        // 触发alert提示
-        const sourceType = data.converted_from_pdf ? 'PDF文件（已自动转换为图片）' : '图片文件'
+        const sourceType = data.is_pdf ? 'PDF文件（已自动转换为图片预览）' : '图片文件'
         alert(`✅ 发票解析完成！\n\n📁 文件类型: ${sourceType}\n🤖 AI模型: GLM-4.6V-Flash\n\n请查看下方解析结果并应用到表单`)
       } else {
-        // 文件上传成功但AI解析失败或不可用
-        if (data.converted_from_pdf) {
-          alert(`📄 PDF文件上传成功并已转换为图片\n\n⚠️ AI解析暂时不可用，您可以：\n1. 手动填写发票信息\n2. 点击"重新解析"按钮重试`)
+        if (data.is_pdf) {
+          alert(`📄 PDF文件上传成功并已转换为图片预览\n\n⚠️ AI解析暂时不可用，您可以：\n1. 手动填写发票信息\n2. 点击"重新解析"按钮重试`)
         }
       }
     } else {
@@ -777,10 +769,13 @@ const removeReceipt = () => {
 }
 
 const removeInvoice = () => {
-  form.value.invoice_url = ''
-  form.value.invoice_name = ''
+  form.value.invoice_file_key = ''
+  form.value.invoice_preview_key = ''
+  form.value.invoice_original_filename = ''
   form.value.invoice_md5 = ''
-  form.value.invoice_preview_url = ''
+  form.value._preview_display_url = ''
+  form.value._is_pdf = false
+  form.value.has_invoice = false
   invoiceParseResult.value = null
   parseApplied.value = false
 }
@@ -855,15 +850,12 @@ const retryLoadImage = () => {
   imageLoadingError.value = false
   invoiceImageLoading.value = true
   
-  // 强制重新加载图片（通过修改src触发）
-  const currentUrl = form.value.invoice_preview_url || form.value.invoice_url
+  const currentUrl = form.value._preview_display_url || form.value.invoice_preview_url || form.value.invoice_url
   if (currentUrl) {
-    // 添加时间戳参数强制刷新
     const timestamp = Date.now()
     const separator = currentUrl.includes('?') ? '&' : '?'
-    form.value.invoice_preview_url = `${currentUrl}${separator}_t=${timestamp}`
+    form.value._preview_display_url = `${currentUrl}${separator}_t=${timestamp}`
     
-    // 短暂延迟后重置状态
     setTimeout(() => {
       invoiceImageLoading.value = false
     }, 100)
@@ -935,6 +927,8 @@ const saveRecord = async () => {
   try {
     const token = localStorage.getItem('token')
     const payload = { ...form.value }
+    delete payload._preview_display_url
+    delete payload._is_pdf
     
     let response
     

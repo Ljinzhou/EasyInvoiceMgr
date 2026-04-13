@@ -160,10 +160,10 @@ class PurchaseRecord(db.Model):
     receipt_file_md5 = db.Column(db.String(64))
     
     has_invoice = db.Column(db.Boolean, default=False)
-    invoice_url = db.Column(db.Text)
-    invoice_name = db.Column(db.String(255))
+    invoice_file_key = db.Column(db.Text)
+    invoice_preview_key = db.Column(db.Text)
+    invoice_original_filename = db.Column(db.String(255))
     invoice_md5 = db.Column(db.String(64))
-    invoice_preview_url = db.Column(db.Text)
     invoice_type = db.Column(db.String(50))
     invoice_number = db.Column(db.String(50))
     total_amount = db.Column(db.Numeric(12, 2), default=0.00)
