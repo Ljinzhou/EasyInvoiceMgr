@@ -43,7 +43,7 @@
         <button @click="resetFilters" class="reset-btn">重置</button>
       </div>
       <div class="filter-grid">
-        <div class="filter-group">
+        <div class="filter-group filter-group-span-2">
           <label>日期范围</label>
           <div class="date-range">
             <input v-model="filters.startDate" type="date" placeholder="开始日期" />
@@ -51,7 +51,7 @@
             <input v-model="filters.endDate" type="date" placeholder="结束日期" />
           </div>
         </div>
-        <div class="filter-group">
+        <div class="filter-group filter-group-span-2">
           <label>金额范围</label>
           <div class="amount-range">
             <input v-model.number="filters.minAmount" type="number" step="0.01" min="0" placeholder="最小金额" />
@@ -1441,7 +1441,7 @@ const formatMoney = (val) => {
 
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
   margin-bottom: 1.2rem;
 }
@@ -1450,6 +1450,10 @@ const formatMoney = (val) => {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+
+.filter-group-span-2 {
+  grid-column: span 2;
 }
 
 .filter-group label {
@@ -1520,6 +1524,10 @@ const formatMoney = (val) => {
 @media (max-width: 768px) {
   .filter-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .filter-group-span-2 {
+    grid-column: span 1;
   }
   
   .date-range,

@@ -5,13 +5,6 @@
       <div class="header-actions">
         <button 
           v-if="canManageUsers" 
-          @click="showInviteModal = true" 
-          class="action-button invite"
-        >
-          🎫 生成邀请码
-        </button>
-        <button 
-          v-if="canManageUsers" 
           @click="showAddModal = true" 
           class="action-button primary"
         >
@@ -335,57 +328,6 @@
       </div>
     </div>
 
-    <!-- 邀请码生成弹窗 -->
-    <div v-if="showInviteModal" class="modal-overlay" @click.self="showInviteModal = false">
-      <div class="modal-content invite-modal">
-        <div class="modal-header">
-          <h2>🎫 生成邀请码</h2>
-          <button @click="showInviteModal = false" class="close-button">×</button>
-        </div>
-        <form @submit.prevent="generateInvitationCodes" class="modal-body">
-          <div class="form-group">
-            <label>目标用户类型 *</label>
-            <select v-model="inviteForm.target_user_type" required>
-              <option value="student">学生</option>
-              <option value="student_admin">学生管理员</option>
-              <option v-if="currentUser?.user_type === 'admin' || currentUser?.user_type === 'teacher'" value="teacher">老师</option>
-              <option v-if="currentUser?.user_type === 'admin'" value="admin">管理员（谨慎使用）</option>
-            </select>
-            <div class="field-hint">
-              学生：仅可查看 | 学生管理员：可查看+部分管理 | 老师：完全管理权限
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>有效期 (天) *</label>
-              <input v-model.number="inviteForm.expires_days" type="number" min="1" max="365" required />
-            </div>
-            <div class="form-group">
-              <label>生成数量</label>
-              <input v-model.number="inviteForm.quantity" type="number" min="1" max="20" />
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" @click="showInviteModal = false" class="cancel-button">取消</button>
-            <button type="submit" class="submit-button invite-submit" :disabled="generating">
-              {{ generating ? '生成中...' : '生成邀请码' }}
-            </button>
-          </div>
-        </form>
-
-        <!-- 生成的邀请码列表 -->
-        <div v-if="generatedCodes.length > 0" class="generated-codes">
-          <h3>已生成的邀请码</h3>
-          <div v-for="code in generatedCodes" :key="code.code" class="code-item">
-            <code class="code-text">{{ code.code }}</code>
-            <span class="code-type">{{ getTypeText(code.target_user_type) }}</span>
-            <span class="code-expiry">有效期至: {{ formatDateTime(code.expires_at) }}</span>
-            <button @click="copyCode(code.code)" class="btn-copy">复制</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 删除确认弹窗 -->
     <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
       <div class="modal-content delete-modal">
@@ -435,10 +377,8 @@ const searchQuery = ref('')
 const filterType = ref('')
 const showAddModal = ref(false)
 const showEditModal = ref(false)
-const showInviteModal = ref(false)
 const showDeleteModal = ref(false)
 const updating = ref(false)
-const generating = ref(false)
 const deleting = ref(false)
 const adding = ref(false)
 const addError = ref('')
@@ -454,7 +394,6 @@ const formErrors = ref({
 })
 const editingUserId = ref(null)
 const deletingUser = ref(null)
-const generatedCodes = ref([])
 const availableEvents = ref([])
 const currentEventName = ref('')
 
@@ -478,12 +417,6 @@ const addForm = ref({
   event_id: ''
 })
 
-const inviteForm = ref({
-  target_user_type: 'student',
-  expires_days: 30,
-  quantity: 1
-})
-
 const currentUser = ref(null)
 
 const canManageUsers = computed(() => {
@@ -492,8 +425,6 @@ const canManageUsers = computed(() => {
 })
 
 const canChangeRole = computed(() => currentUser.value?.user_type === 'admin')
-
-const canGenerateInviteCode = computed(() => ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type))
 
 const adminCount = computed(() => users.value.filter(u => u.user_type === 'admin').length)
 const teacherCount = computed(() => users.value.filter(u => u.user_type === 'teacher').length)
@@ -854,18 +785,9 @@ const getUserTypeText = (type) => {
   return map[type] || type
 }
 
-const getTypeText = (type) => {
-  return getUserTypeText(type)
-}
-
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleDateString('zh-CN')
-}
-
-const formatDateTime = (dateStr) => {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString('zh-CN')
 }
 
 const editUser = (user) => {
@@ -948,36 +870,6 @@ const deleteUser = async () => {
   }
 }
 
-const generateInvitationCodes = async () => {
-  generating.value = true
-  generatedCodes.value = []
-  
-  try {
-    const token = localStorage.getItem('token')
-    const response = await $api.post('/invitation-codes', inviteForm.value, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    
-    if (response.data.code === 200) {
-      generatedCodes.value = response.data.data.codes || []
-      alert(`成功生成 ${response.data.data.count} 个邀请码`)
-    } else {
-      alert(response.data.message || '生成失败')
-    }
-  } catch (error) {
-    alert('生成失败，请稍后重试')
-  } finally {
-    generating.value = false
-  }
-}
-
-const copyCode = (code) => {
-  navigator.clipboard.writeText(code).then(() => {
-    alert('邀请码已复制到剪贴板！')
-  }).catch(() => {
-    prompt('复制以下邀请码:', code)
-  })
-}
 </script>
 
 <style scoped>
@@ -1022,11 +914,6 @@ const copyCode = (code) => {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 .action-button.primary:hover { transform: translateY(-1px); }
-
-.action-button.invite {
-  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-}
-.action-button.invite:hover { transform: translateY(-1px); }
 
 /* 统计面板 */
 .stats-panel {
@@ -1196,7 +1083,6 @@ const copyCode = (code) => {
   box-shadow: 0 4px 20px rgba(0,0,0,0.2);
 }
 
-.invite-modal { max-width: 650px; }
 .add-modal { max-width: 700px; }
 
 .form-section-title {
@@ -1358,10 +1244,6 @@ const copyCode = (code) => {
 .submit-button:hover { opacity: 0.9; }
 .submit-button:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.invite-submit {
-  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%) !important;
-}
-
 .delete-btn {
   padding: 0.6rem 1.2rem;
   background: #e74c3c;
@@ -1402,64 +1284,6 @@ const copyCode = (code) => {
   color: #7f8c8d;
   margin-top: 4px;
 }
-
-/* 生成的邀请码 */
-.generated-codes {
-  margin-top: 1.5rem;
-  padding: 1.2rem;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border: 1px solid #e9ecef;
-}
-.generated-codes h3 {
-  margin: 0 0 1rem;
-  font-size: 14px;
-  color: #555;
-}
-
-.code-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  background: white;
-  border-radius: 5px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.code-text {
-  font-family: monospace;
-  font-size: 13px;
-  background: #fff3cd;
-  padding: 4px 8px;
-  border-radius: 3px;
-  word-break: break-all;
-}
-
-.code-type {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: #e8f4fd;
-  color: #2980b9;
-}
-
-.code-expiry {
-  font-size: 11px;
-  color: #999;
-}
-
-.btn-copy {
-  padding: 3px 10px;
-  background: #667eea;
-  color: white;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 11px;
-}
-.btn-copy:hover { background: #5a6fd6; }
 
 @media (max-width: 768px) {
   .form-row { grid-template-columns: 1fr; }
