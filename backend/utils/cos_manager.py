@@ -88,6 +88,52 @@ class COSManager:
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         unique_id = uuid.uuid4().hex[:8]
         return f'invoices/{event_id}/{timestamp}_{unique_id}{ext}'
+
+    def generate_avatar_key(self, user_id: int, ext: str) -> str:
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        unique_id = uuid.uuid4().hex[:8]
+        return f'avatars/{user_id}/{timestamp}_{unique_id}{ext}'
+
+    def upload_avatar(self, user_id: int, file_bytes: bytes, content_type: str = 'image/jpeg') -> dict:
+        if not self.is_available():
+            raise Exception('COS服务不可用')
+
+        ext_map = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/webp': '.webp'
+        }
+        ext = ext_map.get(content_type, '.jpg')
+        cos_path = self.generate_avatar_key(user_id, ext)
+
+        try:
+            logger.info(f'开始上传头像: user_id={user_id}, path={cos_path}')
+
+            self.client.put_object(
+                Bucket=self.bucket,
+                Body=file_bytes,
+                Key=cos_path,
+                ContentType=content_type,
+                EnableMD5=False
+            )
+
+            signed_url = self.client.get_presigned_url(
+                Method='GET',
+                Bucket=self.bucket,
+                Key=cos_path,
+                Expired=3600 * 24 * 365
+            )
+
+            logger.info(f'头像上传成功: {cos_path}')
+
+            return {
+                'file_key': cos_path,
+                'avatar_url': signed_url
+            }
+
+        except Exception as e:
+            logger.error(f'头像上传失败: {str(e)}', exc_info=True)
+            raise Exception(f'头像上传失败: {str(e)}')
     
     def upload_file(self, event_id: int, file_obj, filename: str) -> dict:
         if not self.is_available():

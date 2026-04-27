@@ -28,7 +28,18 @@
       </nav>
       <div class="sidebar-footer">
         <div class="user-info" @click="showSettingsModal = true">
-          <div class="user-avatar">{{ userInitial }}</div>
+          <div class="user-avatar">
+            <template v-if="userAvatarUrl && !avatarLoadError">
+              <img
+                :src="userAvatarUrl"
+                class="avatar-image"
+                loading="lazy"
+                @error="avatarLoadError = true"
+                alt=""
+              />
+            </template>
+            <span v-else class="avatar-initial">{{ userInitial }}</span>
+          </div>
           <div class="user-details">
             <div class="user-name">{{ userName }}</div>
             <div class="user-role">{{ userRole }}</div>
@@ -61,6 +72,13 @@
           </div>
 
           <div v-if="activeTab === 'profile'" class="tab-content">
+            <div class="profile-avatar-section">
+              <AvatarUpload
+                :current-avatar-url="userAvatarUrl"
+                @avatar-updated="handleAvatarUpdated"
+              />
+            </div>
+            <div class="section-divider"></div>
             <form @submit.prevent="saveSettings" class="settings-form">
               <div class="form-group">
                 <label>用户名</label>
@@ -194,6 +212,8 @@ const user = ref(null)
 const showSettingsModal = ref(false)
 const activeTab = ref('profile')
 const saving = ref(false)
+const userAvatarUrl = ref('')
+const avatarLoadError = ref(false)
 
 const settingsForm = ref({
   username: '',
@@ -207,6 +227,7 @@ onMounted(() => {
   const userStr = localStorage.getItem('user')
   if (userStr) {
     user.value = JSON.parse(userStr)
+    userAvatarUrl.value = user.value?.avatar_url || ''
     settingsForm.value = {
       username: user.value.username || '',
       real_name: user.value.real_name || '',
@@ -246,6 +267,14 @@ const permissionDescription = computed(() => {
   }
   return descriptions[user.value?.user_type] || ''
 })
+
+function handleAvatarUpdated(newUrl) {
+  userAvatarUrl.value = newUrl || ''
+  avatarLoadError.value = false
+  if (user.value) {
+    user.value.avatar_url = newUrl || null
+  }
+}
 
 const saveSettings = async () => {
   saving.value = true
@@ -368,6 +397,19 @@ const handleLogout = () => {
   justify-content: center;
   font-weight: bold;
   margin-right: 0.8rem;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-initial {
+  font-weight: bold;
+  color: white;
 }
 
 .user-details {
@@ -581,6 +623,20 @@ const handleLogout = () => {
 .save-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.profile-avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 0.5rem;
+}
+
+.section-divider {
+  width: 100%;
+  height: 1px;
+  background: #eee;
+  margin: 0.8rem 0 1.2rem;
 }
 
 .permissions-info {

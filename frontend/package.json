@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@pinia/nuxt": "^0.5.1",
+    "@xcvzmoon/vue-cropperjs": "^1.1.0",
     "axios": "^1.6.2",
+    "cropperjs": "^2.1.1",
     "dayjs": "^1.11.10",
     "file-saver": "^2.0.5",
     "nuxt": "^3.9.0",

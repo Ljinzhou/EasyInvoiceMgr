@@ -138,7 +138,8 @@ def login():
                     'email': user.email,
                     'phone': user.phone,
                     'user_type': user.user_type,
-                    'student_or_staff_id': user.student_or_staff_id
+                    'student_or_staff_id': user.student_or_staff_id,
+                    'avatar_url': user.avatar_url
                 }
             }
         }), 200
@@ -330,6 +331,189 @@ def update_user(user_id):
         logger.error(f'更新用户信息异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+ALLOWED_AVATAR_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
+MAX_AVATAR_SIZE = 5 * 1024 * 1024
+
+
+@auth_bp.route('/avatar', methods=['GET'])
+@jwt_required()
+def get_avatar():
+    logger.info('=== 获取用户头像请求 ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+
+        if not user:
+            return jsonify({'code': 404, 'message': '用户不存在', 'data': None}), 404
+
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'avatar_url': user.avatar_url
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'获取头像异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@auth_bp.route('/avatar/upload', methods=['POST', 'OPTIONS'])
+@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@jwt_required()
+def upload_avatar():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
+        return response
+
+    logger.info('=== 上传头像请求 ===')
+    try:
+        current_user_id = get_jwt_identity()
+        current_user_id_int = int(current_user_id)
+        user = User.query.get(current_user_id_int)
+
+        if not user:
+            return jsonify({'code': 404, 'message': '用户不存在', 'data': None}), 404
+
+        if 'file' not in request.files:
+            return jsonify({'code': 400, 'message': '请选择图片文件', 'data': None}), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({'code': 400, 'message': '请选择图片文件', 'data': None}), 400
+
+        if '.' not in file.filename:
+            return jsonify({'code': 400, 'message': '文件需要包含扩展名', 'data': None}), 400
+
+        file_ext = file.filename.rsplit('.', 1)[1].lower()
+        if file_ext not in ALLOWED_AVATAR_EXTENSIONS:
+            return jsonify({'code': 400, 'message': '仅支持 JPG、PNG、WEBP 格式的图片', 'data': None}), 400
+
+        file_bytes = file.read()
+        if len(file_bytes) > MAX_AVATAR_SIZE:
+            return jsonify({'code': 400, 'message': '图片大小不能超过 5MB', 'data': None}), 400
+
+        content_type_map = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'webp': 'image/webp'
+        }
+        content_type = content_type_map.get(file_ext, 'image/jpeg')
+
+        import hashlib
+        file_md5 = hashlib.md5(file_bytes).hexdigest()
+
+        from utils.cos_manager import cos_manager
+
+        if cos_manager.is_available():
+            if user.avatar_url:
+                old_key = user.avatar_url.split('/')[-1] if '/' in user.avatar_url else user.avatar_url
+                try:
+                    cos_manager.delete_file(old_key)
+                    logger.info(f'已删除旧头像: {old_key}')
+                except Exception as del_err:
+                    logger.warning(f'删除旧头像失败（可能不存在）: {str(del_err)}')
+
+            result = cos_manager.upload_avatar(current_user_id_int, file_bytes, content_type)
+            user.avatar_url = result['avatar_url']
+            db.session.commit()
+
+            logger.info(f'头像上传成功: user_id={current_user_id_int}')
+
+            return jsonify({
+                'code': 200,
+                'message': '头像上传成功',
+                'data': {
+                    'avatar_url': result['avatar_url'],
+                    'file_md5': file_md5
+                }
+            }), 200
+
+        else:
+            import os
+            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads', 'avatars')
+            if not os.path.exists(uploads_dir):
+                os.makedirs(uploads_dir)
+
+            import uuid as uuid_lib
+            local_filename = f"{current_user_id_int}_{uuid_lib.uuid4().hex[:8]}.{file_ext}"
+            local_path = os.path.join(uploads_dir, local_filename)
+
+            with open(local_path, 'wb') as f:
+                f.write(file_bytes)
+
+            avatar_url = f'/uploads/avatars/{local_filename}'
+            user.avatar_url = avatar_url
+            db.session.commit()
+
+            logger.info(f'头像保存到本地成功: {avatar_url}')
+
+            return jsonify({
+                'code': 200,
+                'message': '头像上传成功',
+                'data': {
+                    'avatar_url': avatar_url,
+                    'file_md5': file_md5
+                }
+            }), 200
+
+    except Exception as e:
+        logger.error(f'头像上传异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@auth_bp.route('/avatar', methods=['DELETE', 'OPTIONS'])
+@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@jwt_required()
+def delete_avatar():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'DELETE,OPTIONS')
+        return response
+
+    logger.info('=== 删除头像请求 ===')
+    try:
+        current_user_id = get_jwt_identity()
+        current_user_id_int = int(current_user_id)
+        user = User.query.get(current_user_id_int)
+
+        if not user:
+            return jsonify({'code': 404, 'message': '用户不存在', 'data': None}), 404
+
+        if user.avatar_url:
+            from utils.cos_manager import cos_manager
+            old_key = user.avatar_url.split('/')[-1] if '/' in user.avatar_url else user.avatar_url
+            try:
+                cos_manager.delete_file(old_key)
+                logger.info(f'头像文件已删除: {old_key}')
+            except Exception as del_err:
+                logger.warning(f'删除头像文件失败: {str(del_err)}')
+
+            user.avatar_url = None
+            db.session.commit()
+            logger.info(f'头像已删除: user_id={current_user_id_int}')
+
+        return jsonify({
+            'code': 200,
+            'message': '头像已删除',
+            'data': None
+        }), 200
+
+    except Exception as e:
+        logger.error(f'删除头像异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
 
 @auth_bp.route('/users/<int:user_id>', methods=['DELETE', 'OPTIONS'])
 @cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)

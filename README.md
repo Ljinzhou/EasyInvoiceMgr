@@ -1,255 +1,53 @@
-# EasyInvoiceMgr - 赛事发票管理系统
+# EasyInvoiceMgr - 发票管理系统
 
-## 项目描述
+为学校AI技术研究社团（机器人实验室）开发的发票管理程序，实现发票便捷管理，提高报销处理效率。
 
-EasyInvoiceMgr 是一款面向高校和科研机构的赛事/活动发票管理系统，旨在简化和规范化赛事经费的报销流程。系统支持用户管理、赛事管理、发票上传与智能识别、凭证管理、预算跟踪等功能，帮助团队高效管理赛事财务，提升报销效率和透明度。
+## 项目概述
 
-## 主要功能
+### 背景
 
-### 用户与权限管理
-- 支持多种用户角色：管理员(Admin)、教师(Teacher)、学生管理员(Student Admin)、普通学生(Student)
-- 基于邀请码的用户注册机制
-- JWT 认证的 API 访问控制
-- 完整的用户信息管理和账户状态控制
+本项目专为学校AI技术研究社团——机器人实验室设计，旨在解决社团活动经费管理中发票管理繁琐、报销流程复杂等问题。通过数字化管理方式，实现发票的便捷上传、智能识别、状态跟踪以及自动化报销流程。
 
-### 赛事管理
-- 创建和管理赛事活动
-- 设置赛事预算和报销额度
-- 赛事成员管理（添加、移除、角色分配）
-- 赛事状态跟踪（进行中、已结束）
-- 上传时间窗口控制
 
-### 发票管理
-- 发票图片上传（支持本地存储和腾讯云COS）
-- 基于 OCR 的发票智能识别（支持发票号、金额、日期等字段自动提取）
-- 发票审核流程（提交、审核、批准/拒绝）
-- 发票状态跟踪（待审核、已批准、已拒绝、已报销）
-- 发票统计报表（数量、金额、状态分布）
+**本项目完全通过 Vibe Coding 开发完成。**
 
-### 凭证管理
-- 购物凭证上传和管理
-- 购买渠道和日期记录
-- 与发票关联管理
 
-### 采购记录
-- 完整的采购流程记录
-- 支持有无发票的状态标记
-- 报销状态跟踪
+### 主要功能
 
-## 技术架构
+- **用户管理**：支持学生、教师、管理员等多种角色，提供邀请码注册机制
+- **项目管理**：创建和管理科研项目/活动，设定预算，跟踪支出
+- **发票管理**：上传发票图片或PDF文件，智能识别发票信息，自动提取关键数据
+- **购买记录**：记录购物明细，关联发票，支持补录发票信息
+- **报销审核**：支持多级审核流程，实时跟踪报销状态
+- **数据导出**：支持Excel、PDF等多种格式导出，便于财务对账
+- **预算管理**：实时跟踪项目预算使用情况，自动计算剩余金额
 
-### 前端技术栈
-- **框架**: Nuxt 3 (Vue 3)
-- **状态管理**: Pinia
-- **HTTP 客户端**: Axios
-- **日期处理**: dayjs
-- **文件导出**: file-saver
-- **语言**: TypeScript
+## 技术栈
 
-### 后端技术栈
-- **框架**: Flask 3.0
-- **认证**: Flask-JWT-Extended
-- **ORM**: SQLAlchemy + Flask-SQLAlchemy
-- **数据库**: PostgreSQL
-- **文件存储**: 腾讯云COS（可选本地存储）
-- **OCR 识别**: cnocr + PDF2image
+**后端**：Flask + SQLAlchemy + PostgreSQL/SQLite + JWT + 腾讯云COS
 
-### 数据库设计
-- **users**: 用户信息表
-- **events**: 赛事信息表
-- **event_members**: 赛事成员关联表
-- **invoices**: 发票信息表
-- **vouchers**: 凭证信息表
-- **purchase_records**: 采购记录表
-- **invitation_codes**: 邀请码表
-- **audit_logs**: 审核日志表
+**前端**：Nuxt 3 + Vue 3 + Pinia + Axios
 
-## 项目结构
+**智能服务**：GLM-4.6V-Flash（智谱AI发票识别）+ PyMuPDF + cnocr
 
-```
-EasyInvoiceMgr/
-├── backend/                    # Flask 后端服务
-│   ├── routes/                 # API 路由模块
-│   │   ├── auth.py            # 用户认证接口
-│   │   ├── events.py          # 赛事管理接口
-│   │   ├── invoices.py        # 发票管理接口
-│   │   ├── vouchers.py        # 凭证管理接口
-│   │   ├── purchase_records.py # 采购记录接口
-│   │   ├── invitation_codes.py # 邀请码接口
-│   │   └── parse.py           # OCR 解析接口
-│   ├── utils/                  # 工具模块
-│   │   ├── cos_manager.py     # 腾讯云COS管理
-│   │   ├── glm_vision_service.py # 视觉服务
-│   │   └── invoice_parser.py  # 发票解析工具
-│   ├── sql/                    # 数据库脚本
-│   │   ├── base.sql           # 基础表结构
-│   │   ├── migration_purchase_records.sql # 采购记录迁移
-│   │   └── reset_database.sql  # 数据库重置脚本
-│   ├── app.py                 # Flask 应用入口
-│   ├── config.py              # 配置文件
-│   ├── models.py              # 数据模型
-│   └── requirements.txt        # Python 依赖
-├── frontend/                   # Nuxt 3 前端应用
-│   ├── pages/                  # 页面组件
-│   │   ├── login.vue          # 登录页
-│   │   ├── register.vue       # 注册页
-│   │   ├── dashboard.vue      # 管理面板
-│   │   ├── events/            # 赛事相关页面
-│   │   ├── purchases/         # 采购记录页面
-│   │   └── users/             # 用户管理页面
-│   ├── components/             # 公共组件
-│   ├── layouts/                # 布局组件
-│   ├── stores/                 # Pinia 状态管理
-│   ├── plugins/                # Nuxt 插件
-│   ├── types/                  # TypeScript 类型定义
-│   └── package.json           # 前端依赖配置
-└── README.md                   # 项目说明文档
-```
+**数据处理**：Pandas + OpenPyXL + PyPDF2 + ReportLab
 
-## 部署指南
+## 未来计划
 
-### 环境要求
-
-- **Python**: 3.9+
-- **Node.js**: 18+
-- **PostgreSQL**: 14+
-- **pnpm**: 8+ (前端包管理)
-
-### 后端部署
-
-1. **克隆项目并进入后端目录**
-   ```bash
-   cd backend
-   ```
-
-2. **创建 Python 虚拟环境**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   # 或
-   .\venv\Scripts\activate   # Windows
-   ```
-
-3. **安装 Python 依赖**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **配置环境变量**
-   
-   创建 `.env` 文件或设置系统环境变量：
-   ```bash
-   SECRET_KEY=your-secret-key
-   JWT_SECRET_KEY=your-jwt-secret-key
-   DATABASE_URL=postgresql://postgres:root@localhost/easy_invoice_mgr
-   
-   # 腾讯云COS配置（可选，用于文件存储）
-   COS_SECRET_ID=your-cos-secret-id
-   COS_SECRET_KEY=your-cos-secret-key
-   COS_REGION=ap-guangzhou
-   COS_BUCKET=your-bucket-name
-   ```
-
-5. **初始化数据库**
-   
-   使用 PostgreSQL 客户端执行 SQL 脚本：
-   ```bash
-   psql -U postgres -d easy_invoice_mgr -f sql/base.sql
-   ```
-
-6. **启动后端服务**
-   ```bash
-   python app.py
-   ```
-   
-   后端服务将在 `http://localhost:5000` 启动
-
-### 前端部署
-
-1. **进入前端目录**
-   ```bash
-   cd frontend
-   ```
-
-2. **安装前端依赖**
-   ```bash
-   pnpm install
-   ```
-
-3. **启动开发服务器**
-   ```bash
-   pnpm dev
-   ```
-   
-   前端应用将在 `http://localhost:3000` 启动
-
-### 生产环境构建
-
-**前端构建**
-```bash
-cd frontend
-pnpm build
-pnpm preview
-```
-
-**后端部署**
-- 建议使用 Gunicorn 或 uWSGI 作为生产 WSGI 服务器
-- 配置 Nginx 作为反向代理
-
-## API 接口
-
-详细 API 接口文档请参考 [service-api-documentation.md](backend/service-api-documentation.md)
-
-### 认证接口
-- `POST /api/auth/register` - 用户注册
-- `POST /api/auth/login` - 用户登录
-
-### 赛事接口
-- `GET /api/events` - 获取赛事列表
-- `POST /api/events` - 创建赛事
-- `GET /api/events/:id` - 获取赛事详情
-- `PUT /api/events/:id` - 更新赛事信息
-
-### 发票接口
-- `POST /api/invoices` - 上传发票
-- `GET /api/invoices` - 获取发票列表
-- `PUT /api/invoices/:id/review` - 审核发票
-
-### 凭证接口
-- `POST /api/vouchers` - 上传凭证
-- `GET /api/vouchers` - 获取凭证列表
-
-## 数据库初始化
-
-系统默认管理员账户：
-- **用户名**: admin
-- **密码**: admin
-
-> ⚠️ **安全提示**: 请在生产环境中务必修改默认管理员密码！
-
-## 致谢
-
-### 开源项目
-
-本项目使用了以下优秀的开源项目，感谢各位作者的贡献：
-
-- **Flask** - 轻量级 Python Web 框架
-- **Vue 3** - 渐进式 JavaScript 框架
-- **Nuxt 3** - 基于 Vue 3 的全栈框架
-- **SQLAlchemy** - Python SQL 工具包和 ORM
-- **cnocr** - 中文 OCR 库
-- **腾讯云 COS SDK** - 对象存储服务 SDK
-- **Pinia** - Vue 状态管理库
-
-### 技术支持
-
-- 发票 OCR 识别技术支持
-- 腾讯云对象存储服务
+- **Salvo框架重构**：计划使用基于Rust的高性能Web框架Salvo重构后端代码，保持API兼容的同时提升性能、增强类型安全性和异步支持
+- **与astrbot对接**：实现发票管理的机器人交互
+- **自动化测试完善**：建立完整的测试体系，确保代码质量
+- **监控和日志系统**：引入监控和日志系统，便于问题排查和系统维护
+- **邮件/短信通知功能**：支持关键操作的即时通知
+- **缓存优化**：引入Redis缓存热点数据，减少数据库查询压力
+- **数据库优化**：添加索引优化查询性能，使用数据库连接池
+- **批量操作优化**：支持更大规模的批量上传、批量审核
+- **审计日志**：记录关键操作日志，便于问题追溯和安全审计
+- **数据统计分析**：增加仪表盘数据可视化，支持自定义报表
+- **权限细分**：细化角色权限，支持更灵活的权限配置
+- **API限流与防护**：防止恶意请求，保障服务稳定性
+- **文档自动化**：使用Swagger/OpenAPI自动生成API文档
 
 ## 许可证
 
-本项目仅供学习和研究使用。
-
-## 联系方式
-
-如有问题或建议，请通过项目仓库提交 Issue。
+本项目基于 Apache-2.0 License 开源。

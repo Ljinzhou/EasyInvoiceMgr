@@ -74,7 +74,25 @@
         <tbody>
           <tr v-for="user in filteredUsersList" :key="user.user_id" :class="{ 'inactive': user.account_status !== 'active' }">
             <td>
-              <img :src="user.avatar_url || '/default-avatar.png'" class="avatar-sm" />
+              <div class="avatar-cell">
+                <img
+                  v-if="user.avatar_url && !getAvatarError(user.user_id)"
+                  :src="user.avatar_url"
+                  class="avatar-sm"
+                  loading="lazy"
+                  @error="() => setAvatarError(user.user_id, true)"
+                  alt=""
+                />
+                <div v-else class="avatar-default-sm">
+                  <svg viewBox="0 0 40 40" width="36" height="36" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="40" height="40" rx="20" fill="#f0f0f0"/>
+                    <g transform="translate(8, 6)">
+                      <circle cx="12" cy="9" r="7" fill="#d0d0d0"/>
+                      <ellipse cx="12" cy="26" rx="14" ry="9" fill="#d0d0d0"/>
+                    </g>
+                  </svg>
+                </div>
+              </div>
             </td>
             <td>{{ user.username }}</td>
             <td><strong>{{ user.real_name }}</strong></td>
@@ -396,6 +414,7 @@ const editingUserId = ref(null)
 const deletingUser = ref(null)
 const availableEvents = ref([])
 const currentEventName = ref('')
+const avatarErrors = ref(new Set())
 
 const editForm = ref({
   real_name: '',
@@ -785,6 +804,20 @@ const getUserTypeText = (type) => {
   return map[type] || type
 }
 
+function getAvatarError(userId) {
+  return avatarErrors.value.has(userId)
+}
+
+function setAvatarError(userId, hasError) {
+  if (hasError) {
+    avatarErrors.value = new Set([...avatarErrors.value, userId])
+  } else {
+    const next = new Set(avatarErrors.value)
+    next.delete(userId)
+    avatarErrors.value = next
+  }
+}
+
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleDateString('zh-CN')
@@ -1008,12 +1041,29 @@ const deleteUser = async () => {
 .users-table tr:hover { background: #fafbfc; }
 .users-table tr.inactive { opacity: 0.6; }
 
+.avatar-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .avatar-sm {
   width: 36px;
   height: 36px;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid #ecf0f1;
+}
+
+.avatar-default-sm {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid #ecf0f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .role-badge {
