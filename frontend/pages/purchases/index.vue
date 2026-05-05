@@ -105,65 +105,30 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({ layout: 'default' })
 
-const { $api } = useNuxtApp()
+const eventStore = useEventStore()
 const router = useRouter()
 
-const events = ref([])
 const filterEvent = ref('')
 const quickAddEventId = ref('')
 
-const totalStats = ref({
-  totalAmount: 0,
-  invoiceTotal: 0,
-  pendingReimburse: 0,
-  recordCount: 0
-})
+// All statistics from the unified store (reactive)
+const totalStats = computed(() => eventStore.totalStats)
+
+// Events from the unified store
+const events = computed(() => eventStore.events)
 
 const filteredEvents = computed(() => {
   if (!filterEvent.value) return events.value
-  return events.value.filter(e => e.event_id == filterEvent.value)
+  return events.value.filter((e) => e.event_id == filterEvent.value)
 })
 
 onMounted(async () => {
-  await loadEvents()
+  await eventStore.ensureLoaded()
 })
-
-const loadEvents = async () => {
-  try {
-    const token = localStorage.getItem('token')
-    const response = await $api.get('/events', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    
-    if (response.data.code === 200) {
-      events.value = response.data.data.data || response.data.data.events || []
-      
-      let totalAmount = 0
-      let invoiceTotal = 0
-      let pendingReimburse = 0
-      let recordCount = 0
-      
-      for (const ev of events.value) {
-        totalAmount += parseFloat(ev.spent_amount || 0)
-        recordCount += parseInt(ev.voucher_count || 0)
-        invoiceTotal += parseFloat(ev.invoice_total_amount || 0)
-        pendingReimburse += Math.max(0, (parseFloat(ev.invoice_total_amount || 0) - parseFloat(ev.reimbursed_amount || 0)))
-      }
-      
-      totalStats.value = {
-        totalAmount,
-        invoiceTotal,
-        pendingReimburse,
-        recordCount
-      }
-    }
-  } catch (error) {
-    console.error('加载项目失败:', error)
-  }
-}
 
 const goToPurchasePage = () => {
   if (quickAddEventId.value) {

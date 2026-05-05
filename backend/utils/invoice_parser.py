@@ -15,12 +15,12 @@ except ImportError:
     logger.warning('GLM视觉模型服务未加载')
 
 try:
-    import fitz
+    from PyPDF2 import PdfReader
     PDF_AVAILABLE = True
-    logger.info('PyMuPDF库加载成功，支持PDF直接文本提取')
+    logger.info('PyPDF2库加载成功，支持PDF直接文本提取')
 except ImportError:
     PDF_AVAILABLE = False
-    logger.warning('PyMuPDF库未安装，PDF解析功能将不可用')
+    logger.warning('PyPDF2库未安装，PDF解析功能将不可用')
 
 class InvoiceParser:
     def __init__(self):
@@ -33,7 +33,7 @@ class InvoiceParser:
         if not self.is_available():
             return {
                 'success': False,
-                'message': '解析服务不可用，请安装PyMuPDF库',
+                'message': '解析服务不可用，请安装PyPDF2库',
                 'data': None
             }
         
@@ -45,7 +45,7 @@ class InvoiceParser:
                 if not PDF_AVAILABLE:
                     return {
                         'success': False,
-                        'message': 'PDF解析功能不可用，请安装PyMuPDF库',
+                        'message': 'PDF解析功能不可用，请安装PyPDF2库',
                         'data': None
                     }
                 text = self._extract_pdf_text(file_bytes)
@@ -103,27 +103,25 @@ class InvoiceParser:
     
     def _extract_pdf_text(self, pdf_bytes: bytes) -> str:
         try:
-            pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
-            total_pages = len(pdf_document)
+            pdf_reader = PdfReader(io.BytesIO(pdf_bytes))
+            total_pages = len(pdf_reader.pages)
             logger.info(f'PDF打开成功，共{total_pages}页')
-            
+
             all_text = []
             for page_num in range(total_pages):
-                page = pdf_document[page_num]
-                text = page.get_text("text")
-                
+                page = pdf_reader.pages[page_num]
+                text = page.extract_text()
+
                 if text and text.strip():
                     all_text.append(text.strip())
                     logger.debug(f'第{page_num + 1}页提取文本长度: {len(text)}')
                 else:
                     logger.warning(f'第{page_num + 1}页未能提取到文本，可能为扫描版PDF')
-            
-            pdf_document.close()
-            
+
             full_text = '\n\n'.join(all_text)
             logger.info(f'PDF文本提取完成，总长度: {len(full_text)} 字符')
             return full_text
-            
+
         except Exception as e:
             logger.error(f'PDF文本提取失败: {str(e)}', exc_info=True)
             raise

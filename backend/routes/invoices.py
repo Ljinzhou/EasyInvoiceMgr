@@ -5,7 +5,6 @@ from utils.cos_manager import cos_manager
 from datetime import datetime
 import logging
 import hashlib
-import fitz
 import io
 import os
 import urllib.parse
@@ -378,61 +377,24 @@ def generate_preview(invoice_id):
         file_ext = invoice.file_name.rsplit('.', 1)[1].lower() if '.' in invoice.file_name else ''
         
         if file_ext == 'pdf':
-            pdf_content = cos_manager.download_file(invoice.image_url) if cos_manager.is_available() else None
-            
-            if not pdf_content and os.path.exists(invoice.image_url.lstrip('/')):
-                with open(invoice.image_url.lstrip('/'), 'rb') as f:
-                    pdf_content = f.read()
-            
-            if not pdf_content:
-                logger.error(f'无法下载PDF文件: {invoice.image_url}')
-                return jsonify({'code': 500, 'message': '无法获取PDF文件', 'data': None}), 500
-            
-            pdf_doc = fitz.open(stream=pdf_content, filetype='pdf')
-            
-            if len(pdf_doc) == 0:
-                pdf_doc.close()
-                return jsonify({'code': 400, 'message': 'PDF文件为空', 'data': None}), 400
-            
-            page = pdf_doc[0]
-            mat = fitz.Matrix(2.0, 2.0)
-            pix = page.get_pixmap(matrix=mat)
-            
-            img_data = pix.tobytes('jpeg', jpg_quality=85)
-            pdf_doc.close()
-            
-            img_filename = f'preview_{invoice.invoice_id}.jpg'
-            
             if cos_manager.is_available():
-                img_file_obj = io.BytesIO(img_data)
-                upload_result = cos_manager.upload_file_from_bytes(
-                    int(invoice.event_id),
-                    img_file_obj,
-                    img_filename,
-                    content_type='image/jpeg'
-                )
-                preview_url = upload_result['file_key']
-                
-                invoice.preview_image_url = preview_url
-                db.session.commit()
-                
-                presigned_url = cos_manager.get_presigned_url(preview_url, expires=3600)
+                try:
+                    preview_url = cos_manager.get_presigned_url(invoice.image_url, expires=3600)
+                except Exception as e:
+                    logger.error(f'生成PDF预览URL失败: {str(e)}')
+                    preview_url = invoice.image_url
             else:
-                preview_path = os.path.join('uploads', 'previews', img_filename)
-                os.makedirs(os.path.dirname(preview_path), exist_ok=True)
-                with open(preview_path, 'wb') as f:
-                    f.write(img_data)
-                
-                invoice.preview_image_url = f'/{preview_path}'
-                db.session.commit()
-                presigned_url = f'/{preview_path}'
-            
-            logger.info(f'预览图生成成功: invoice_id={invoice_id}')
+                preview_url = invoice.image_url
+
+            invoice.preview_image_url = invoice.image_url
+            db.session.commit()
+
+            logger.info(f'PDF预览设置成功: invoice_id={invoice_id}')
             return jsonify({
                 'code': 200,
-                'message': '预览图生成成功',
+                'message': 'PDF文件直接作为预览',
                 'data': {
-                    'preview_url': presigned_url
+                    'preview_url': preview_url
                 }
             }), 200
             

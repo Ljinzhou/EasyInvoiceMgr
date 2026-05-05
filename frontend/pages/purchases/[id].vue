@@ -450,12 +450,14 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({ layout: 'default' })
 
 const { $api } = useNuxtApp()
 const route = useRoute()
 const router = useRouter()
+const eventStore = useEventStore()
 
 const eventId = computed(() => route.params.id)
 const event = ref(null)
@@ -1090,6 +1092,7 @@ const saveRecord = async () => {
     if (response.data.code === 200 || response.data.code === 201) {
       closeAddModal()
       await loadRecords()
+      eventStore.refreshAfterMutation(Number(eventId.value))
     } else {
       alert(response.data.message || '保存失败')
     }
@@ -1109,6 +1112,7 @@ const deleteSingle = async (record) => {
       headers: { Authorization: `Bearer ${token}` }
     })
     await loadRecords()
+    eventStore.refreshAfterMutation(Number(eventId.value))
   } catch (e) {
     alert('删除失败')
   }
@@ -1128,6 +1132,7 @@ const deleteSelected = async () => {
   
   selectedRecords.value = []
   await loadRecords()
+  eventStore.refreshAfterMutation(Number(eventId.value))
 }
 
 const approveRecord = async (record) => {
@@ -1137,6 +1142,7 @@ const approveRecord = async (record) => {
       headers: { Authorization: `Bearer ${token}` }
     })
     await loadRecords()
+    eventStore.refreshAfterMutation(Number(eventId.value))
   } catch (e) {
     alert('操作失败')
   }
@@ -1151,6 +1157,7 @@ const reimburseRecord = async (record) => {
       headers: { Authorization: `Bearer ${token}` }
     })
     await loadRecords()
+    eventStore.refreshAfterMutation(Number(eventId.value))
   } catch (e) {
     alert(e.response?.data?.message || '操作失败')
   }
@@ -1173,6 +1180,7 @@ const batchReimburse = async () => {
   
   selectedRecords.value = []
   await loadRecords()
+  eventStore.refreshAfterMutation(Number(eventId.value))
 }
 
 const exportData = async () => {

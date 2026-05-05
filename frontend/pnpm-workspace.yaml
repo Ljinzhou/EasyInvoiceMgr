@@ -1,0 +1,24 @@
+allowBuilds:
+  '"': true
+  ',': true
+  '-': true
+  /: true
+  '@': true
+  '[': true
+  ']': true
+  a: true
+  b: true
+  c: true
+  d: true
+  e: true
+  h: true
+  i: true
+  l: true
+  m: true
+  p: true
+  r: true
+  s: true
+  t: true
+  u: true
+  v: true
+  w: true

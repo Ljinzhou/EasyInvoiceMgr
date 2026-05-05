@@ -14,63 +14,67 @@ parse_bp = Blueprint('parse', __name__)
 
 
 class PDFConverter:
-    """PDF转JPG服务端转换器"""
-    
+    """PDF转JPG服务端转换器（需安装PyMuPDF或其他渲染库）"""
+
     @staticmethod
     def is_pdf_available():
-        """检查PDF转换库是否可用"""
+        """检查PDF渲染库是否可用（PyPDF2不支持渲染，需要额外安装fitz或pdf2image）"""
         try:
             import fitz
             return True
         except ImportError:
-            return False
-    
+            try:
+                from pdf2image import convert_from_bytes
+                return True
+            except ImportError:
+                return False
+
     @staticmethod
     def convert_pdf_to_jpg(pdf_bytes: bytes, dpi: float = 2.0) -> tuple:
         """
         将PDF转换为JPG图片
-        
+
         Args:
             pdf_bytes: PDF文件字节流
             dpi: 分辨率倍数，默认2.0表示双倍分辨率
-            
+
         Returns:
-            tuple: (jpg_bytes, width, height, page_count) 或 (None, None, None, None) 失败时
+            tuple: (jpg_bytes, width, height, page_count) 或 (None, None, None, 0) 失败时
         """
         try:
             import fitz
             from PIL import Image
-            
+
             pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
             page_count = len(pdf_document)
-            
+
             if page_count == 0:
                 logger.warning('PDF文件没有页面')
                 pdf_document.close()
                 return None, None, None, 0
-            
+
             page = pdf_document[0]
             mat = fitz.Matrix(dpi, dpi)
             pix = page.get_pixmap(matrix=mat)
-            
+
             img_buffer = io.BytesIO()
-            
+
             try:
                 pix.pil_save(img_buffer, format='JPEG', quality=95)
             except AttributeError:
                 img_data = pix.tobytes('jpeg', jpeg_quality=95)
                 img_buffer.write(img_data)
-            
+
             jpg_bytes = img_buffer.getvalue()
-            
+
             width, height = pix.width, pix.height
             pdf_document.close()
-            
+
             logger.info(f'PDF转JPG成功: 尺寸={width}x{height}, 页数={page_count}, 大小={len(jpg_bytes)} bytes')
             return jpg_bytes, width, height, page_count
-            
+
         except ImportError:
-            logger.error('PyMuPDF库未安装，无法转换PDF')
+            logger.error('PDF渲染库未安装，无法转换PDF为图片')
             return None, None, None, 0
         except Exception as e:
             logger.error(f'PDF转JPG失败: {str(e)}', exc_info=True)
@@ -309,16 +313,11 @@ def parse_invoice():
         pdf_page_count = 0
         
         if is_pdf:
-            logger.info('检测到PDF文件，开始服务端转换...')
+            logger.info('检测到PDF文件，尝试服务端渲染转换...')
             jpg_bytes, jpg_width, jpg_height, pdf_page_count = PDFConverter.convert_pdf_to_jpg(file_bytes)
-            
+
             if jpg_bytes is None:
-                logger.error('PDF转换失败')
-                return jsonify({
-                    'code': 500,
-                    'message': 'PDF文件转换失败，请确保上传的是有效的PDF文件',
-                    'data': None
-                }), 500
+                logger.warning('PDF渲染转换失败（渲染库不可用），将使用文本提取方式解析')
         
         invoice_file_key = f"invoices/{unique_id}.{file_ext}"
         preview_file_key = None
@@ -373,7 +372,7 @@ def parse_invoice():
             
             logger.info(f'本地存储: 原始文件={invoice_file_key}, 预览图={preview_file_key}')
         
-        image_bytes_for_ai = jpg_bytes if is_pdf else file_bytes
+        image_bytes_for_ai = jpg_bytes if (is_pdf and jpg_bytes) else file_bytes
         
         parsed_info = None
         if invoice_parser.is_available():

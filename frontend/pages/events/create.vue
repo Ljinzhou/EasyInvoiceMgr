@@ -160,6 +160,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({
   layout: 'default'
@@ -167,6 +168,7 @@ definePageMeta({
 
 const { $api } = useNuxtApp()
 const route = useRoute()
+const eventStore = useEventStore()
 
 const isEditMode = computed(() => !!route.params.id)
 const eventId = computed(() => route.params.id)
@@ -361,11 +363,13 @@ const handleSubmit = async () => {
     
     if (response.data.code === 200) {
       success.value = isEditMode.value ? '✅ 比赛更新成功！' : '✅ 比赛创建成功！'
-      
-      // 显示详细的设置信息
+
       const reviewStatus = form.value.need_invoice_review ? '已开启（需要审核）' : '已关闭（自动通过）'
       console.log(`比赛${isEditMode.value ? '更新' : '创建'}成功，发票审核设置：${reviewStatus}`)
-      
+
+      // Notify the unified store so all modules auto-refresh
+      eventStore.invalidateAndRefresh({ eventId: isEditMode.value ? eventId.value : undefined })
+
       if (!isEditMode.value) {
         resetForm()
       }

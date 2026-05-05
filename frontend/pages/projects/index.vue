@@ -31,6 +31,13 @@
               <span class="b-label">总预算</span>
               <span class="b-value">¥ {{ formatMoney(event.total_budget) }}</span>
             </div>
+            <div class="budget-item spent">
+              <span class="b-label">已用金额</span>
+              <span class="b-value">¥ {{ formatMoney(event.spent_amount) }}</span>
+              <div class="mini-progress">
+                <div class="mini-fill spent-fill" :style="{ width: getBudgetUsagePercent(event) + '%' }"></div>
+              </div>
+            </div>
             <div class="budget-item invoice">
               <span class="b-label">发票总额</span>
               <span class="b-value">¥ {{ formatMoney(event.invoice_total_amount) }}</span>
@@ -40,15 +47,15 @@
               <span class="b-value">¥ {{ formatMoney(event.reimbursed_amount) }}</span>
             </div>
             <div class="budget-item remaining" :class="{ 'low': getRemainingPercent(event) < 20 }">
-              <span class="b-label">剩余</span>
+              <span class="b-label">剩余预算</span>
               <span class="b-value">¥ {{ formatMoney(getRemainingBudget(event)) }}</span>
               <div class="mini-progress">
                 <div class="mini-fill" :style="{ width: getRemainingPercent(event) + '%' }"></div>
               </div>
             </div>
             <div class="budget-item count">
-              <span class="b-label">发票数</span>
-              <span class="b-value">{{ event.invoice_count || 0 }} 张</span>
+              <span class="b-label">记录数</span>
+              <span class="b-value">{{ event.voucher_count || 0 }} 条</span>
             </div>
           </div>
 
@@ -79,19 +86,23 @@
             </div>
             <div class="info-item">
               <span class="info-label">总预算</span>
-              <span class="info-value budget">¥{{ parseFloat(event.total_budget).toFixed(2) }}</span>
+              <span class="info-value budget">¥{{ formatMoney(event.total_budget) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">已用金额</span>
+              <span class="info-value spent">¥{{ formatMoney(event.spent_amount) }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">已报销</span>
-              <span class="info-value">¥{{ parseFloat(event.reimbursed_amount).toFixed(2) }}</span>
+              <span class="info-value">¥{{ formatMoney(event.reimbursed_amount) }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">剩余预算</span>
-              <span class="info-value remaining">¥{{ parseFloat(event.remaining_budget).toFixed(2) }}</span>
+              <span class="info-value remaining">¥{{ formatMoney(event.remaining_budget) }}</span>
             </div>
             <div class="info-item">
-              <span class="info-label">发票数量</span>
-              <span class="info-value">{{ event.invoice_count || 0 }} 张</span>
+              <span class="info-label">记录数量</span>
+              <span class="info-value">{{ event.voucher_count || 0 }} 条</span>
             </div>
           </div>
           <div class="description-section" v-if="event.description">
@@ -282,17 +293,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useCacheStore } from '~/stores/cache'
+import { ref, onMounted, watch } from 'vue'
+import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({
   layout: 'default'
 })
 
 const { $api } = useNuxtApp()
-const cacheStore = useCacheStore()
+const eventStore = useEventStore()
 
+// Events from the unified store (reactive)
 const events = ref([])
+
 const showEditModal = ref(false)
 const showDeleteModal = ref(false)
 const updating = ref(false)
@@ -331,54 +344,25 @@ const addingMember = ref(false)
 onMounted(async () => {
   console.log('=== 项目管理：页面加载 ===')
   const token = localStorage.getItem('token')
-  console.log('检查token:', token ? '已登录' : '未登录')
-  
+
   if (!token) {
-    console.log('用户未登录，跳转到登录页面')
     navigateTo('/login')
     return
   }
-  
-  cacheStore.restoreFromLocalStorage()
-  
-  await loadEvents()
+
+  await eventStore.ensureLoaded()
+  syncFromStore()
 })
 
-onUnmounted(() => {
-  cacheStore.persistToLocalStorage()
-})
-
-const loadEvents = async (forceRefresh = false) => {
-  const startTime = performance.now()
-  console.log('=== 项目管理：开始加载比赛列表 ===')
-  
-  try {
-    const token = localStorage.getItem('token')
-    const cacheKey = cacheStore.generateKey('/events', { page: 1, page_size: 100 })
-    
-    const response = await cacheStore.fetchWithCache(
-      cacheKey,
-      async () => {
-        console.log('发送请求: GET /api/events')
-        return await $api.get('/events', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-      },
-      { forceRefresh, expiry: 3 * 60 * 1000 }
-    )
-    
-    if (response.data.code === 200) {
-      events.value = response.data.data.data
-      console.log('成功加载比赛列表，数量:', events.value.length)
-    }
-  } catch (error) {
-    console.error('加载比赛列表失败:', error)
-  } finally {
-    const loadTime = performance.now() - startTime
-    console.log(`=== 项目管理：比赛列表加载完成，耗时: ${loadTime.toFixed(2)}ms ===`)
-    console.log('缓存统计:', cacheStore.getStats)
-  }
+// Keep local events in sync with store (reactive binding)
+const syncFromStore = () => {
+  events.value = [...eventStore.events]
 }
+
+// Watch store data version to sync when data changes
+watch(() => eventStore.dataVersion, () => {
+  syncFromStore()
+})
 
 const goToCreate = () => {
   navigateTo('/events/create')
@@ -417,12 +401,15 @@ const updateEvent = async () => {
     const response = await $api.put(`/events/${editingEventId.value}`, editForm.value, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
+
     if (response.data.code === 200) {
       console.log('比赛更新成功')
-      cacheStore.invalidateEventCache(editingEventId.value)
       showEditModal.value = false
-      await loadEvents(true)
+      const eventId = editingEventId.value
+      if (eventId) {
+        await eventStore.invalidateAndRefresh({ eventId })
+      }
+      syncFromStore()
     }
   } catch (error) {
     console.error('更新比赛失败:', error)
@@ -474,16 +461,17 @@ const goToInvoiceManage = (event) => {
 
 const toggleEventStatus = async (event) => {
   if (!confirm(`确定要将比赛 "${event.event_name}" 结束吗？`)) return
-  
+
   try {
     const token = localStorage.getItem('token')
     const response = await $api.put(`/events/${event.event_id}`, { status: 'finished' }, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
+
     if (response.data.code === 200) {
       alert('比赛已结束')
-      await loadEvents(true)
+      await eventStore.invalidateAndRefresh({ eventId: event.event_id })
+      syncFromStore()
     }
   } catch (error) {
     alert('操作失败，请稍后重试')
@@ -531,7 +519,7 @@ const selectMember = (user) => {
 
 const addMember = async () => {
   if (!selectedMember.value || !currentEvent.value) return
-  
+
   addingMember.value = true
   try {
     const token = localStorage.getItem('token')
@@ -541,12 +529,12 @@ const addMember = async () => {
     }, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
+
     if (response.data.code === 200) {
       alert('添加成员成功')
       showAddMemberModal.value = false
-      // 刷新成员列表
-      await loadEvents(true)
+      await eventStore.invalidateAndRefresh({ eventId: currentEvent.value.event_id })
+      syncFromStore()
     }
   } catch (error) {
     console.error('添加成员失败:', error)
@@ -577,46 +565,41 @@ const getRemainingPercent = (event) => {
   return Math.max(0, Math.min(100, (getRemainingBudget(event) / total) * 100))
 }
 
+const getBudgetUsagePercent = (event) => {
+  const budget = Number(event.total_budget || 0)
+  const spent = Number(event.spent_amount || 0)
+  if (budget <= 0) return 0
+  return Math.min(100, (spent / budget) * 100)
+}
+
 const deleteEvent = async () => {
   if (!deletingEvent.value) return
-  
+
   deleting.value = true
   console.log('=== 项目管理：删除项目 ===')
-  console.log('项目ID:', deletingEvent.value.event_id)
-  console.log('项目名称:', deletingEvent.value.event_name)
-  
+
   try {
     const token = localStorage.getItem('token')
-    console.log('发送删除请求: DELETE /api/events/' + deletingEvent.value.event_id)
-    
     const response = await $api.delete(`/events/${deletingEvent.value.event_id}`, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
-    console.log('删除响应:', response.data)
-    
+
     if (response.data.code === 200) {
       console.log('删除成功')
-      cacheStore.invalidateEventCache(deletingEvent.value.event_id)
       showDeleteModal.value = false
       deletingEvent.value = null
-      await loadEvents(true)
+      await eventStore.invalidateAndRefresh({ eventId: deletingEvent.value?.event_id })
+      syncFromStore()
       alert('项目删除成功')
     } else {
-      console.error('删除失败:', response.data.message)
       alert(response.data.message || '删除失败，请稍后重试')
     }
   } catch (error) {
     console.error('=== 项目管理：删除项目异常 ===')
-    console.error('错误对象:', error)
-    console.error('错误响应:', error.response)
-    console.error('错误响应数据:', error.response?.data)
-    
     const message = error.response?.data?.message || '删除失败，请稍后重试'
     alert(message)
   } finally {
     deleting.value = false
-    console.log('=== 项目管理：删除流程结束 ===')
   }
 }
 </script>
@@ -770,6 +753,10 @@ const deleteEvent = async () => {
 
 .info-value.budget {
   color: #27ae60;
+}
+
+.info-value.spent {
+  color: #e74c3c;
 }
 
 .info-value.remaining {
@@ -1055,6 +1042,7 @@ const deleteEvent = async () => {
 }
 
 .budget-item.total .b-value { color: #3498db; }
+.budget-item.spent .b-value { color: #e74c3c; }
 .budget-item.invoice .b-value { color: #f39c12; }
 .budget-item.reimbursed .b-value { color: #27ae60; }
 .budget-item.remaining .b-value { color: #9b59b6; }
@@ -1075,6 +1063,10 @@ const deleteEvent = async () => {
   background: linear-gradient(90deg, #9b59b6, #8e44ad);
   border-radius: 2px;
   transition: width 0.4s ease;
+}
+
+.mini-fill.spent-fill {
+  background: linear-gradient(90deg, #e74c3c, #f39c12);
 }
 
 /* 添加成员相关样式 */

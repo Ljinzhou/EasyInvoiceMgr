@@ -104,6 +104,9 @@
                 <label>当前角色</label>
                 <input :value="userRole" type="text" disabled class="disabled-input" />
               </div>
+              <transition name="toast-fade">
+                <div v-if="settingsMsg" class="settings-msg" :class="settingsMsgType">{{ settingsMsg }}</div>
+              </transition>
               <div class="form-actions">
                 <button type="button" @click="showSettingsModal = false" class="cancel-btn">取消</button>
                 <button type="submit" class="save-btn" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
@@ -200,10 +203,18 @@
       </div>
     </div>
   </div>
+
+  <!-- 全局操作提示 -->
+  <transition name="global-toast-fade">
+    <div v-if="globalToast.visible" class="global-toast" :class="globalToast.type">
+      <svg v-if="globalToast.type === 'success'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      <span>{{ globalToast.message }}</span>
+    </div>
+  </transition>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 const { $api } = useNuxtApp()
 const route = useRoute()
@@ -213,7 +224,19 @@ const showSettingsModal = ref(false)
 const activeTab = ref('profile')
 const saving = ref(false)
 const userAvatarUrl = ref('')
-const avatarLoadError = ref(false)
+	const avatarLoadError = ref(false)
+	const settingsMsg = ref('')
+	const settingsMsgType = ref('success')
+	const globalToast = reactive({ visible: false, message: '', type: 'success' })
+	let globalToastTimer = null
+
+	function showGlobalToast(message, type = 'success') {
+	  globalToast.visible = true
+	  globalToast.message = message
+	  globalToast.type = type
+	  if (globalToastTimer) clearTimeout(globalToastTimer)
+	  globalToastTimer = setTimeout(() => { globalToast.visible = false }, 2500)
+	}
 
 const settingsForm = ref({
   username: '',
@@ -273,6 +296,12 @@ function handleAvatarUpdated(newUrl) {
   avatarLoadError.value = false
   if (user.value) {
     user.value.avatar_url = newUrl || null
+    localStorage.setItem('user', JSON.stringify(user.value))
+  }
+  // 上传头像成功后关闭设置页面并提示
+  if (newUrl) {
+    showSettingsModal.value = false
+    showGlobalToast('头像保存成功')
   }
 }
 
@@ -288,12 +317,15 @@ const saveSettings = async () => {
       const updatedUser = { ...user.value, ...settingsForm.value }
       localStorage.setItem('user', JSON.stringify(updatedUser))
       user.value = updatedUser
-      alert('设置保存成功')
+      settingsMsg.value = '设置保存成功'
+      settingsMsgType.value = 'success'
     } else {
-      alert(response.data.message || '保存失败')
+      settingsMsg.value = response.data.message || '保存失败'
+      settingsMsgType.value = 'error'
     }
   } catch (error) {
-    alert('保存失败，请稍后重试')
+    settingsMsg.value = '保存失败，请稍后重试'
+    settingsMsgType.value = 'error'
   } finally {
     saving.value = false
   }
@@ -625,6 +657,23 @@ const handleLogout = () => {
   cursor: not-allowed;
 }
 
+.settings-msg {
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+.settings-msg.success {
+  background: #d4edda; color: #155724;
+}
+.settings-msg.error {
+  background: #f8d7da; color: #721c24;
+}
+
+.toast-fade-enter-active, .toast-fade-leave-active { transition: all .3s ease; }
+.toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translateY(6px); }
+
 .profile-avatar-section {
   display: flex;
   flex-direction: column;
@@ -738,5 +787,41 @@ const handleLogout = () => {
   .main-content {
     padding: 1rem;
   }
+}
+
+/* ---- 全局 Toast ---- */
+.global-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.global-toast.success {
+  background: #d4edda;
+  color: #155724;
+}
+.global-toast.error {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.global-toast-fade-enter-active,
+.global-toast-fade-leave-active {
+  transition: all 0.35s ease;
+}
+.global-toast-fade-enter-from,
+.global-toast-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-16px);
 }
 </style>

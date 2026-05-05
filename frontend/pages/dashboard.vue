@@ -103,30 +103,13 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useCacheStore } from '~/stores/cache'
+import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({
   layout: 'default'
 })
 
-const { $api } = useNuxtApp()
-const cacheStore = useCacheStore()
-
-const stats = ref({
-  totalEvents: 0,
-  totalRecords: 0,
-  totalAmount: 0,
-  invoiceTotal: 0,
-  invoiceCount: 0,
-  purchaseCount: 0,
-  ongoingEvents: 0,
-  reimbursedAmount: 0,
-  pendingReimburse: 0,
-  budgetUsageRate: 0,
-  reimburseRate: 0
-})
-
-const recentEvents = ref([])
+const eventStore = useEventStore()
 
 const currentUser = ref(null)
 
@@ -138,10 +121,16 @@ const canManageInvitationCodes = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
 })
 
+// All statistics come from the unified store as computed reactive properties
+const stats = computed(() => eventStore.fullStats)
+
+// Show the 5 most recent events
+const recentEvents = computed(() => eventStore.events.slice(0, 5))
+
 onMounted(async () => {
   console.log('=== 总览面板：页面加载 ===')
   const token = localStorage.getItem('token')
-  
+
   if (!token) {
     navigateTo('/login')
     return
@@ -149,85 +138,13 @@ onMounted(async () => {
 
   const userStr = localStorage.getItem('user')
   currentUser.value = userStr ? JSON.parse(userStr) : null
-  
-  cacheStore.restoreFromLocalStorage()
-  
-  await loadData()
+
+  await eventStore.ensureLoaded()
 })
 
 onUnmounted(() => {
-  cacheStore.persistToLocalStorage()
+  // Cache persistence is handled by the store internally
 })
-
-const loadData = async (forceRefresh = false) => {
-  const startTime = performance.now()
-  
-  try {
-    const token = localStorage.getItem('token')
-    const cacheKey = cacheStore.generateKey('/events', { page: 1, page_size: 10 })
-    
-    const response = await cacheStore.fetchWithCache(
-      cacheKey,
-      async () => {
-        return await $api.get('/events', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-      },
-      { forceRefresh, expiry: 3 * 60 * 1000 }
-    )
-    
-    if (response.data.code === 200) {
-      recentEvents.value = response.data.data.data.slice(0, 5)
-      
-      let totalAmount = 0
-      let totalRecords = 0
-      let invoiceTotal = 0
-      let invoiceCount = 0
-      let purchaseRecordCount = 0
-      let ongoingEvents = 0
-      let totalBudget = 0
-      let reimbursedAmount = 0
-      
-      recentEvents.value.forEach(event => {
-        totalAmount += parseFloat(event.spent_amount || 0)
-        invoiceTotal += parseFloat(event.invoice_total_amount || 0)
-        invoiceCount += event.invoice_count || 0
-        purchaseRecordCount += event.purchase_record_count || 0
-        totalRecords += (event.invoice_count || 0) + (event.purchase_record_count || 0)
-        totalBudget += parseFloat(event.total_budget || 0)
-        reimbursedAmount += parseFloat(event.reimbursed_amount || 0)
-        
-        if (event.status === 'ongoing') ongoingEvents++
-      })
-      
-      const pendingReimburse = Math.max(0, invoiceTotal - reimbursedAmount)
-      const budgetUsageRate = totalBudget > 0 ? ((totalAmount / totalBudget) * 100).toFixed(1) : 0
-      const reimburseRate = invoiceTotal > 0 ? ((reimbursedAmount / invoiceTotal) * 100).toFixed(1) : 0
-      
-      stats.value = {
-        totalEvents: response.data.data.total,
-        totalRecords,
-        totalAmount,
-        invoiceTotal,
-        invoiceCount,
-        purchaseCount: purchaseRecordCount,
-        ongoingEvents,
-        reimbursedAmount,
-        pendingReimburse,
-        budgetUsageRate,
-        reimburseRate
-      }
-    }
-  } catch (error) {
-    console.error('加载数据异常:', error)
-  } finally {
-    console.log(`数据加载耗时: ${(performance.now() - startTime).toFixed(2)}ms`)
-  }
-}
-
-const refreshData = () => {
-  loadData(true)
-}
 
 const formatMoney = (val) => {
   return parseFloat(val || 0).toFixed(2)

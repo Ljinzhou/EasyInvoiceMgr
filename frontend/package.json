@@ -7,7 +7,9 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@pinia/nuxt": "^0.5.1",
@@ -23,7 +25,10 @@
   },
   "devDependencies": {
     "@types/file-saver": "^2.0.7",
+    "@vue/test-utils": "^2.4.9",
+    "happy-dom": "^20.9.0",
     "typescript": "^5.3.3",
+    "vitest": "^4.1.5",
     "vue-tsc": "^1.8.27"
   }
 }
