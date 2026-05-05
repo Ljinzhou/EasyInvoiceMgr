@@ -1,6 +1,8 @@
 from flask import Flask, send_from_directory, send_file
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from dotenv import load_dotenv
+load_dotenv()
 from config import Config
 from models import db
 import logging
@@ -22,13 +24,13 @@ def create_app():
     # 配置CORS - 允许API和静态文件访问
     CORS(app, resources={
         r"/api/*": {
-            "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+            "origins": ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
             "supports_credentials": True
         },
         r"/uploads/*": {
-            "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+            "origins": ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
             "methods": ["GET", "OPTIONS"],
             "allow_headers": ["Content-Type", "Range"],
             "supports_credentials": True

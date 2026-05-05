@@ -9,3 +9,5 @@ PyPDF2==3.0.1
 cos-python-sdk-v5>=1.9.25
 Requests==2.33.1
 Werkzeug==3.1.8
+python-dotenv==1.2.2
+psycopg2==2.9.12

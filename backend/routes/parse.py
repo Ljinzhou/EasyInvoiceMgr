@@ -181,11 +181,12 @@ class InvoiceUploadService:
 
 
 @parse_bp.route('/upload-file', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
 def upload_file():
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
         return response

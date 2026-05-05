@@ -10,11 +10,12 @@ logger = logging.getLogger(__name__)
 auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route('/register', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
 def register():
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
         return response
@@ -96,11 +97,12 @@ def register():
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
 @auth_bp.route('/login', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
 def login():
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
         return response
@@ -249,12 +251,13 @@ def get_user(user_id):
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
 @auth_bp.route('/users/<int:user_id>', methods=['PUT', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
 @jwt_required()
 def update_user(user_id):
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'PUT,OPTIONS')
         return response
@@ -361,12 +364,13 @@ def get_avatar():
 
 
 @auth_bp.route('/avatar/upload', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
 @jwt_required()
 def upload_avatar():
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'POST,OPTIONS')
         return response
@@ -471,12 +475,13 @@ def upload_avatar():
 
 
 @auth_bp.route('/avatar', methods=['DELETE', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
 @jwt_required()
 def delete_avatar():
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'DELETE,OPTIONS')
         return response
@@ -516,12 +521,13 @@ def delete_avatar():
 
 
 @auth_bp.route('/users/<int:user_id>', methods=['DELETE', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://127.0.0.1:3000'], supports_credentials=True)
+@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
 @jwt_required()
 def delete_user(user_id):
     if request.method == 'OPTIONS':
         response = make_response()
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'DELETE,OPTIONS')
         return response

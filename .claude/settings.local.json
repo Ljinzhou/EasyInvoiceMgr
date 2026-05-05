@@ -24,7 +24,10 @@
       "Bash(pnpm --version)",
       "Bash(npm prefix:*)",
       "Bash(export PATH=\"$PATH:/c/Program Files/nodejs:/c/Program Files/nodejs/:/c/Users/ljz/AppData/Roaming/npm\")",
-      "Bash(pnpm install:*)"
+      "Bash(pnpm install:*)",
+      "Bash(PGPASSWORD=root psql -U postgres -h localhost -c \"SELECT 1 FROM pg_database WHERE datname='easy_invoice_mgr'\")",
+      "Bash(pip install:*)",
+      "Bash(python clear_cos.py)"
     ]
   }
 }
