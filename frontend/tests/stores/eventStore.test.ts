@@ -20,8 +20,6 @@ function makeEvent(overrides: Partial<any> = {}) {
     event_id: overrides.event_id ?? 1,
     event_name: overrides.event_name ?? '测试项目',
     description: null,
-    category: null,
-    location: null,
     status: overrides.status ?? 'ongoing',
     event_start_time: null,
     event_end_time: null,

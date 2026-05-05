@@ -47,8 +47,6 @@ def create_event():
         event = Event(
             event_name=data['event_name'],
             description=data.get('description'),
-            category=data.get('category'),
-            location=data.get('location'),
             status='ongoing',
             event_start_time=event_start_time,
             event_end_time=event_end_time,
@@ -71,8 +69,6 @@ def create_event():
                 'event_id': event.event_id,
                 'event_name': event.event_name,
                 'description': event.description,
-                'category': event.category,
-                'location': event.location,
                 'status': event.status,
                 'event_start_time': event.event_start_time.isoformat() if event.event_start_time else None,
                 'event_end_time': event.event_end_time.isoformat() if event.event_end_time else None,
@@ -100,14 +96,11 @@ def get_events():
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 10, type=int)
         status = request.args.get('status')
-        category = request.args.get('category')
-        
+
         query = Event.query.filter_by(is_deleted=False)
-        
+
         if status:
             query = query.filter_by(status=status)
-        if category:
-            query = query.filter_by(category=category)
         
         total = query.count()
         events = query.order_by(Event.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
@@ -133,8 +126,6 @@ def get_events():
                 'event_id': event.event_id,
                 'event_name': event.event_name,
                 'description': event.description,
-                'category': event.category,
-                'location': event.location,
                 'status': event.status,
                 'event_start_time': event.event_start_time.isoformat() if event.event_start_time else None,
                 'event_end_time': event.event_end_time.isoformat() if event.event_end_time else None,
@@ -185,10 +176,6 @@ def update_event(event_id):
             event.event_name = data['event_name']
         if 'description' in data:
             event.description = data['description']
-        if 'category' in data:
-            event.category = data['category']
-        if 'location' in data:
-            event.location = data['location']
         if 'event_start_time' in data and data['event_start_time']:
             event.event_start_time = datetime.fromisoformat(data['event_start_time'].replace('Z', '+00:00'))
         if 'event_end_time' in data and data['event_end_time']:
@@ -214,8 +201,6 @@ def update_event(event_id):
                 'event_id': event.event_id,
                 'event_name': event.event_name,
                 'description': event.description,
-                'category': event.category,
-                'location': event.location,
                 'status': event.status,
                 'event_start_time': event.event_start_time.isoformat() if event.event_start_time else None,
                 'event_end_time': event.event_end_time.isoformat() if event.event_end_time else None,
@@ -265,8 +250,6 @@ def get_event(event_id):
                 'event_id': event.event_id,
                 'event_name': event.event_name,
                 'description': event.description,
-                'category': event.category,
-                'location': event.location,
                 'status': event.status,
                 'event_start_time': event.event_start_time.isoformat() if event.event_start_time else None,
                 'event_end_time': event.event_end_time.isoformat() if event.event_end_time else None,

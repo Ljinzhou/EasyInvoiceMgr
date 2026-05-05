@@ -61,14 +61,6 @@
 
           <div class="info-grid">
             <div class="info-item">
-              <span class="info-label">类别</span>
-              <span class="info-value">{{ event.category || '未分类' }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">地点</span>
-              <span class="info-value">{{ event.location || '未设置' }}</span>
-            </div>
-            <div class="info-item">
               <span class="info-label">开始时间</span>
               <span class="info-value">{{ formatDateTime(event.event_start_time) }}</span>
             </div>
@@ -134,16 +126,6 @@
           <div class="form-group">
             <label>比赛描述</label>
             <textarea v-model="editForm.description" rows="3"></textarea>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>比赛类别</label>
-              <input v-model="editForm.category" type="text" />
-            </div>
-            <div class="form-group">
-              <label>比赛地点</label>
-              <input v-model="editForm.location" type="text" />
-            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -234,61 +216,104 @@
     </div>
 
     <!-- 添加人员弹窗 -->
-    <div v-if="showAddMemberModal" class="modal-overlay" @click.self="showAddMemberModal = false">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>添加成员 - {{ currentEvent?.event_name }}</h2>
-          <button @click="showAddMemberModal = false" class="close-button">×</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>搜索用户</label>
-            <div class="autocomplete-wrapper">
-              <input
-                v-model="memberSearch"
-                type="text"
-                placeholder="输入用户名或真实姓名"
-                @input="searchUsersForMember"
-                @focus="showMemberDropdown = true"
-              />
-              <div v-if="showMemberDropdown && filteredMembers.length > 0" class="dropdown">
-                <div
-                  v-for="user in filteredMembers"
-                  :key="user.user_id"
-                  class="dropdown-item"
-                  @click="selectMember(user)"
-                >
-                  {{ user.real_name }} ({{ user.username }}) - {{ getUserTypeText(user.user_type) }}
-                </div>
+    <transition name="modal-fade">
+      <div v-if="showAddMemberModal" class="member-modal-mask" @click.self="showAddMemberModal = false">
+        <div class="member-modal">
+          <div class="member-modal__header">
+            <div class="member-modal__title-row">
+              <div class="member-modal__icon-box">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
               </div>
-            </div>
-          </div>
-          <div v-if="selectedMember" class="selected-member">
-            <div class="member-info">
-              <img :src="selectedMember.avatar_url || '/default-avatar.png'" class="avatar-sm" />
               <div>
-                <strong>{{ selectedMember.real_name }}</strong>
-                <span class="user-type">{{ getUserTypeText(selectedMember.user_type) }}</span>
+                <h2>添加成员</h2>
+                <p class="member-modal__subtitle">{{ currentEvent?.event_name }}</p>
               </div>
             </div>
-            <button @click="selectedMember = null" class="remove-button">移除</button>
+            <button @click="showAddMemberModal = false" class="member-modal__close">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
-          <div class="form-group">
-            <label>角色</label>
-            <select v-model="memberRole">
-              <option value="member">成员</option>
-              <option value="admin">管理员</option>
-            </select>
+
+          <div class="member-modal__body">
+            <!-- Search -->
+            <div class="member-search" :class="{ 'has-results': showMemberDropdown && filteredMembers.length > 0 }">
+              <div class="member-search__input-wrap">
+                <svg class="member-search__icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input
+                  v-model="memberSearch"
+                  type="text"
+                  placeholder="搜索用户姓名或用户名..."
+                  class="member-search__input"
+                  @input="searchUsersForMember"
+                  @focus="showMemberDropdown = true"
+                />
+                <button v-if="memberSearch" @click="memberSearch = ''; filteredMembers = []" class="member-search__clear">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <transition name="drop-enter">
+                <div v-if="showMemberDropdown && filteredMembers.length > 0" class="member-search__dropdown">
+                  <div
+                    v-for="user in filteredMembers"
+                    :key="user.user_id"
+                    class="member-search__item"
+                    :class="{ 'is-selected': selectedMember?.user_id === user.user_id }"
+                    @click="selectMember(user)"
+                  >
+                    <div class="member-search__avatar">
+                      <img v-if="user.avatar_url" :src="user.avatar_url" alt="" />
+                      <span v-else>{{ (user.real_name || user.username || '?').charAt(0) }}</span>
+                    </div>
+                    <div class="member-search__info">
+                      <span class="member-search__name">{{ user.real_name }}</span>
+                      <span class="member-search__meta">@{{ user.username }} · {{ getUserTypeText(user.user_type) }}</span>
+                    </div>
+                    <div v-if="selectedMember?.user_id === user.user_id" class="member-search__check">
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
+                  </div>
+                </div>
+              </transition>
+            </div>
+
+            <!-- Selected member card -->
+            <transition name="card-rise">
+              <div v-if="selectedMember" class="member-card">
+                <div class="member-card__avatar">
+                  <img v-if="selectedMember.avatar_url" :src="selectedMember.avatar_url" alt="" />
+                  <span v-else class="member-card__initial">{{ (selectedMember.real_name || '?').charAt(0) }}</span>
+                </div>
+                <div class="member-card__body">
+                  <div class="member-card__name">{{ selectedMember.real_name }}</div>
+                  <div class="member-card__details">
+                    <span>@{{ selectedMember.username }}</span>
+                    <span class="member-card__dot">·</span>
+                    <span class="member-card__role">{{ getUserTypeText(selectedMember.user_type) }}</span>
+                  </div>
+                </div>
+                <button @click="selectedMember = null" class="member-card__remove" title="取消选择">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </transition>
           </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" @click="showAddMemberModal = false" class="cancel-button">取消</button>
-          <button type="button" @click="addMember" class="submit-button" :disabled="!selectedMember || addingMember">
-            {{ addingMember ? '添加中...' : '添加' }}
-          </button>
+
+          <div class="member-modal__footer">
+            <button type="button" @click="showAddMemberModal = false" class="member-modal__btn member-modal__btn--cancel">取消</button>
+            <button
+              type="button"
+              @click="addMember"
+              class="member-modal__btn member-modal__btn--confirm"
+              :disabled="!selectedMember || addingMember"
+            >
+              <svg v-if="addingMember" class="spin-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+              {{ addingMember ? '添加中...' : '确认添加' }}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </transition>
   </div>
 </template>
 
@@ -316,8 +341,6 @@ const deletingEvent = ref(null)
 const editForm = ref({
   event_name: '',
   description: '',
-  category: '',
-  location: '',
   event_start_time: '',
   event_end_time: '',
   upload_start_time: '',
@@ -338,7 +361,6 @@ const memberSearch = ref('')
 const filteredMembers = ref([])
 const showMemberDropdown = ref(false)
 const selectedMember = ref(null)
-const memberRole = ref('member')
 const addingMember = ref(false)
 
 onMounted(async () => {
@@ -373,8 +395,6 @@ const editEvent = (event) => {
   editForm.value = {
     event_name: event.event_name,
     description: event.description || '',
-    category: event.category || '',
-    location: event.location || '',
     event_start_time: formatDateTimeLocal(event.event_start_time),
     event_end_time: formatDateTimeLocal(event.event_end_time),
     upload_start_time: formatDateTimeLocal(event.upload_start_time),
@@ -487,7 +507,6 @@ const openAddMemberModal = (event) => {
   memberSearch.value = ''
   filteredMembers.value = []
   selectedMember.value = null
-  memberRole.value = 'member'
   showAddMemberModal.value = true
 }
 
@@ -525,7 +544,7 @@ const addMember = async () => {
     const token = localStorage.getItem('token')
     const response = await $api.post(`/events/${currentEvent.value.event_id}/members`, {
       user_id: selectedMember.value.user_id,
-      role_in_event: memberRole.value
+      role_in_event: 'member'
     }, {
       headers: { Authorization: `Bearer ${token}` }
     })
@@ -1069,50 +1088,188 @@ const deleteEvent = async () => {
   background: linear-gradient(90deg, #e74c3c, #f39c12);
 }
 
-/* 添加成员相关样式 */
-.selected-member {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  margin: 1rem 0;
-  border: 1px solid #e9ecef;
+/* ===== MEMBER MODAL ===== */
+.member-modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.member-modal {
+  background: #fff;
+  border-radius: 18px;
+  width: 90%; max-width: 480px;
+  box-shadow: 0 25px 60px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
+  overflow: hidden;
+  transform-origin: center;
 }
 
-.member-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* Header */
+.member-modal__header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 1.5rem 1.5rem 0;
+}
+.member-modal__title-row { display: flex; align-items: center; gap: 12px; }
+.member-modal__icon-box {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+  color: #6366f1;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.member-modal__header h2 { margin: 0; font-size: 1.15rem; font-weight: 700; color: #0f172a; letter-spacing: -0.01em; }
+.member-modal__subtitle { margin: 3px 0 0; font-size: 0.8rem; color: #94a3b8; }
+.member-modal__close {
+  width: 34px; height: 34px; border-radius: 10px;
+  border: none; background: #f8fafc; color: #94a3b8;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.2s;
+  flex-shrink: 0; margin-top: 2px;
+}
+.member-modal__close:hover { background: #fee2e2; color: #ef4444; }
+
+/* Body */
+.member-modal__body { padding: 1.25rem 1.5rem; }
+
+/* Search */
+.member-search { position: relative; }
+.member-search__input-wrap {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; height: 48px;
+  background: #f8fafc; border: 2px solid #e8ecf1;
+  border-radius: 14px;
+  transition: all 0.25s;
+}
+.member-search:focus-within .member-search__input-wrap,
+.member-search.has-results .member-search__input-wrap {
+  border-color: #6366f1; background: #fff;
+  box-shadow: 0 0 0 4px rgba(99,102,241,0.08);
+}
+.member-search__icon { color: #94a3b8; flex-shrink: 0; }
+.member-search__input {
+  flex: 1; border: none; background: transparent;
+  font-size: 0.93rem; color: #0f172a; outline: none;
+}
+.member-search__input::placeholder { color: #b0b8c1; }
+.member-search__clear {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: none; background: #e2e8f0; color: #64748b;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.15s;
+}
+.member-search__clear:hover { background: #cbd5e1; color: #334155; }
+
+/* Dropdown */
+.member-search__dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: #fff;
+  border: 1px solid #e8ecf1; border-radius: 14px;
+  max-height: 220px; overflow-y: auto;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.1);
+  z-index: 20;
+}
+.member-search__item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer; transition: background 0.15s;
+  border-bottom: 1px solid #f8fafc;
+}
+.member-search__item:last-child { border-bottom: none; }
+.member-search__item:hover { background: #f8fafc; }
+.member-search__item.is-selected { background: #eef2ff; }
+.member-search__avatar {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 15px;
+  overflow: hidden; flex-shrink: 0;
+}
+.member-search__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-search__info { flex: 1; min-width: 0; }
+.member-search__name { display: block; font-size: 0.9rem; font-weight: 600; color: #0f172a; }
+.member-search__meta { display: block; font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }
+.member-search__check {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: #6366f1; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
 }
 
-.avatar-sm {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
+/* Selected member card */
+.member-card {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1.5px solid #e2e8f0; border-radius: 16px;
 }
+.member-card__avatar {
+  width: 50px; height: 50px; border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 20px;
+  overflow: hidden; flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+}
+.member-card__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-card__body { flex: 1; min-width: 0; }
+.member-card__name { font-size: 1rem; font-weight: 700; color: #0f172a; }
+.member-card__details { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+.member-card__dot { color: #cbd5e1; }
+.member-card__role { font-weight: 500; color: #6366f1; }
+.member-card__remove {
+  width: 34px; height: 34px; border-radius: 10px;
+  border: 1.5px solid #e2e8f0; background: #fff;
+  color: #94a3b8; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.2s; flex-shrink: 0;
+}
+.member-card__remove:hover { background: #fef2f2; border-color: #fecaca; color: #ef4444; }
 
-.user-type {
-  font-size: 12px;
-  color: #6c757d;
-  margin-left: 8px;
+/* Footer */
+.member-modal__footer {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 1rem 1.5rem 1.5rem;
 }
+.member-modal__btn {
+  padding: 10px 22px;
+  border-radius: 12px; border: none;
+  font-size: 0.88rem; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+  display: flex; align-items: center; gap: 7px;
+}
+.member-modal__btn--cancel {
+  background: #f1f5f9; color: #475569;
+}
+.member-modal__btn--cancel:hover { background: #e2e8f0; }
+.member-modal__btn--confirm {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(99,102,241,0.35);
+}
+.member-modal__btn--confirm:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(99,102,241,0.45);
+}
+.member-modal__btn--confirm:disabled {
+  opacity: 0.5; cursor: not-allowed; box-shadow: none;
+}
+.spin-icon { animation: spin-icon 1s linear infinite; }
+@keyframes spin-icon { to { transform: rotate(360deg); } }
 
-.remove-button {
-  padding: 6px 12px;
-  background: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-}
+/* Transitions */
+.modal-fade-enter-active, .modal-fade-leave-active { transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+.modal-fade-enter-from .member-modal { transform: scale(0.92) translateY(12px); }
+.modal-fade-leave-to .member-modal { transform: scale(0.95); }
 
-.remove-button:hover {
-  background: #c82333;
-}
+.drop-enter-enter-active, .drop-enter-leave-active { transition: all 0.2s cubic-bezier(0.4,0,0.2,1); }
+.drop-enter-enter-from, .drop-enter-leave-to { opacity: 0; transform: translateY(-6px); }
+
+.card-rise-enter-active { transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+.card-rise-leave-active { transition: all 0.2s ease-in; }
+.card-rise-enter-from { opacity: 0; transform: translateY(12px) scale(0.95); }
+.card-rise-leave-to { opacity: 0; transform: scale(0.96); }
 
 /* Checkbox group styles */
 .checkbox-group {

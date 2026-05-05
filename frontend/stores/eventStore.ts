@@ -5,8 +5,6 @@ export interface EventItem {
   event_id: number
   event_name: string
   description: string | null
-  category: string | null
-  location: string | null
   status: string
   event_start_time: string | null
   event_end_time: string | null
@@ -144,20 +142,17 @@ export const useEventStore = defineStore('eventStore', {
      * @param options.pageSize - number of events per page
      * @param options.forceRefresh - bypass cache
      * @param options.status - filter by status
-     * @param options.category - filter by category
      */
     async fetchEvents(options: {
       pageSize?: number
       forceRefresh?: boolean
       status?: string
-      category?: string
       api?: any  // injectable for testing
     } = {}) {
       const {
         pageSize = 100,
         forceRefresh = false,
         status,
-        category,
         api
       } = options
 
@@ -165,7 +160,6 @@ export const useEventStore = defineStore('eventStore', {
 
       const params: Record<string, any> = { page: 1, page_size: pageSize }
       if (status) params.status = status
-      if (category) params.category = category
 
       const cacheKey = cacheStore.generateKey('/events', params)
 

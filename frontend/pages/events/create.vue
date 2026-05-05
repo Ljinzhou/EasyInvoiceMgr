@@ -26,27 +26,6 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label for="category">比赛类别</label>
-            <input
-              id="category"
-              v-model="form.category"
-              type="text"
-              placeholder="请输入比赛类别"
-            />
-          </div>
-          <div class="form-group">
-            <label for="location">比赛地点</label>
-            <input
-              id="location"
-              v-model="form.location"
-              type="text"
-              placeholder="请输入比赛地点"
-            />
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
             <label for="event_start_time">开始时间 *</label>
             <input
               id="event_start_time"
@@ -146,11 +125,11 @@
         <div v-if="success" class="success-message">{{ success }}</div>
 
         <div class="button-group">
-          <button type="button" @click="resetForm" class="reset-button">
+          <button type="button" @click="resetForm(true)" class="reset-button">
             重置
           </button>
           <button type="submit" :disabled="loading" class="submit-button">
-            {{ loading ? '创建中...' : '创建比赛' }}
+            {{ loading ? (isEditMode ? '保存中...' : '创建中...') : (isEditMode ? '保存修改' : '创建比赛') }}
           </button>
         </div>
       </form>
@@ -176,8 +155,6 @@ const eventId = computed(() => route.params.id)
 const form = ref({
   event_name: '',
   description: '',
-  category: '',
-  location: '',
   event_start_time: '',
   event_end_time: '',
   upload_start_time: '',
@@ -314,8 +291,6 @@ const loadEventData = async () => {
       form.value = {
         event_name: event.event_name || '',
         description: event.description || '',
-        category: event.category || '',
-        location: event.location || '',
         event_start_time: event.event_start_time ? event.event_start_time.split('T')[0] : '',
         event_end_time: event.event_end_time ? event.event_end_time.split('T')[0] : '',
         upload_start_time: event.upload_start_time ? event.upload_start_time.split('T')[0] : '',
@@ -371,7 +346,10 @@ const handleSubmit = async () => {
       eventStore.invalidateAndRefresh({ eventId: isEditMode.value ? eventId.value : undefined })
 
       if (!isEditMode.value) {
-        resetForm()
+        // 创建模式：显示成功消息，短暂延迟后跳转到项目管理页
+        setTimeout(() => {
+          navigateTo('/projects')
+        }, 1200)
       }
     } else {
       error.value = response.data.message
@@ -390,12 +368,10 @@ const handleSubmit = async () => {
   }
 }
 
-const resetForm = () => {
+const resetForm = (clearMessages = false) => {
   form.value = {
     event_name: '',
     description: '',
-    category: '',
-    location: '',
     event_start_time: '',
     event_end_time: '',
     upload_start_time: '',
@@ -405,8 +381,10 @@ const resetForm = () => {
     need_invoice_review: true
   }
   leaderSearch.value = ''
-  error.value = ''
-  success.value = ''
+  if (clearMessages) {
+    error.value = ''
+    success.value = ''
+  }
 }
 </script>
 

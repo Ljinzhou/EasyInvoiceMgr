@@ -30,8 +30,6 @@ class Event(db.Model):
     event_id = db.Column(db.BigInteger, primary_key=True)
     event_name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
-    category = db.Column(db.String(50))
-    location = db.Column(db.String(200))
     status = db.Column(db.String(20), nullable=False, default='ongoing')
     event_start_time = db.Column(db.DateTime(timezone=True))
     event_end_time = db.Column(db.DateTime(timezone=True))

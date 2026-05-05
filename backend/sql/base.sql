@@ -47,8 +47,6 @@ CREATE TABLE events (
     event_id BIGSERIAL PRIMARY KEY,
     event_name VARCHAR(200) NOT NULL,
     description TEXT,
-    category VARCHAR(50), -- 赛事类别
-    location VARCHAR(200), -- 赛事地点
     status event_status_enum NOT NULL DEFAULT 'ongoing',
     
     -- 时间管理
