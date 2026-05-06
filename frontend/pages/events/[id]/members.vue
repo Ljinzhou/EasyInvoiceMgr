@@ -340,5 +340,20 @@ const formatDate = (dateStr) => {
   .page-header { flex-direction: column; align-items: flex-start; }
   .stats-panel { grid-template-columns: repeat(2, 1fr); }
   .filter-bar { flex-direction: column; }
+  .search-input, .type-filter { min-height: 44px; }
+  .action-button { min-height: 44px; width: 100%; justify-content: center; }
+  .back-button { min-height: 44px; width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .members-page { padding: 0 0.25rem; }
+  .page-title { font-size: 1.3rem; }
+  .stats-panel { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card { padding: 12px; }
+  .stat-value { font-size: 20px; }
+  .members-table th,
+  .members-table td { padding: 10px 12px; font-size: 12px; }
+  .members-table-container { border-radius: 8px; }
+  .avatar-sm { width: 30px; height: 30px; }
 }
 </style>

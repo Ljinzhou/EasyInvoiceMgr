@@ -13,3 +13,7 @@ class Config:
     COS_SECRET_KEY = os.environ.get('COS_SECRET_KEY')
     COS_REGION = os.environ.get('COS_REGION', 'ap-guangzhou')
     COS_BUCKET = os.environ.get('COS_BUCKET')
+    
+    # 智谱AI GLM视觉模型配置
+    GLM_API_KEY = os.environ.get('GLM_API_KEY')
+    GLM_MODEL = os.environ.get('GLM_MODEL', 'glm-4.6v-flash')

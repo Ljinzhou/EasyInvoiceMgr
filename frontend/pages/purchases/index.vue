@@ -190,12 +190,10 @@ const formatMoney = (val) => {
   color: white;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s;
   text-decoration: none;
   font-size: 14px;
 }
 .action-button.primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-.action-button.primary:hover { transform: translateY(-1px); opacity: 0.95; }
 .action-button.quick-add { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); }
 .action-button.quick-add:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -238,12 +236,7 @@ const formatMoney = (val) => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-  transition: all 0.3s ease;
   cursor: pointer;
-}
-.event-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 25px rgba(0,0,0,0.1);
 }
 
 .card-header {
@@ -345,5 +338,21 @@ const formatMoney = (val) => {
   .header-actions { flex-direction: column; }
   .quick-add-section { flex-direction: column; align-items: stretch; }
   .quick-select { max-width: none; }
+  .event-filter, .action-button { min-height: 44px; }
+}
+
+@media (max-width: 480px) {
+  .page-title { font-size: 1.5rem; }
+  .overview-stats { grid-template-columns: 1fr; gap: 10px; }
+  .stat-card { padding: 14px; }
+  .stat-value { font-size: 18px; }
+  .event-card { border-radius: 10px; }
+  .card-header { padding: 12px 16px; }
+  .card-body { padding: 12px 16px; }
+  .card-footer { padding: 10px 16px; }
+  .quick-add-section { padding: 16px; }
+  .quick-add-section h2 { font-size: 16px; }
+  .quick-select { min-height: 44px; }
+  .action-button.quick-add { min-height: 44px; }
 }
 </style>

@@ -741,5 +741,31 @@ const formatDateTime = (dateStr) => {
 @media (max-width: 768px) {
   .form-row { grid-template-columns: 1fr; }
   .filter-bar { flex-direction: column; }
+  .status-filter, .type-filter { min-height: 44px; }
+  .action-button { min-height: 44px; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .modal-content { width: 95%; max-height: 85vh; }
+  .modal-footer { flex-direction: column; }
+  .cancel-button, .submit-button, .delete-btn { width: 100%; min-height: 44px; }
+  .page-btn { min-height: 44px; min-width: 80px; }
+}
+
+@media (max-width: 480px) {
+  .page-title { font-size: 1.5rem; }
+  .stats-panel { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card { padding: 12px; }
+  .stat-value { font-size: 20px; }
+  .codes-table th, .codes-table td { padding: 10px 12px; font-size: 12px; }
+  .codes-table-container { border-radius: 8px; }
+  .btn-disable-sm, .btn-enable-sm, .btn-delete-sm {
+    min-width: 32px; min-height: 32px; padding: 4px 8px;
+  }
+  .row-actions { gap: 6px; }
+  .pagination { gap: 0.5rem; }
+  .page-info { font-size: 12px; }
+  .modal-body { padding: 1rem; }
+  .modal-header { padding: 1rem; }
+  .form-group input, .form-group select { min-height: 44px; }
+  .copy-all-btn { min-height: 44px; }
 }
 </style>

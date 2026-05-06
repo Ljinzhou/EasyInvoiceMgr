@@ -82,7 +82,7 @@
               <path v-else-if="card.key==='records'" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline v-if="card.key==='records'" points="14 2 14 8 20 8"/><line v-if="card.key==='records'" x1="16" y1="13" x2="8" y2="13"/><line v-if="card.key==='records'" x1="16" y1="17" x2="8" y2="17"/><polyline v-if="card.key==='records'" points="10 9 9 9 8 9"/>
               <path v-else-if="card.key==='spending'" d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
               <path v-else-if="card.key==='invoice'" d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z"/>
-              <path v-else-if="card.key==='reimburse'" d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+              <path v-else-if="card.key==='reimburse'" d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline v-if="card.key==='reimburse'" points="22 4 12 14.01 9 11.01"/>
             </svg>
           </div>
           <div class="stat-content">
@@ -185,7 +185,7 @@
         </div>
       </div>
 
-      <!-- Bottom Row: Projects + Categories -->
+      <!-- Bottom Row: Projects -->
       <div class="bottom-row">
         <!-- Recent Projects -->
         <div class="section-card">
@@ -200,27 +200,50 @@
               class="project-item"
               @click="navigateTo(`/purchases/${event.event_id}`)"
             >
-              <div class="project-main">
-                <div class="project-status-dot" :class="event.status" :title="statusMap[event.status]"></div>
-                <div class="project-info">
-                  <div class="project-name">{{ event.event_name }}</div>
-                  <div class="project-meta">
-                    <span v-if="event.leader_name" class="project-leader">{{ event.leader_name }}</span>
+              <!-- 项目头部：名称 + 状态 -->
+              <div class="project-row-top">
+                <div class="project-main">
+                  <div class="project-status-dot" :class="event.status" :title="statusMap[event.status]"></div>
+                  <div class="project-info">
+                    <div class="project-name">{{ event.event_name }}</div>
+                    <div class="project-meta">
+                      <span v-if="event.leader_name" class="project-leader">{{ event.leader_name }}</span>
+                      <span class="project-records-inline">
+                        <span>🧾 {{ event.invoice_count || 0 }}</span>
+                        <span>🛒 {{ event.purchase_record_count || 0 }}</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
+                <!-- 剩余金额大字 -->
+                <div class="project-remaining-badge" :class="remainingClass(event)">
+                  <span class="remaining-label">剩余</span>
+                  <span class="remaining-value">¥{{ fmt(getEventRemaining(event)) }}</span>
+                </div>
               </div>
-              <div class="project-numbers">
-                <div class="project-spent">¥{{ fmt(event.spent_amount) }} <span class="project-budget">/ ¥{{ fmt(event.total_budget) }}</span></div>
-                <div class="progress-track">
+
+              <!-- 预算条 + 三栏数字 -->
+              <div class="project-budget-section">
+                <div class="budget-bar-track">
                   <div
-                    class="progress-fill"
+                    class="budget-bar-fill"
                     :class="progressClass(event)"
-                    :style="{ width: Math.min(100, (event.spent_amount/(event.total_budget||1))*100) + '%' }"
+                    :style="{ width: Math.min(100, budgetUsagePercent(event)) + '%' }"
                   ></div>
                 </div>
-                <div class="project-records">
-                  <span>🧾 {{ event.invoice_count || 0 }}</span>
-                  <span>🛒 {{ event.purchase_record_count || 0 }}</span>
+                <div class="budget-three-cols">
+                  <div class="budget-col">
+                    <span class="col-label">总预算</span>
+                    <span class="col-value">¥{{ fmt(event.total_budget) }}</span>
+                  </div>
+                  <div class="budget-col">
+                    <span class="col-label">已用</span>
+                    <span class="col-value spent">¥{{ fmt(event.spent_amount) }}</span>
+                  </div>
+                  <div class="budget-col">
+                    <span class="col-label">使用率</span>
+                    <span class="col-value" :class="progressClass(event)">{{ budgetUsagePercent(event).toFixed(1) }}%</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -354,6 +377,24 @@ function progressClass(event: any): string {
   if (pct > 90) return 'danger'
   if (pct > 70) return 'warn'
   return 'ok'
+}
+
+function getEventRemaining(event: any): number {
+  return Number(event.total_budget || 0) - Number(event.spent_amount || 0)
+}
+
+function remainingClass(event: any): string {
+  const pct = budgetUsagePercent(event)
+  if (pct > 90) return 'danger'
+  if (pct > 70) return 'warn'
+  return 'ok'
+}
+
+function budgetUsagePercent(event: any): number {
+  const budget = Number(event.total_budget || 0)
+  const spent = Number(event.spent_amount || 0)
+  if (budget <= 0) return 0
+  return Math.min(100, (spent / budget) * 100)
 }
 
 async function refreshData() {
@@ -584,28 +625,77 @@ onMounted(async () => {
 /* Project List */
 .project-list { display: flex; flex-direction: column; gap: 0; }
 .project-item {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0.85rem 0; border-bottom: 1px solid #f8fafc;
-  cursor: pointer; transition: all 0.2s;
+  padding: 1rem 0.75rem; border-bottom: 1px solid #f1f5f9;
+  cursor: pointer; transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+  border-radius: 10px;
 }
 .project-item:last-child { border-bottom: none; }
-.project-item:hover { background: #fafbfc; margin: 0 -0.75rem; padding-left: 0.75rem; padding-right: 0.75rem; border-radius: 8px; border-bottom-color: transparent; }
-.project-main { display: flex; align-items: center; gap: 10px; }
-.project-status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.project-item:hover {
+  background: linear-gradient(135deg, #f8faff 0%, #f5f3ff 100%);
+  margin: 0 -0.75rem; padding-left: 1rem; padding-right: 1rem;
+  border-bottom-color: transparent;
+  transform: translateX(2px);
+}
+
+/* 项目头部行 */
+.project-row-top {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+.project-main { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
+.project-status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
 .project-status-dot.ongoing   { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.4); }
 .project-status-dot.completed { background: #94a3b8; }
 .project-status-dot.archived  { background: #cbd5e1; }
-.project-name { font-size: 0.9rem; font-weight: 600; color: var(--text-1); }
-.project-meta { display: flex; gap: 8px; margin-top: 3px; font-size: 0.75rem; color: var(--text-3); }
-.project-numbers { text-align: right; min-width: 140px; }
-.project-spent { font-size: 0.9rem; font-weight: 700; color: var(--text-1); }
-.project-budget { font-weight: 400; color: var(--text-3); font-size: 0.8rem; }
-.progress-track { height: 5px; background: #f1f5f9; border-radius: 3px; margin: 5px 0; overflow: hidden; }
-.progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
-.progress-fill.ok { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
-.progress-fill.warn { background: #f59e0b; }
-.progress-fill.danger { background: #ef4444; }
-.project-records { display: flex; gap: 10px; font-size: 0.73rem; color: var(--text-3); }
+.project-name { font-size: 0.92rem; font-weight: 600; color: var(--text-1); line-height: 1.3; }
+.project-meta { display: flex; gap: 8px; margin-top: 3px; font-size: 0.75rem; color: var(--text-3); align-items: center; }
+.project-leader { background: #f1f5f9; padding: 1px 7px; border-radius: 4px; }
+.project-records-inline { display: flex; gap: 8px; }
+
+/* 剩余金额徽章 */
+.project-remaining-badge {
+  display: flex; flex-direction: column; align-items: flex-end;
+  padding: 6px 12px; border-radius: 10px; flex-shrink: 0;
+  min-width: 100px;
+  transition: all 0.25s;
+}
+.project-remaining-badge.ok {
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+  border: 1px solid #bbf7d0;
+}
+.project-remaining-badge.warn {
+  background: linear-gradient(135deg, #fffbeb 0%, #fefce8 100%);
+  border: 1px solid #fde68a;
+}
+.project-remaining-badge.danger {
+  background: linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%);
+  border: 1px solid #fecaca;
+}
+.remaining-label { font-size: 0.68rem; color: var(--text-3); font-weight: 500; letter-spacing: 0.03em; }
+.remaining-value { font-size: 1.05rem; font-weight: 700; line-height: 1.3; }
+.project-remaining-badge.ok .remaining-value { color: #059669; }
+.project-remaining-badge.warn .remaining-value { color: #d97706; }
+.project-remaining-badge.danger .remaining-value { color: #dc2626; }
+
+/* 预算区域 */
+.project-budget-section { padding-left: 19px; }
+.budget-bar-track { height: 5px; background: #f1f5f9; border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+.budget-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(0.34,1.56,0.64,1); }
+.budget-bar-fill.ok { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+.budget-bar-fill.warn { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.budget-bar-fill.danger { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+.budget-three-cols {
+  display: flex; gap: 1.5rem;
+}
+.budget-col { display: flex; flex-direction: column; gap: 1px; }
+.col-label { font-size: 0.68rem; color: var(--text-3); font-weight: 500; letter-spacing: 0.03em; }
+.col-value { font-size: 0.82rem; font-weight: 600; color: var(--text-1); }
+.col-value.spent { color: #6366f1; }
+.col-value.ok { color: #059669; }
+.col-value.warn { color: #d97706; }
+.col-value.danger { color: #dc2626; }
+
 .list-empty { text-align: center; padding: 2rem; color: var(--text-3); font-size: 0.85rem; }
 
 /* ===== QUICK ACTIONS ===== */
@@ -643,14 +733,26 @@ onMounted(async () => {
 }
 @media (max-width: 768px) {
   .dash-header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+  .refresh-btn { align-self: stretch; justify-content: center; min-height: 44px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-value { font-size: 1.3rem; }
   .donut-body { justify-content: center; }
+  .quick-actions { gap: 0.5rem; }
+  .action-card { flex: 1; min-width: calc(50% - 0.5rem); justify-content: center; min-height: 44px; }
 }
 @media (max-width: 480px) {
+  .page-title { font-size: 1.3rem; }
   .stats-grid { grid-template-columns: 1fr; }
-  .project-item { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
-  .project-numbers { text-align: left; width: 100%; }
+  .stat-card { padding: 1rem; }
+  .project-row-top { flex-direction: column; gap: 0.5rem; }
+  .project-remaining-badge { align-self: flex-start; flex-direction: row; gap: 6px; align-items: center; }
+  .budget-three-cols { gap: 1rem; }
   .empty-actions { flex-direction: column; }
+  .empty-state { padding: 2.5rem 1.5rem; }
+  .empty-state h2 { font-size: 1.15rem; }
+  .action-card { min-width: 100%; }
+  .donut-body { flex-direction: column; align-items: center; }
+  .gauge-stack { width: 100%; }
+  .gauge-val.right { min-width: 60px; }
 }
 </style>

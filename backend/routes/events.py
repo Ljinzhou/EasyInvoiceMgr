@@ -138,7 +138,8 @@ def get_events():
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
                 'voucher_count': invoice_count + purchase_count,
-                'leader_name': leader.real_name if leader else None
+                'leader_name': leader.real_name if leader else None,
+                'need_invoice_review': event.need_invoice_review
             })
         
         return jsonify({

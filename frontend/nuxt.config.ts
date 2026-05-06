@@ -6,6 +6,9 @@ export default defineNuxtConfig({
     typeCheck: false
   },
   css: [],
+  experimental: {
+    appManifest: false
+  },
   runtimeConfig: {
     public: {
       apiBase: 'http://localhost:5000/api'

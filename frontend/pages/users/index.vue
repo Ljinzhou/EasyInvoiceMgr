@@ -1339,5 +1339,31 @@ const deleteUser = async () => {
   .form-row { grid-template-columns: 1fr; }
   .stats-panel { grid-template-columns: repeat(2, 1fr); }
   .filter-bar { flex-direction: column; }
+  .search-input, .type-filter { min-height: 44px; }
+  .action-button { min-height: 44px; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .header-actions { width: 100%; }
+  .header-actions .action-button { width: 100%; justify-content: center; }
+  .modal-content { width: 95%; max-height: 85vh; }
+  .add-modal { max-width: none; }
+  .modal-footer { flex-direction: column; }
+  .cancel-button, .submit-button { width: 100%; min-height: 44px; }
+}
+
+@media (max-width: 480px) {
+  .page-title { font-size: 1.5rem; }
+  .stats-panel { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card { padding: 12px; }
+  .stat-value { font-size: 20px; }
+  .users-table th, .users-table td { padding: 10px 12px; font-size: 12px; }
+  .users-table-container { border-radius: 8px; }
+  .avatar-sm, .avatar-default-sm { width: 30px; height: 30px; }
+  .btn-edit-sm, .btn-delete-sm, .btn-enable-sm, .btn-disable-sm {
+    min-width: 32px; min-height: 32px; padding: 4px 8px;
+  }
+  .row-actions { gap: 6px; }
+  .modal-body { padding: 1rem; }
+  .modal-header { padding: 1rem; }
+  .form-group input, .form-group select { min-height: 44px; }
 }
 </style>

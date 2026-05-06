@@ -575,7 +575,7 @@ const formatMoney = (value) => {
 
 const getRemainingBudget = (event) => {
   if (!event) return 0
-  return Number(event.total_budget || 0) - Number(event.reimbursed_amount || 0)
+  return Number(event.total_budget || 0) - Number(event.spent_amount || 0)
 }
 
 const getRemainingPercent = (event) => {
@@ -997,10 +997,83 @@ const deleteEvent = async () => {
   .form-row {
     grid-template-columns: 1fr;
   }
-  
+
   .info-grid {
     grid-template-columns: 1fr 1fr;
   }
+
+  .project-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .project-title-section {
+    flex-wrap: wrap;
+  }
+
+  .action-buttons {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .action-btn {
+    flex: 1;
+    min-width: calc(50% - 0.5rem);
+    min-height: 40px;
+    justify-content: center;
+    font-size: 13px;
+    padding: 0.5rem 0.6rem;
+  }
+
+  .edit-button, .delete-button {
+    min-height: 40px;
+    padding: 0.5rem 1rem;
+  }
+
+  .budget-overview {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .create-button {
+    width: 100%;
+    min-height: 48px;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .modal-content {
+    width: 95%;
+    max-height: 85vh;
+  }
+
+  .member-modal {
+    width: 95%;
+    max-height: 85vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-title { font-size: 1.5rem; }
+  .project-title { font-size: 1.1rem; }
+  .project-status { font-size: 0.75rem; padding: 0.2rem 0.6rem; }
+  .info-grid { grid-template-columns: 1fr; }
+  .budget-overview { grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+  .budget-item { padding: 8px 6px; }
+  .b-value { font-size: 14px; }
+  .action-btn { min-width: 100%; }
+  .modal-body { padding: 1rem; }
+  .modal-header { padding: 1rem; }
+  .modal-footer { flex-direction: column; }
+  .cancel-button, .submit-button { width: 100%; min-height: 44px; }
+  .member-modal__body { padding: 1rem; }
+  .member-modal__footer { flex-direction: column; }
+  .member-modal__btn { width: 100%; justify-content: center; min-height: 44px; }
 }
 
 /* 操作按钮样式 */

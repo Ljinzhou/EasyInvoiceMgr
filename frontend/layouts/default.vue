@@ -1,27 +1,39 @@
 <template>
   <div class="layout-container">
-    <aside class="sidebar">
+    <!-- 移动端顶部导航栏 -->
+    <div class="mobile-topbar">
+      <button class="hamburger-btn" @click="toggleMobileMenu" :class="{ active: mobileMenuOpen }">
+        <span></span><span></span><span></span>
+      </button>
+      <h2 class="mobile-title">财务管理系统</h2>
+      <button class="mobile-settings-btn" @click="showSettingsModal = true" title="设置">⚙️</button>
+    </div>
+
+    <!-- 移动端遮罩层 -->
+    <div v-if="mobileMenuOpen" class="mobile-overlay" @click="mobileMenuOpen = false"></div>
+
+    <aside class="sidebar" :class="{ 'mobile-open': mobileMenuOpen }">
       <div class="sidebar-header">
         <h2>财务管理系统</h2>
       </div>
       <nav class="sidebar-nav">
-        <NuxtLink to="/dashboard" class="nav-item" :class="{ active: $route.path === '/dashboard' }">
+        <NuxtLink to="/dashboard" class="nav-item" :class="{ active: $route.path === '/dashboard' }" @click="mobileMenuOpen = false">
           <span class="nav-icon">📊</span>
           <span class="nav-text">总览面板</span>
         </NuxtLink>
-        <NuxtLink to="/purchases" class="nav-item" :class="{ active: $route.path.startsWith('/purchases') }">
+        <NuxtLink to="/purchases" class="nav-item" :class="{ active: $route.path.startsWith('/purchases') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">🛒</span>
           <span class="nav-text">购买记录</span>
         </NuxtLink>
-        <NuxtLink to="/projects" class="nav-item" :class="{ active: $route.path.startsWith('/projects') }">
+        <NuxtLink to="/projects" class="nav-item" :class="{ active: $route.path.startsWith('/projects') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">📁</span>
           <span class="nav-text">项目管理</span>
         </NuxtLink>
-        <NuxtLink v-if="canManageUsers" to="/users" class="nav-item" :class="{ active: $route.path.startsWith('/users') }">
+        <NuxtLink v-if="canManageUsers" to="/users" class="nav-item" :class="{ active: $route.path.startsWith('/users') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">👥</span>
           <span class="nav-text">人员管理</span>
         </NuxtLink>
-        <NuxtLink v-if="canManageInvitationCodes" to="/invitation-codes" class="nav-item" :class="{ active: $route.path.startsWith('/invitation-codes') }">
+        <NuxtLink v-if="canManageInvitationCodes" to="/invitation-codes" class="nav-item" :class="{ active: $route.path.startsWith('/invitation-codes') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">🎫</span>
           <span class="nav-text">邀请码管理</span>
         </NuxtLink>
@@ -223,6 +235,16 @@ const user = ref(null)
 const showSettingsModal = ref(false)
 const activeTab = ref('profile')
 const saving = ref(false)
+const mobileMenuOpen = ref(false)
+
+const toggleMobileMenu = () => {
+  mobileMenuOpen.value = !mobileMenuOpen.value
+}
+
+// 路由变化时关闭移动端菜单
+watch(() => route.path, () => {
+  mobileMenuOpen.value = false
+})
 const userAvatarUrl = ref('')
 	const avatarLoadError = ref(false)
 	const settingsMsg = ref('')
@@ -339,6 +361,11 @@ const handleLogout = () => {
 </script>
 
 <style scoped>
+/* ===== 移动端顶部栏（桌面端隐藏） ===== */
+.mobile-topbar {
+  display: none;
+}
+
 .layout-container {
   display: flex;
   min-height: 100vh;
@@ -352,6 +379,7 @@ const handleLogout = () => {
   display: flex;
   flex-direction: column;
   box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
 }
 
 .sidebar-header {
@@ -378,6 +406,7 @@ const handleLogout = () => {
   text-decoration: none;
   transition: all 0.3s ease;
   border-left: 3px solid transparent;
+  min-height: 44px;
 }
 
 .nav-item:hover {
@@ -446,11 +475,15 @@ const handleLogout = () => {
 
 .user-details {
   flex: 1;
+  min-width: 0;
 }
 
 .user-name {
   font-weight: 500;
   font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-role {
@@ -468,6 +501,7 @@ const handleLogout = () => {
   cursor: pointer;
   transition: all 0.3s ease;
   font-size: 0.9rem;
+  min-height: 44px;
 }
 
 .logout-button:hover {
@@ -478,6 +512,7 @@ const handleLogout = () => {
   flex: 1;
   padding: 2rem;
   overflow-y: auto;
+  min-width: 0;
 }
 
 .settings-btn {
@@ -505,12 +540,13 @@ const handleLogout = () => {
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  padding: 1rem;
 }
 
 .settings-modal {
   background: white;
   border-radius: 12px;
-  width: 90%;
+  width: 100%;
   max-width: 600px;
   max-height: 85vh;
   overflow-y: auto;
@@ -523,6 +559,11 @@ const handleLogout = () => {
   align-items: center;
   padding: 1.2rem 1.5rem;
   border-bottom: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 10;
+  border-radius: 12px 12px 0 0;
 }
 
 .modal-header h2 {
@@ -539,6 +580,11 @@ const handleLogout = () => {
   color: #999;
   padding: 0;
   line-height: 1;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .close-btn:hover {
@@ -564,6 +610,7 @@ const handleLogout = () => {
   border-radius: 6px;
   font-size: 0.9rem;
   transition: all 0.3s;
+  min-height: 44px;
 }
 
 .tab-btn.active {
@@ -605,6 +652,8 @@ const handleLogout = () => {
   border-radius: 6px;
   font-size: 0.95rem;
   transition: border-color 0.3s;
+  min-height: 44px;
+  box-sizing: border-box;
 }
 
 .form-group input:focus {
@@ -632,6 +681,7 @@ const handleLogout = () => {
   cursor: pointer;
   font-size: 0.95rem;
   transition: all 0.3s;
+  min-height: 44px;
 }
 
 .cancel-btn {
@@ -714,10 +764,16 @@ const handleLogout = () => {
   color: #2c3e50;
 }
 
+.permissions-matrix {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .matrix-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
+  min-width: 400px;
 }
 
 .matrix-table th,
@@ -752,40 +808,187 @@ const handleLogout = () => {
   background: #fafafa;
 }
 
+/* ===== 响应式：平板端 ===== */
+@media (max-width: 1024px) {
+  .main-content {
+    padding: 1.5rem;
+  }
+}
+
+/* ===== 响应式：移动端 ===== */
 @media (max-width: 768px) {
+  /* 显示移动端顶部栏 */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1rem;
+    height: 56px;
+    background: linear-gradient(135deg, #2c3e50 0%, #1a252f 100%);
+    color: white;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .mobile-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .mobile-settings-btn {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 汉堡按钮 */
+  .hamburger-btn {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 44px;
+    height: 44px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    gap: 5px;
+  }
+
+  .hamburger-btn span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: white;
+    border-radius: 2px;
+    transition: all 0.3s ease;
+  }
+
+  .hamburger-btn.active span:nth-child(1) {
+    transform: rotate(45deg) translate(5px, 5px);
+  }
+
+  .hamburger-btn.active span:nth-child(2) {
+    opacity: 0;
+  }
+
+  .hamburger-btn.active span:nth-child(3) {
+    transform: rotate(-45deg) translate(5px, -5px);
+  }
+
+  /* 遮罩层 */
+  .mobile-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 200;
+    animation: fadeIn 0.2s ease;
+  }
+
+  /* 侧边栏变为抽屉 */
   .layout-container {
     flex-direction: column;
   }
-  
+
   .sidebar {
-    width: 100%;
-    min-height: auto;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 85vw;
+    z-index: 300;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  
-  .sidebar-nav {
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-header {
+    padding: 1.2rem;
     display: flex;
-    padding: 0.5rem;
-    overflow-x: auto;
+    align-items: center;
+    min-height: 56px;
   }
-  
+
+  .sidebar-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .sidebar-nav {
+    flex: 1;
+    padding: 0.5rem 0;
+  }
+
   .nav-item {
-    padding: 0.7rem 1rem;
-    white-space: nowrap;
-    border-left: none;
-    border-bottom: 2px solid transparent;
+    padding: 0.85rem 1.2rem;
+    border-left: 3px solid transparent;
+    min-height: 48px;
   }
-  
+
   .nav-item.active {
-    border-left-color: transparent;
-    border-bottom-color: #667eea;
+    border-left-color: #667eea;
+    border-bottom-color: transparent;
   }
-  
+
   .sidebar-footer {
-    display: none;
+    padding: 1rem 1.2rem;
   }
-  
+
   .main-content {
     padding: 1rem;
+  }
+
+  /* 设置弹窗移动端优化 */
+  .settings-modal {
+    width: 100%;
+    max-width: none;
+    max-height: 90vh;
+    border-radius: 12px 12px 0 0;
+    margin-top: auto;
+  }
+
+  .modal-header h2 {
+    font-size: 1.05rem;
+  }
+
+  .modal-body {
+    padding: 1rem;
+  }
+
+  .form-group input {
+    font-size: 16px; /* 防止iOS自动缩放 */
+  }
+}
+
+/* ===== 响应式：小屏手机 ===== */
+@media (max-width: 480px) {
+  .mobile-topbar {
+    padding: 0 0.75rem;
+    height: 50px;
+  }
+
+  .mobile-title {
+    font-size: 0.9rem;
+  }
+
+  .main-content {
+    padding: 0.75rem;
   }
 }
 
@@ -805,6 +1008,7 @@ const handleLogout = () => {
   font-weight: 500;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   pointer-events: none;
+  max-width: 90vw;
 }
 .global-toast.success {
   background: #d4edda;

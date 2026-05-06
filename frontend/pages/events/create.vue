@@ -634,18 +634,47 @@ input:checked + .slider:before {
   .form-row {
     grid-template-columns: 1fr;
   }
-  
+
   .create-event-card {
     padding: 1.5rem;
   }
-  
+
   .button-group {
     flex-direction: column;
   }
-  
+
   .reset-button,
   .submit-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .create-event-container {
+    padding: 1rem 0.5rem;
+  }
+  .create-event-card {
+    padding: 1.25rem;
+    border-radius: 8px;
+  }
+  .create-event-title {
+    font-size: 1.4rem;
+    margin-bottom: 1.5rem;
+  }
+  .form-group input,
+  .form-group textarea {
+    min-height: 48px;
+    padding: 0.85rem;
+  }
+  .reset-button,
+  .submit-button {
+    min-height: 48px;
+    padding: 0.85rem 2rem;
+  }
+  .switch-label {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 }
 </style>

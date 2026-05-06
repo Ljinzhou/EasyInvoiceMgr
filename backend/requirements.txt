@@ -5,6 +5,7 @@ flask_sqlalchemy==3.1.1
 fpdf==1.7.2
 pandas==3.0.2
 Pillow==12.2.0
+PyMuPDF>=1.25.0
 PyPDF2==3.0.1
 cos-python-sdk-v5>=1.9.25
 Requests==2.33.1

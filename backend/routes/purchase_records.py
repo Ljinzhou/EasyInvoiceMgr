@@ -3,6 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, PurchaseRecord, Event, User
 from datetime import datetime, timezone
 from utils.cos_manager import cos_manager
+from utils.invoice_parser import invoice_parser
+from utils.glm_vision_service import glm_vision_service
 import logging
 import os
 
@@ -452,4 +454,89 @@ def get_invoice_preview(record_id):
         
     except Exception as e:
         logger.error(f'获取发票预览URL异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@purchase_records_bp.route('/records/<int:record_id>/re-parse-invoice', methods=['POST'])
+@jwt_required()
+def re_parse_invoice(record_id):
+    """重新解析已上传的发票文件（使用GLM视觉模型）"""
+    logger.info(f'=== 重新解析发票: record_id={record_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+
+        record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
+        if not record:
+            return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
+
+        if not record.has_invoice or not record.invoice_file_key:
+            return jsonify({'code': 400, 'message': '该记录没有发票文件', 'data': None}), 400
+
+        file_key = record.invoice_file_key
+        is_pdf = file_key.endswith('.pdf')
+        original_filename = record.invoice_original_filename or file_key.split('/')[-1]
+
+        # 从对象存储或本地下载文件
+        file_bytes = None
+        if cos_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
+            try:
+                file_bytes = cos_manager.download_file(file_key)
+                logger.info(f'从COS下载文件成功: {file_key}')
+            except Exception as e:
+                logger.error(f'从COS下载文件失败: {str(e)}')
+        else:
+            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+            filename = file_key.replace('/uploads/', '').replace('uploads/', '')
+            local_path = os.path.join(uploads_dir, filename)
+            if os.path.exists(local_path):
+                with open(local_path, 'rb') as f:
+                    file_bytes = f.read()
+                logger.info(f'从本地读取文件成功: {local_path}')
+
+        if not file_bytes:
+            return jsonify({'code': 404, 'message': '无法获取发票文件', 'data': None}), 404
+
+        # PDF文件：先转换为JPG图片再用GLM解析
+        image_bytes_for_ai = file_bytes
+        if is_pdf:
+            from routes.parse import PDFConverter
+            jpg_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(file_bytes)
+            if jpg_bytes:
+                image_bytes_for_ai = jpg_bytes
+                logger.info('PDF转换为JPG成功，使用JPG进行AI解析')
+            else:
+                logger.warning('PDF转换JPG失败，尝试直接解析')
+
+        # 调用解析服务
+        parsed_info = None
+        if invoice_parser.is_available():
+            ai_filename = f'{record_id}.jpg' if is_pdf else original_filename
+            result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
+
+            if result.get('success'):
+                logger.info('发票重新解析成功')
+                raw_data = result.get('data', {})
+                parsed_info = {
+                    'item_name': raw_data.get('project_name', '') or raw_data.get('item_name', ''),
+                    'invoice_number': raw_data.get('invoice_number', ''),
+                    'amount': raw_data.get('total_amount', 0) or raw_data.get('amount', 0),
+                    'date': raw_data.get('invoice_date', '')
+                }
+            else:
+                logger.warning(f'发票重新解析失败: {result.get("message")}')
+                return jsonify({'code': 422, 'message': result.get('message', '解析失败'), 'data': None}), 422
+        else:
+            return jsonify({'code': 503, 'message': 'AI解析服务不可用', 'data': None}), 503
+
+        return jsonify({
+            'code': 200,
+            'message': '重新解析成功',
+            'data': {
+                'parsed_info': parsed_info,
+                'extraction_method': 'glm_vision'
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'重新解析发票异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500

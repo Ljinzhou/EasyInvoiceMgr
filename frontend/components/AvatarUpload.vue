@@ -611,5 +611,40 @@ onBeforeUnmount(() => {
   .crop-container :deep(cropper-canvas) {
     height: 260px;
   }
+  .crop-modal-footer {
+    flex-direction: column;
+  }
+  .crop-btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .tool-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .avatar-circle {
+    width: 100px;
+    height: 100px;
+  }
+  .avatar-actions {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  .action-link {
+    justify-content: center;
+    min-height: 44px;
+    width: 100%;
+  }
+  .crop-modal-header {
+    padding: 12px 16px;
+  }
+  .crop-modal-body {
+    padding: 16px;
+  }
 }
 </style>

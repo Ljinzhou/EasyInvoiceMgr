@@ -3,13 +3,13 @@ import base64
 import re
 import json
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-GLM_API_KEY = os.getenv('GLM_API_KEY', 'd64b0d9f04d04af99b21f70b8a7b42da.aZtNDQfIU9zslhCU')
-GLM_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-GLM_MODEL = "glm-4v-flash"
+GLM_API_KEY = os.getenv('GLM_API_KEY')
+GLM_API_URL = os.getenv('GLM_API_URL', 'https://open.bigmodel.cn/api/paas/v4/chat/completions')
+GLM_MODEL = os.getenv('GLM_MODEL', 'glm-4.6v-flash')
 
 try:
     import requests as requests_lib
@@ -22,10 +22,39 @@ except ImportError:
 class GLMVisionService:
     def __init__(self, api_key: str = None):
         self.api_key = api_key or GLM_API_KEY
-    
+
     def is_available(self) -> bool:
         return REQUESTS_AVAILABLE and bool(self.api_key)
-    
+
+    @staticmethod
+    def _detect_mime_type(image_bytes: bytes, filename: str = '') -> str:
+        """从文件头魔数或文件名推断MIME类型"""
+        # 优先通过魔数检测
+        if image_bytes[:3] == b'\xff\xd8\xff':
+            return 'image/jpeg'
+        if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+            return 'image/png'
+        if image_bytes[:4] == b'GIF8':
+            return 'image/gif'
+        if image_bytes[:2] == b'BM':
+            return 'image/bmp'
+        if image_bytes[:4] == b'%PDF':
+            return 'application/pdf'
+        # 回退：从文件名推断
+        lower = filename.lower()
+        if lower.endswith('.png'):
+            return 'image/png'
+        if lower.endswith(('.jpg', '.jpeg')):
+            return 'image/jpeg'
+        if lower.endswith('.gif'):
+            return 'image/gif'
+        if lower.endswith('.bmp'):
+            return 'image/bmp'
+        if lower.endswith('.pdf'):
+            return 'application/pdf'
+        # 默认
+        return 'image/jpeg'
+
     def extract_invoice_info(self, image_bytes: bytes, filename: str = '') -> Dict[str, Any]:
         """
         使用GLM-4.6V-Flash视觉推理模型提取图片发票信息
@@ -52,10 +81,20 @@ class GLMVisionService:
             }
         
         try:
+            mime_type = self._detect_mime_type(image_bytes, filename)
+            logger.info(f'检测到图片格式: {mime_type}, 文件: {filename}, 大小: {len(image_bytes)} bytes')
+
+            if mime_type == 'application/pdf':
+                return {
+                    'success': False,
+                    'message': 'GLM视觉模型不支持原始PDF，请先转换为图片',
+                    'data': None
+                }
+
             base64_image = base64.b64encode(image_bytes).decode('utf-8')
-            
+
             prompt = self._build_prompt()
-            
+
             payload = {
                 "model": GLM_MODEL,
                 "messages": [
@@ -65,7 +104,7 @@ class GLMVisionService:
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                    "url": f"data:{mime_type};base64,{base64_image}"
                                 }
                             },
                             {
@@ -144,7 +183,7 @@ class GLMVisionService:
 1. **发票号码**（invoice_number）：发票上的唯一编号，通常是8-20位数字
 2. **开票日期**（invoice_date）：发票开具日期，格式为YYYY-MM-DD
 3. **价税合计/总金额**（total_amount）：发票的总金额，只返回数字
-4. **项目名称**（project_name）：发票的项目或商品名称
+4. **商品名称**（project_name）：发票上的商品或服务名称（即货物或应税劳务、服务名称）
 5. **发票类型**（invoice_type）：如餐饮、交通、住宿、办公用品等
 
 请严格按照以下JSON格式返回结果，不要添加任何其他文字：
@@ -234,7 +273,8 @@ class GLMVisionService:
         
         try:
             base64_image = base64.b64encode(image_bytes).decode('utf-8')
-            
+            mime_type = self._detect_mime_type(image_bytes)
+
             payload = {
                 "model": model or GLM_MODEL,
                 "messages": [
@@ -244,7 +284,7 @@ class GLMVisionService:
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                    "url": f"data:{mime_type};base64,{base64_image}"
                                 }
                             },
                             {

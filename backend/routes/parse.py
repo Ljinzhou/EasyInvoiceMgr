@@ -3,6 +3,7 @@ from flask_cors import cross_origin
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.invoice_parser import invoice_parser
 from utils.cos_manager import cos_manager
+from utils.glm_vision_service import GLMVisionService
 import logging
 import uuid
 import os
@@ -264,6 +265,61 @@ def upload_file():
     }), 200
 
 
+@parse_bp.route('/parse-image', methods=['POST'])
+@jwt_required()
+def parse_image():
+    """
+    仅对图片进行AI解析，不上传到COS。
+    用于客户端已将PDF转为图片后，直接发送图片进行解析。
+    """
+    logger.info('=== 图片AI解析请求（不上传） ===')
+    try:
+        if 'file' not in request.files:
+            return jsonify({'code': 400, 'message': '请上传图片文件', 'data': None}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'code': 400, 'message': '请选择文件', 'data': None}), 400
+
+        file_bytes = file.read()
+        if not file_bytes:
+            return jsonify({'code': 400, 'message': '文件为空', 'data': None}), 400
+
+        mime_type = GLMVisionService._detect_mime_type(file_bytes, file.filename)
+        if mime_type == 'application/pdf':
+            return jsonify({'code': 400, 'message': '请上传图片文件，不支持PDF', 'data': None}), 400
+
+        logger.info(f'收到图片: {file.filename}, 格式: {mime_type}, 大小: {len(file_bytes)} bytes')
+
+        parsed_info = None
+        if invoice_parser.is_available():
+            result = invoice_parser.parse_file(file_bytes, file.filename)
+            if result.get('success'):
+                raw = result.get('data', {})
+                parsed_info = {
+                    'item_name': raw.get('project_name', '') or raw.get('item_name', ''),
+                    'invoice_number': raw.get('invoice_number', ''),
+                    'amount': raw.get('total_amount', 0) or raw.get('amount', 0),
+                    'date': raw.get('invoice_date', '')
+                }
+                logger.info(f'AI解析成功: {parsed_info}')
+            else:
+                logger.warning(f'AI解析失败: {result.get("message")}')
+
+        return jsonify({
+            'code': 200,
+            'message': '解析完成' if parsed_info else 'AI解析服务不可用',
+            'data': {
+                'parsed_info': parsed_info,
+                'filename': file.filename
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'图片解析失败: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
 @parse_bp.route('/parse-invoice', methods=['POST'])
 @jwt_required()
 def parse_invoice():
@@ -312,13 +368,27 @@ def parse_invoice():
         is_pdf = file_ext == 'pdf'
         jpg_bytes = None
         pdf_page_count = 0
-        
+
+        # 接收客户端传来的预览图（可选）
+        client_preview_bytes = None
+        if 'preview_file' in request.files:
+            try:
+                client_preview_bytes = request.files['preview_file'].read()
+                logger.info(f'收到客户端预览图: {len(client_preview_bytes)} bytes')
+            except Exception as e:
+                logger.warning(f'读取客户端预览图失败: {e}')
+
         if is_pdf:
             logger.info('检测到PDF文件，尝试服务端渲染转换...')
             jpg_bytes, jpg_width, jpg_height, pdf_page_count = PDFConverter.convert_pdf_to_jpg(file_bytes)
 
+            # 服务端转换失败时，使用客户端传来的预览图
+            if jpg_bytes is None and client_preview_bytes:
+                jpg_bytes = client_preview_bytes
+                logger.info('使用客户端提供的预览图作为PDF预览')
+
             if jpg_bytes is None:
-                logger.warning('PDF渲染转换失败（渲染库不可用），将使用文本提取方式解析')
+                logger.warning('PDF渲染转换失败（渲染库不可用且无客户端预览图）')
         
         invoice_file_key = f"invoices/{unique_id}.{file_ext}"
         preview_file_key = None
@@ -373,12 +443,19 @@ def parse_invoice():
             
             logger.info(f'本地存储: 原始文件={invoice_file_key}, 预览图={preview_file_key}')
         
-        image_bytes_for_ai = jpg_bytes if (is_pdf and jpg_bytes) else file_bytes
-        
+        # 确定用于AI解析的图片字节：PDF必须先转为图片，否则跳过AI解析
+        if is_pdf and not jpg_bytes:
+            image_bytes_for_ai = None
+            logger.warning('PDF转图片失败，跳过AI解析（视觉模型不支持原始PDF）')
+        elif is_pdf and jpg_bytes:
+            image_bytes_for_ai = jpg_bytes
+        else:
+            image_bytes_for_ai = file_bytes
+
         parsed_info = None
-        if invoice_parser.is_available():
+        if image_bytes_for_ai and invoice_parser.is_available():
             logger.info('开始调用AI模型解析发票...')
-            
+
             ai_filename = f'{unique_id}.jpg' if is_pdf else original_filename
             result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
             
