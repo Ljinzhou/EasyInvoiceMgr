@@ -164,6 +164,7 @@ class PurchaseRecord(db.Model):
     invoice_md5 = db.Column(db.String(64))
     invoice_type = db.Column(db.String(50))
     invoice_number = db.Column(db.String(50))
+    invoice_tax_number = db.Column(db.String(50))
     total_amount = db.Column(db.Numeric(12, 2), default=0.00)
     invoice_date = db.Column(db.Date)
     
@@ -183,3 +184,25 @@ class PurchaseRecord(db.Model):
     event = db.relationship('Event', backref='purchase_records')
     uploader = db.relationship('User', foreign_keys=[uploader_id], backref='uploaded_purchase_records')
     reviewer = db.relationship('User', foreign_keys=[reviewer_id], backref='reviewed_purchase_records')
+
+class ExportTask(db.Model):
+    __tablename__ = 'export_tasks'
+
+    task_id = db.Column(db.BigInteger, primary_key=True)
+    event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
+    requester_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    columns_config = db.Column(db.JSON)
+    file_path = db.Column(db.Text)
+    file_size = db.Column(db.BigInteger)
+    data_snapshot_time = db.Column(db.DateTime(timezone=True))
+    record_count = db.Column(db.Integer)
+    error_message = db.Column(db.Text)
+    progress_percent = db.Column(db.Integer, default=0)
+    progress_message = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime(timezone=True))
+    expires_at = db.Column(db.DateTime(timezone=True))
+
+    event = db.relationship('Event', backref='export_tasks')
+    requester = db.relationship('User', foreign_keys=[requester_id], backref='export_tasks')

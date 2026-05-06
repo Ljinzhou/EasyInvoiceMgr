@@ -163,6 +163,73 @@ CREATE TABLE vouchers (
     is_deleted BOOLEAN DEFAULT FALSE
 );
 
+-- 2.8 购买记录表 (purchase_records)
+CREATE TABLE purchase_records (
+    record_id BIGSERIAL PRIMARY KEY,
+
+    -- 关联信息
+    event_id BIGINT NOT NULL REFERENCES events(event_id),
+    uploader_id BIGINT NOT NULL REFERENCES users(user_id),
+
+    -- 物品信息
+    item_name VARCHAR(200) NOT NULL,
+    purchase_platform VARCHAR(100) NOT NULL,
+    purchase_date DATE NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL DEFAULT 0.00 CHECK (amount >= 0),
+
+    -- 购物凭证文件
+    receipt_image_url TEXT NOT NULL,
+    receipt_image_name VARCHAR(255),
+    receipt_file_md5 VARCHAR(64),
+
+    -- 发票信息
+    has_invoice BOOLEAN DEFAULT FALSE,
+    invoice_file_key TEXT,
+    invoice_preview_key TEXT,
+    invoice_original_filename VARCHAR(255),
+    invoice_md5 VARCHAR(64),
+    invoice_type VARCHAR(50),
+    invoice_number VARCHAR(50),
+    invoice_tax_number VARCHAR(50),
+    total_amount DECIMAL(12, 2) DEFAULT 0.00 CHECK (total_amount >= 0),
+    invoice_date DATE,
+
+    -- 审核信息
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    is_reimbursed BOOLEAN NOT NULL DEFAULT FALSE,
+    reimbursed_at TIMESTAMP WITH TIME ZONE,
+    reviewer_id BIGINT REFERENCES users(user_id),
+    review_time TIMESTAMP WITH TIME ZONE,
+    rejection_reason TEXT,
+
+    -- 辅助信息
+    remarks TEXT,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    extra_fields JSONB
+);
+
+-- 2.9 导出任务表 (export_tasks)
+CREATE TABLE export_tasks (
+    task_id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT NOT NULL REFERENCES events(event_id),
+    requester_id BIGINT NOT NULL REFERENCES users(user_id),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending/processing/completed/failed
+    columns_config JSONB,
+    file_path TEXT,
+    file_size BIGINT,
+    data_snapshot_time TIMESTAMP WITH TIME ZONE,
+    record_count INTEGER,
+    error_message TEXT,
+    progress_percent INTEGER DEFAULT 0,
+    progress_message VARCHAR(200),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE
+);
+
 -- 2.7 邀请码表 (invitation_codes)
 CREATE TABLE invitation_codes (
     id BIGSERIAL PRIMARY KEY,
@@ -228,6 +295,15 @@ CREATE INDEX idx_invitation_codes_code ON invitation_codes(code);
 CREATE INDEX idx_invitation_codes_creator ON invitation_codes(created_by);
 CREATE INDEX idx_invitation_codes_active ON invitation_codes(is_active, expires_at);
 
+-- 购买记录索引
+CREATE INDEX idx_purchase_records_event ON purchase_records(event_id);
+CREATE INDEX idx_purchase_records_uploader ON purchase_records(uploader_id);
+CREATE INDEX idx_purchase_records_status ON purchase_records(status);
+
+-- 导出任务索引
+CREATE INDEX idx_export_tasks_event ON export_tasks(event_id);
+CREATE INDEX idx_export_tasks_status ON export_tasks(status);
+
 -- ============================================
 -- 4. 触发器设计 (自动维护 updated_at)
 -- ============================================
@@ -254,6 +330,12 @@ CREATE TRIGGER trigger_event_members_update BEFORE UPDATE ON event_members
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 CREATE TRIGGER trigger_vouchers_update BEFORE UPDATE ON vouchers
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER trigger_purchase_records_update BEFORE UPDATE ON purchase_records
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER trigger_export_tasks_update BEFORE UPDATE ON export_tasks
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 -- ============================================

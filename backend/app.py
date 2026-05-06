@@ -58,12 +58,20 @@ def create_app():
     app.register_blueprint(purchase_records_bp, url_prefix='/api')
     app.register_blueprint(export_bp, url_prefix='/api')
     logger.info('蓝图注册完成')
+
+    from routes.export import init_export_service
+    init_export_service(app)
     
     # 配置静态文件服务（用于本地文件访问）
     uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
     if not os.path.exists(uploads_dir):
         os.makedirs(uploads_dir)
         logger.info(f'创建uploads目录: {uploads_dir}')
+
+    exports_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'exports')
+    if not os.path.exists(exports_dir):
+        os.makedirs(exports_dir)
+        logger.info(f'创建exports目录: {exports_dir}')
     
     @app.route('/uploads/<path:filename>')
     def serve_upload_file(filename):

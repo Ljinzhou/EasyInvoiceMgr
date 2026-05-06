@@ -1665,33 +1665,8 @@ const batchReimburse = async () => {
   eventStore.refreshAfterMutation(Number(eventId.value))
 }
 
-const exportData = async () => {
-  try {
-    const token = localStorage.getItem('token')
-    const response = await fetch(`/api/events/${eventId.value}/export`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    })
-    
-    if (response.ok) {
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${event.value?.event_name || '导出数据'}_${new Date().toISOString().split('T')[0]}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-    } else {
-      alert('导出失败，请重试')
-    }
-  } catch (error) {
-    console.error('导出失败:', error)
-    alert('导出失败，请重试')
-  }
+const exportData = () => {
+  router.push(`/events/${eventId.value}/export`)
 }
 
 const getStatusText = (status) => {

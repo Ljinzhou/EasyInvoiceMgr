@@ -19,8 +19,14 @@
             <button @click="toggleEventStatus(event)" v-if="event.status === 'ongoing'" class="action-btn end-btn">⏹ 结束</button>
             <button @click="openAddMemberModal(event)" class="action-btn member-btn">👥 添加人员</button>
             <button @click="viewMembers(event)" class="action-btn view-btn">📋 查看人员</button>
-            <button @click="editEvent(event)" class="edit-button">编辑</button>
-            <button @click="confirmDelete(event)" class="delete-button">删除</button>
+            <button @click="editEvent(event)" class="edit-button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              编辑
+            </button>
+            <button @click="confirmDelete(event)" class="delete-button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              删除
+            </button>
           </div>
         </div>
         
@@ -111,109 +117,204 @@
       </div>
     </div>
 
-    <!-- 编辑弹窗 -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>编辑比赛</h2>
-          <button @click="showEditModal = false" class="close-button">×</button>
-        </div>
-        <form @submit.prevent="updateEvent" class="modal-body">
-          <div class="form-group">
-            <label>比赛名称 *</label>
-            <input v-model="editForm.event_name" type="text" required />
+    <!-- 编辑弹窗 (Warm Editorial Design) -->
+    <transition name="editorial-modal">
+      <div v-if="showEditModal" class="edit-modal-overlay" @click.self="showEditModal = false">
+        <div class="edit-modal">
+          <!-- Header -->
+          <div class="edit-modal__header">
+            <div class="edit-modal__header-content">
+              <div class="edit-modal__icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </div>
+              <div>
+                <h2 class="edit-modal__title">编辑比赛</h2>
+                <p class="edit-modal__subtitle">修改比赛信息与配置</p>
+              </div>
+            </div>
+            <button @click="showEditModal = false" class="edit-modal__close" title="关闭">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
-          <div class="form-group">
-            <label>比赛描述</label>
-            <textarea v-model="editForm.description" rows="3"></textarea>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>开始时间 *</label>
-              <input v-model="editForm.event_start_time" type="datetime-local" required />
+
+          <!-- Form -->
+          <form @submit.prevent="updateEvent" class="edit-modal__body">
+            <!-- Section: Basic Info -->
+            <div class="form-section">
+              <h3 class="form-section__title">基本信息</h3>
+              <div class="form-group">
+                <label class="form-label">比赛名称 <span class="required">*</span></label>
+                <input v-model="editForm.event_name" type="text" class="form-input" placeholder="请输入比赛名称" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">比赛描述</label>
+                <textarea v-model="editForm.description" class="form-textarea" rows="3" placeholder="请输入比赛描述（选填）"></textarea>
+              </div>
             </div>
-            <div class="form-group">
-              <label>结束时间 *</label>
-              <input v-model="editForm.event_end_time" type="datetime-local" required />
+
+            <!-- Section: Time Settings -->
+            <div class="form-section">
+              <h3 class="form-section__title">时间设置</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">比赛开始 <span class="required">*</span></label>
+                  <input v-model="editForm.event_start_time" type="datetime-local" class="form-input" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">比赛结束 <span class="required">*</span></label>
+                  <input v-model="editForm.event_end_time" type="datetime-local" class="form-input" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">上传开始</label>
+                  <input v-model="editForm.upload_start_time" type="datetime-local" class="form-input" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">上传结束</label>
+                  <input v-model="editForm.upload_end_time" type="datetime-local" class="form-input" />
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>上传开始时间</label>
-              <input v-model="editForm.upload_start_time" type="datetime-local" />
-            </div>
-            <div class="form-group">
-              <label>上传结束时间</label>
-              <input v-model="editForm.upload_end_time" type="datetime-local" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>总预算 (元)</label>
-              <input v-model.number="editForm.total_budget" type="number" step="0.01" min="0" />
-            </div>
-            <div class="form-group">
-              <label>负责人</label>
-              <div class="autocomplete-wrapper">
-                <input
-                  v-model="leaderSearch"
-                  type="text"
-                  placeholder="搜索负责人"
-                  @input="searchUsers"
-                  @focus="showLeaderDropdown = true"
-                />
-                <div v-if="showLeaderDropdown && filteredUsers.length > 0" class="dropdown">
-                  <div
-                    v-for="user in filteredUsers"
-                    :key="user.user_id"
-                    class="dropdown-item"
-                    @click="selectLeader(user)"
-                  >
-                    {{ user.real_name }} ({{ user.user_type === 'admin' ? '管理员' : '教师' }})
+
+            <!-- Section: Budget & Leader -->
+            <div class="form-section">
+              <h3 class="form-section__title">预算与负责人</h3>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label class="form-label">总预算（元）</label>
+                  <input v-model.number="editForm.total_budget" type="number" step="0.01" min="0" class="form-input" placeholder="0.00" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">负责人</label>
+                  <div class="leader-autocomplete">
+                    <input
+                      v-model="leaderSearch"
+                      type="text"
+                      class="form-input"
+                      placeholder="搜索负责人姓名..."
+                      @input="searchUsers"
+                      @focus="showLeaderDropdown = true"
+                    />
+                    <transition name="dropdown-slide">
+                      <div v-if="showLeaderDropdown && filteredUsers.length > 0" class="leader-dropdown">
+                        <div
+                          v-for="user in filteredUsers"
+                          :key="user.user_id"
+                          class="leader-dropdown__item"
+                          @click="selectLeader(user)"
+                        >
+                          <div class="leader-dropdown__avatar">{{ (user.real_name || '?').charAt(0) }}</div>
+                          <div class="leader-dropdown__info">
+                            <span class="leader-dropdown__name">{{ user.real_name }}</span>
+                            <span class="leader-dropdown__role">{{ user.user_type === 'admin' ? '管理员' : '教师' }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </transition>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="form-group">
-            <label>是否需要审核发票</label>
-            <div class="checkbox-group">
-              <input type="checkbox" id="need_invoice_review" v-model="editForm.need_invoice_review" />
-              <label for="need_invoice_review">需要审核发票</label>
+
+            <!-- Section: Review Setting -->
+            <div class="form-section">
+              <h3 class="form-section__title">审核设置</h3>
+              <div class="toggle-row">
+                <div class="toggle-row__info">
+                  <span class="toggle-row__label">发票审核</span>
+                  <span class="toggle-row__hint">开启后，提交的发票需要管理员审核通过</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" v-model="editForm.need_invoice_review" />
+                  <span class="toggle-switch__track">
+                    <span class="toggle-switch__thumb"></span>
+                  </span>
+                </label>
+              </div>
             </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" @click="showEditModal = false" class="cancel-button">取消</button>
-            <button type="submit" class="submit-button" :disabled="updating">
-              {{ updating ? '保存中...' : '保存' }}
+
+            <!-- Footer -->
+            <div class="edit-modal__footer">
+              <button type="button" @click="showEditModal = false" class="btn-edit-cancel">取消</button>
+              <button type="submit" class="btn-edit-save" :disabled="updating">
+                <svg v-if="updating" class="btn-spin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                {{ updating ? '保存中...' : '保存修改' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 删除确认弹窗 (Dramatic Dark Theme) -->
+    <transition name="delete-modal">
+      <div v-if="showDeleteModal" class="delete-modal-overlay" @click.self="showDeleteModal = false">
+        <div class="delete-modal">
+          <!-- Danger Header -->
+          <div class="delete-modal__header">
+            <div class="delete-modal__danger-indicator">
+              <div class="delete-modal__danger-ring delete-modal__danger-ring--1"></div>
+              <div class="delete-modal__danger-ring delete-modal__danger-ring--2"></div>
+              <div class="delete-modal__danger-ring delete-modal__danger-ring--3"></div>
+              <svg class="delete-modal__danger-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </div>
+            <button @click="showDeleteModal = false; confirmName = ''" class="delete-modal__close" title="关闭">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
-        </form>
-      </div>
-    </div>
 
-    <!-- 删除确认弹窗 -->
-    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
-      <div class="modal-content delete-modal">
-        <div class="modal-header">
-          <h2>确认删除</h2>
-          <button @click="showDeleteModal = false" class="close-button">×</button>
-        </div>
-        <div class="modal-body">
-          <div class="delete-warning">
-            <div class="warning-icon">⚠️</div>
-            <p class="warning-text">确定要删除项目 <strong>"{{ deletingEvent?.event_name }}"</strong> 吗？</p>
-            <p class="warning-hint">此操作不可撤销，删除后数据将无法恢复。</p>
+          <!-- Content -->
+          <div class="delete-modal__content">
+            <h2 class="delete-modal__title">确认删除项目</h2>
+            <p class="delete-modal__desc">此操作不可撤销，删除后所有相关数据将永久移除。</p>
+
+            <div class="delete-modal__project-info">
+              <div class="delete-modal__project-icon">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <span class="delete-modal__project-name">{{ deletingEvent?.event_name }}</span>
+            </div>
+
+            <!-- Confirmation Input -->
+            <div class="delete-modal__verify">
+              <label class="delete-modal__verify-label">请输入项目名称以确认删除</label>
+              <input
+                v-model="confirmName"
+                type="text"
+                class="delete-modal__verify-input"
+                :placeholder="deletingEvent?.event_name"
+                autocomplete="off"
+              />
+            </div>
+
+            <!-- Warning -->
+            <div class="delete-modal__warning-box">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span>删除后，该项目下的所有采购记录、发票数据和成员信息将一并删除。</span>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="delete-modal__actions">
+            <button type="button" @click="showDeleteModal = false; confirmName = ''" class="btn-delete-cancel">取消</button>
+            <button
+              type="button"
+              @click="deleteEvent"
+              class="btn-delete-confirm"
+              :disabled="deleting || confirmName !== deletingEvent?.event_name"
+            >
+              <svg v-if="deleting" class="btn-spin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              {{ deleting ? '删除中...' : '确认删除' }}
+            </button>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" @click="showDeleteModal = false" class="cancel-button">取消</button>
-          <button type="button" @click="deleteEvent" class="delete-confirm-button" :disabled="deleting">
-            {{ deleting ? '删除中...' : '确认删除' }}
-          </button>
-        </div>
       </div>
-    </div>
+    </transition>
 
     <!-- 添加人员弹窗 -->
     <transition name="modal-fade">
@@ -333,6 +434,7 @@ const events = ref([])
 
 const showEditModal = ref(false)
 const showDeleteModal = ref(false)
+const confirmName = ref('')
 const updating = ref(false)
 const deleting = ref(false)
 const editingEventId = ref(null)
@@ -472,6 +574,7 @@ const formatDateTime = (dateStr) => {
 
 const confirmDelete = (event) => {
   deletingEvent.value = event
+  confirmName.value = ''
   showDeleteModal.value = true
 }
 
@@ -606,8 +709,10 @@ const deleteEvent = async () => {
     if (response.data.code === 200) {
       console.log('删除成功')
       showDeleteModal.value = false
+      confirmName.value = ''
+      const deletedId = deletingEvent.value?.event_id
       deletingEvent.value = null
-      await eventStore.invalidateAndRefresh({ eventId: deletingEvent.value?.event_id })
+      await eventStore.invalidateAndRefresh({ eventId: deletedId })
       syncFromStore()
       alert('项目删除成功')
     } else {
@@ -711,36 +816,52 @@ const deleteEvent = async () => {
 }
 
 .edit-button {
-  padding: 0.5rem 1rem;
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 0.45rem 0.9rem;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   color: white;
-  border-radius: 5px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.3s ease;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  backdrop-filter: blur(4px);
 }
 
 .edit-button:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
 }
 
 .action-buttons {
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .delete-button {
-  padding: 0.5rem 1rem;
-  background: rgba(231, 76, 60, 0.8);
-  border: 1px solid rgba(231, 76, 60, 0.9);
+  padding: 0.45rem 0.9rem;
+  background: rgba(220, 53, 69, 0.75);
+  border: 1px solid rgba(220, 53, 69, 0.85);
   color: white;
-  border-radius: 5px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.3s ease;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .delete-button:hover {
-  background: rgba(231, 76, 60, 1);
+  background: rgba(220, 53, 69, 1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.35);
 }
 
 .project-body {
@@ -813,188 +934,726 @@ const deleteEvent = async () => {
   margin-bottom: 1.5rem;
 }
 
-/* Modal Styles */
-.modal-overlay {
+/* ===== EDIT MODAL (Warm Editorial) ===== */
+.edit-modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(30, 20, 15, 0.5);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 1rem;
 }
 
-.modal-content {
-  background: white;
-  border-radius: 10px;
-  width: 90%;
+.edit-modal {
+  background: #faf8f5;
+  border-radius: 20px;
+  width: 100%;
   max-width: 700px;
   max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal-header {
-  padding: 1.5rem;
-  border-bottom: 1px solid #ecf0f1;
+  overflow: hidden;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  box-shadow: 0 30px 80px rgba(30, 20, 15, 0.25), 0 0 0 1px rgba(139, 90, 43, 0.08);
+}
+
+.edit-modal__header {
+  padding: 1.5rem 1.75rem;
+  background: linear-gradient(135deg, #f5ebe0 0%, #eddcd2 100%);
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(139, 90, 43, 0.1);
 }
 
-.modal-header h2 {
+.edit-modal__header-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.edit-modal__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #c96b4f, #a0522d);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(180, 90, 40, 0.3);
+}
+
+.edit-modal__title {
   margin: 0;
-  font-size: 1.3rem;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #3d2c1e;
+  letter-spacing: -0.01em;
 }
 
-.close-button {
-  background: none;
+.edit-modal__subtitle {
+  margin: 3px 0 0;
+  font-size: 0.8rem;
+  color: #9c8a7a;
+}
+
+.edit-modal__close {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   border: none;
-  font-size: 1.5rem;
+  background: rgba(255, 255, 255, 0.6);
+  color: #9c8a7a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  color: #7f8c8d;
+  transition: all 0.2s;
+  flex-shrink: 0;
 }
 
-.modal-body {
-  padding: 1.5rem;
+.edit-modal__close:hover {
+  background: #fee2e2;
+  color: #dc3545;
+}
+
+.edit-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem 1.75rem;
+}
+
+.form-section {
+  margin-bottom: 1.5rem;
+}
+
+.form-section:last-of-type {
+  margin-bottom: 1rem;
+}
+
+.form-section__title {
+  margin: 0 0 1rem;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #7c6354;
+  letter-spacing: 0.03em;
+  padding-bottom: 0.5rem;
+  border-bottom: 1.5px solid #e8ddd2;
 }
 
 .form-group {
   margin-bottom: 1rem;
 }
 
-.form-group label {
+.form-label {
   display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: #2c3e50;
+  margin-bottom: 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #5a4a3e;
 }
 
-.form-group input,
-.form-group textarea {
-  width: 100%;
-  padding: 0.7rem;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  font-size: 0.95rem;
+.form-label .required {
+  color: #c96b4f;
+  margin-left: 2px;
 }
 
-.form-row {
+.form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
 }
 
-.autocomplete-wrapper {
+.form-input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1.5px solid #ddd2c4;
+  border-radius: 10px;
+  font-size: 0.92rem;
+  color: #3d2c1e;
+  background: #fff;
+  transition: all 0.25s ease;
+  box-sizing: border-box;
+  outline: none;
+  font-family: inherit;
+}
+
+.form-input:hover {
+  border-color: #c9b8a8;
+}
+
+.form-input:focus {
+  border-color: #c96b4f;
+  box-shadow: 0 0 0 3px rgba(201, 107, 79, 0.1);
+  background: #fffdf9;
+}
+
+.form-input::placeholder {
+  color: #c4b5a5;
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  border: 1.5px solid #ddd2c4;
+  border-radius: 10px;
+  font-size: 0.92rem;
+  color: #3d2c1e;
+  background: #fff;
+  transition: all 0.25s ease;
+  box-sizing: border-box;
+  outline: none;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-textarea:hover {
+  border-color: #c9b8a8;
+}
+
+.form-textarea:focus {
+  border-color: #c96b4f;
+  box-shadow: 0 0 0 3px rgba(201, 107, 79, 0.1);
+  background: #fffdf9;
+}
+
+.form-textarea::placeholder {
+  color: #c4b5a5;
+}
+
+/* Leader Autocomplete */
+.leader-autocomplete {
   position: relative;
 }
 
-.dropdown {
+.leader-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 5px;
+  background: #fff;
+  border: 1.5px solid #e8ddd2;
+  border-radius: 12px;
   max-height: 200px;
   overflow-y: auto;
-  z-index: 10;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  z-index: 20;
+  box-shadow: 0 10px 30px rgba(60, 40, 20, 0.12);
 }
 
-.dropdown-item {
-  padding: 0.7rem;
+.leader-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
   cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid #f5ebe0;
+}
+
+.leader-dropdown__item:last-child {
+  border-bottom: none;
+}
+
+.leader-dropdown__item:hover {
+  background: #faf5ef;
+}
+
+.leader-dropdown__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #c96b4f, #a0522d);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.leader-dropdown__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.leader-dropdown__name {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #3d2c1e;
+}
+
+.leader-dropdown__role {
+  display: block;
+  font-size: 0.75rem;
+  color: #9c8a7a;
+  margin-top: 2px;
+}
+
+/* Toggle Switch */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  border: 1.5px solid #e8ddd2;
+  border-radius: 12px;
+}
+
+.toggle-row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-row__label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #3d2c1e;
+}
+
+.toggle-row__hint {
+  font-size: 0.78rem;
+  color: #9c8a7a;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch__track {
+  position: absolute;
+  inset: 0;
+  background: #d4c8bb;
+  border-radius: 13px;
   transition: background 0.3s ease;
 }
 
-.dropdown-item:hover {
-  background: #f8f9fa;
+.toggle-switch__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
-.modal-footer {
+.toggle-switch input:checked + .toggle-switch__track {
+  background: linear-gradient(135deg, #c96b4f, #a0522d);
+}
+
+.toggle-switch input:checked + .toggle-switch__track .toggle-switch__thumb {
+  transform: translateX(22px);
+}
+
+/* Edit Modal Footer */
+.edit-modal__footer {
   display: flex;
   justify-content: flex-end;
-  gap: 1rem;
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid #ecf0f1;
+  gap: 12px;
+  padding: 1.25rem 1.75rem;
+  border-top: 1.5px solid #e8ddd2;
+  background: #f5ebe0;
 }
 
-.cancel-button,
-.submit-button {
-  padding: 0.7rem 1.5rem;
-  border: none;
-  border-radius: 5px;
-  font-weight: 500;
+.btn-edit-cancel {
+  padding: 0.7rem 1.4rem;
+  border: 1.5px solid #d4c8bb;
+  border-radius: 10px;
+  background: #fff;
+  color: #5a4a3e;
+  font-size: 0.88rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
 }
 
-.cancel-button {
-  background: #ecf0f1;
-  color: #2c3e50;
+.btn-edit-cancel:hover {
+  background: #f5ebe0;
+  border-color: #c9b8a8;
 }
 
-.submit-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+.btn-edit-save {
+  padding: 0.7rem 1.6rem;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #c96b4f, #a0522d);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  box-shadow: 0 4px 14px rgba(180, 90, 40, 0.3);
+  font-family: inherit;
 }
 
-.submit-button:disabled {
-  opacity: 0.6;
+.btn-edit-save:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(180, 90, 40, 0.4);
+}
+
+.btn-edit-save:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-spin {
+  animation: btn-spin 1s linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Edit Modal Transition */
+.editorial-modal-enter-active {
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.editorial-modal-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.editorial-modal-enter-from,
+.editorial-modal-leave-to {
+  opacity: 0;
+}
+.editorial-modal-enter-from .edit-modal {
+  transform: translateY(20px) scale(0.97);
+  opacity: 0;
+}
+.editorial-modal-leave-to .edit-modal {
+  transform: scale(0.98);
+  opacity: 0;
+}
+
+/* Dropdown Slide Transition */
+.dropdown-slide-enter-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dropdown-slide-leave-active {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dropdown-slide-enter-from,
+.dropdown-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ===== DELETE MODAL (Dramatic Dark) ===== */
+.delete-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 8, 6, 0.6);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
 }
 
 .delete-modal {
-  max-width: 500px;
+  background: #1a1614;
+  border-radius: 22px;
+  width: 100%;
+  max-width: 440px;
+  overflow: hidden;
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.delete-warning {
-  text-align: center;
-  padding: 1rem 0;
+.delete-modal__header {
+  padding: 1.75rem 1.5rem 1rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
 }
 
-.warning-icon {
-  font-size: 3rem;
+.delete-modal__danger-indicator {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-modal__danger-icon {
+  color: #ef4444;
+  z-index: 1;
+  filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.4));
+}
+
+.delete-modal__danger-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(239, 68, 68, 0.3);
+  animation: danger-pulse 2s ease-out infinite;
+}
+
+.delete-modal__danger-ring--1 {
+  animation-delay: 0s;
+}
+
+.delete-modal__danger-ring--2 {
+  animation-delay: 0.5s;
+}
+
+.delete-modal__danger-ring--3 {
+  animation-delay: 1s;
+}
+
+@keyframes danger-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+.delete-modal__close {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.delete-modal__close:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.delete-modal__content {
+  padding: 0 1.75rem 1.5rem;
+}
+
+.delete-modal__title {
+  margin: 0 0 0.5rem;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f5f0ec;
+  letter-spacing: -0.01em;
+}
+
+.delete-modal__desc {
+  margin: 0 0 1.25rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.5;
+}
+
+.delete-modal__project-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0.85rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  margin-bottom: 1.25rem;
+}
+
+.delete-modal__project-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.delete-modal__project-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f5f0ec;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete-modal__verify {
   margin-bottom: 1rem;
 }
 
-.warning-text {
-  font-size: 1.1rem;
-  color: #2c3e50;
+.delete-modal__verify-label {
+  display: block;
   margin-bottom: 0.5rem;
-}
-
-.warning-hint {
-  color: #7f8c8d;
-  font-size: 0.9rem;
-}
-
-.delete-confirm-button {
-  padding: 0.7rem 1.5rem;
-  background: #e74c3c;
-  color: white;
-  border: none;
-  border-radius: 5px;
+  font-size: 0.8rem;
   font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.delete-modal__verify-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f0ec;
+  font-size: 0.92rem;
+  outline: none;
+  transition: all 0.25s;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.delete-modal__verify-input:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.delete-modal__verify-input:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.delete-modal__verify-input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.delete-modal__warning-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0.8rem 1rem;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.12);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.delete-modal__warning-box svg {
+  flex-shrink: 0;
+  color: #ef4444;
+  margin-top: 1px;
+}
+
+/* Delete Modal Actions */
+.delete-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 1.25rem 1.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.btn-delete-cancel {
+  padding: 0.7rem 1.4rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.88rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.3s ease;
+  transition: all 0.2s;
+  font-family: inherit;
 }
 
-.delete-confirm-button:hover:not(:disabled) {
-  background: #c0392b;
+.btn-delete-cancel:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.85);
 }
 
-.delete-confirm-button:disabled {
-  opacity: 0.6;
+.btn-delete-confirm {
+  padding: 0.7rem 1.6rem;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  font-family: inherit;
+}
+
+.btn-delete-confirm:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.5);
+}
+
+.btn-delete-confirm:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Delete Modal Transition */
+.delete-modal-enter-active {
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.delete-modal-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.delete-modal-enter-from,
+.delete-modal-leave-to {
+  opacity: 0;
+}
+.delete-modal-enter-from .delete-modal {
+  transform: translateY(16px) scale(0.97);
+  opacity: 0;
+}
+.delete-modal-leave-to .delete-modal {
+  transform: scale(0.96);
+  opacity: 0;
 }
 
 @media (max-width: 768px) {
-  .form-row {
+  .form-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1028,7 +1687,7 @@ const deleteEvent = async () => {
 
   .edit-button, .delete-button {
     min-height: 40px;
-    padding: 0.5rem 1rem;
+    padding: 0.45rem 0.9rem;
   }
 
   .budget-overview {
@@ -1047,9 +1706,25 @@ const deleteEvent = async () => {
     justify-content: center;
   }
 
-  .modal-content {
-    width: 95%;
+  .edit-modal {
+    max-width: 100%;
     max-height: 85vh;
+  }
+
+  .edit-modal__header {
+    padding: 1.25rem 1.25rem;
+  }
+
+  .edit-modal__body {
+    padding: 1.25rem;
+  }
+
+  .edit-modal__footer {
+    padding: 1rem 1.25rem;
+  }
+
+  .delete-modal {
+    max-width: 100%;
   }
 
   .member-modal {
@@ -1067,10 +1742,16 @@ const deleteEvent = async () => {
   .budget-item { padding: 8px 6px; }
   .b-value { font-size: 14px; }
   .action-btn { min-width: 100%; }
-  .modal-body { padding: 1rem; }
-  .modal-header { padding: 1rem; }
-  .modal-footer { flex-direction: column; }
-  .cancel-button, .submit-button { width: 100%; min-height: 44px; }
+
+  .edit-modal__body { padding: 1rem; }
+  .edit-modal__header { padding: 1rem; }
+  .edit-modal__footer { flex-direction: column; }
+  .btn-edit-cancel, .btn-edit-save { width: 100%; min-height: 44px; justify-content: center; }
+
+  .delete-modal__content { padding: 0 1.25rem 1.25rem; }
+  .delete-modal__actions { flex-direction: column; padding: 1rem 1.25rem; }
+  .btn-delete-cancel, .btn-delete-confirm { width: 100%; min-height: 44px; justify-content: center; }
+
   .member-modal__body { padding: 1rem; }
   .member-modal__footer { flex-direction: column; }
   .member-modal__btn { width: 100%; justify-content: center; min-height: 44px; }
