@@ -15,6 +15,27 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
+def _seed_admin_user(app):
+    """Create default admin user if not exists."""
+    from werkzeug.security import generate_password_hash
+    with app.app_context():
+        from models import User, db
+        admin = User.query.filter_by(username='admin').first()
+        if not admin:
+            admin = User(
+                username='admin',
+                password_hash=generate_password_hash('admin'),
+                real_name='系统管理员',
+                email='admin@example.com',
+                user_type='admin',
+                account_status='active',
+            )
+            db.session.add(admin)
+            db.session.commit()
+            logger.info('已创建默认管理员账户 (admin/admin)')
+
+
 def create_app():
     logger.info('=== 创建Flask应用 ===')
     app = Flask(__name__)
@@ -128,8 +149,17 @@ def create_app():
     logger.info('静态文件路由配置完成')
     
     with app.app_context():
-        db.create_all()
-    
+        # Only create tables if they don't already exist (e.g. from base.sql)
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        existing_tables = inspector.get_table_names()
+        if 'users' not in existing_tables:
+            db.create_all()
+            logger.info('数据库表已通过 SQLAlchemy 创建')
+        else:
+            logger.info(f'数据库表已存在，跳过创建 ({len(existing_tables)} 张表)')
+        _seed_admin_user(app)
+
     logger.info('=== Flask应用启动成功 ===')
     return app
 

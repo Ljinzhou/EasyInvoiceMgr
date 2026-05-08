@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Voucher, Event, User
-from utils.cos_manager import cos_manager
+from utils.storage import storage_manager
 from datetime import datetime
 import logging
 import hashlib
@@ -53,9 +53,9 @@ def get_vouchers():
                 'record_type': 'voucher'
             }
             
-            if cos_manager.is_available() and voucher.file_url:
+            if storage_manager.is_available() and voucher.file_url:
                 try:
-                    voucher_data['file_url'] = cos_manager.get_presigned_url(voucher.file_url, expires=3600)
+                    voucher_data['file_url'] = storage_manager.get_presigned_url(voucher.file_url, expires=3600)
                 except Exception as e:
                     logger.error(f'生成凭证临时URL失败: {str(e)}')
                     voucher_data['file_url'] = voucher.file_url
@@ -122,12 +122,12 @@ def create_voucher():
             return jsonify({'code': 400, 'message': '物品名称不能为空', 'data': None}), 400
         
         file_md5 = None
-        if cos_manager.is_available():
+        if storage_manager.is_available():
             file_content = file.read()
             file_md5 = hashlib.md5(file_content).hexdigest()
             file.seek(0)
             
-            upload_result = cos_manager.upload_file(int(event_id), file, file.filename)
+            upload_result = storage_manager.upload_file(int(event_id), file, file.filename)
             file_url = upload_result['file_key']
         else:
             file_url = f'/uploads/vouchers/{file.filename}'
@@ -220,8 +220,8 @@ def download_voucher(voucher_id):
         if not voucher.file_url:
             return jsonify({'code': 400, 'message': '凭证没有关联的文件', 'data': None}), 400
         
-        if cos_manager.is_available():
-            file_content = cos_manager.download_file(voucher.file_url)
+        if storage_manager.is_available():
+            file_content = storage_manager.download_file(voucher.file_url)
             if not file_content:
                 return jsonify({'code': 500, 'message': '无法获取文件', 'data': None}), 500
             

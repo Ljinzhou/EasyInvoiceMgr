@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, make_response
 from flask_cors import cross_origin
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.invoice_parser import invoice_parser
-from utils.cos_manager import cos_manager
+from utils.storage import storage_manager
 from utils.glm_vision_service import GLMVisionService
 import logging
 import uuid
@@ -141,14 +141,14 @@ class InvoiceUploadService:
     @staticmethod
     def upload_to_storage(file_bytes: bytes, file_key: str, content_type: str = None) -> bool:
         """上传文件到对象存储"""
-        if cos_manager.is_available():
+        if storage_manager.is_available():
             try:
                 extra_args = {}
                 if content_type:
                     extra_args['ContentType'] = content_type
                 
-                cos_manager.client.put_object(
-                    Bucket=cos_manager.bucket,
+                storage_manager.client.put_object(
+                    Bucket=storage_manager.bucket,
                     Body=file_bytes,
                     Key=file_key,
                     EnableMD5=False,
@@ -228,7 +228,7 @@ def upload_file():
         'jpeg': 'image/jpeg'
     }
     
-    if cos_manager.is_available():
+    if storage_manager.is_available():
         success = InvoiceUploadService.upload_to_storage(
             file_bytes, 
             file_key, 
@@ -246,8 +246,8 @@ def upload_file():
     file_md5 = hashlib.md5(file_bytes).hexdigest()
     
     preview_url = None
-    if cos_manager.is_available() and file_key.startswith('invoices/'):
-        preview_url = cos_manager.get_presigned_url(file_key, expires=3600 * 24)
+    if storage_manager.is_available() and file_key.startswith('invoices/'):
+        preview_url = storage_manager.get_presigned_url(file_key, expires=3600 * 24)
     elif file_key.startswith('/uploads/'):
         preview_url = file_key
     
@@ -400,7 +400,7 @@ def parse_invoice():
             'jpeg': 'image/jpeg'
         }
         
-        if cos_manager.is_available():
+        if storage_manager.is_available():
             upload_success = InvoiceUploadService.upload_to_storage(
                 file_bytes,
                 invoice_file_key,
@@ -479,11 +479,11 @@ def parse_invoice():
         preview_url = None
         file_url = None
         
-        if cos_manager.is_available():
+        if storage_manager.is_available():
             if invoice_file_key.startswith('invoices/'):
-                file_url = cos_manager.get_presigned_url(invoice_file_key, expires=3600 * 24)
+                file_url = storage_manager.get_presigned_url(invoice_file_key, expires=3600 * 24)
             if preview_file_key and preview_file_key.startswith('invoices/'):
-                preview_url = cos_manager.get_presigned_url(preview_file_key, expires=3600 * 24)
+                preview_url = storage_manager.get_presigned_url(preview_file_key, expires=3600 * 24)
             elif not preview_file_key and invoice_file_key.startswith('invoices/'):
                 preview_url = file_url
         else:
@@ -526,8 +526,8 @@ def get_invoice_preview_url(file_key):
     try:
         current_user_id = get_jwt_identity()
         
-        if cos_manager.is_available():
-            preview_url = cos_manager.get_presigned_url(file_key, expires=3600)
+        if storage_manager.is_available():
+            preview_url = storage_manager.get_presigned_url(file_key, expires=3600)
             return jsonify({
                 'code': 200,
                 'message': 'success',
@@ -553,8 +553,8 @@ def download_invoice_file(file_key):
     try:
         current_user_id = get_jwt_identity()
         
-        if cos_manager.is_available():
-            file_bytes = cos_manager.download_file(file_key)
+        if storage_manager.is_available():
+            file_bytes = storage_manager.download_file(file_key)
             
             from flask import Response
             content_type = 'application/pdf' if file_key.endswith('.pdf') else 'image/jpeg'

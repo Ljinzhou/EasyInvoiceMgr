@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, Response, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, PurchaseRecord, Event, User
 from datetime import datetime, timezone
-from utils.cos_manager import cos_manager
+from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
 from utils.glm_vision_service import glm_vision_service
 import logging
@@ -17,10 +17,10 @@ def get_presigned_url(file_key: str, expires: int = 3600 * 24) -> str:
     if not file_key:
         return None
     
-    if cos_manager.is_available():
+    if storage_manager.is_available():
         if file_key.startswith('invoices/') or file_key.startswith('uploads/'):
             try:
-                return cos_manager.get_presigned_url(file_key, expires=expires)
+                return storage_manager.get_presigned_url(file_key, expires=expires)
             except Exception as e:
                 logger.warning(f'生成预签名URL失败: {file_key}, 错误: {str(e)}')
                 return None
@@ -391,8 +391,8 @@ def download_invoice(record_id):
         file_key = record.invoice_file_key
         original_filename = record.invoice_original_filename or file_key.split('/')[-1]
         
-        if cos_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
-            file_bytes = cos_manager.download_file(file_key)
+        if storage_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
+            file_bytes = storage_manager.download_file(file_key)
             
             content_type = 'application/pdf' if file_key.endswith('.pdf') else 'image/jpeg'
             
@@ -478,9 +478,9 @@ def re_parse_invoice(record_id):
 
         # 从对象存储或本地下载文件
         file_bytes = None
-        if cos_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
+        if storage_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
             try:
-                file_bytes = cos_manager.download_file(file_key)
+                file_bytes = storage_manager.download_file(file_key)
                 logger.info(f'从COS下载文件成功: {file_key}')
             except Exception as e:
                 logger.error(f'从COS下载文件失败: {str(e)}')

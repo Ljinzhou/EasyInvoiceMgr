@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Invoice, Event, User
-from utils.cos_manager import cos_manager
+from utils.storage import storage_manager
 from datetime import datetime
 import logging
 import hashlib
@@ -63,9 +63,9 @@ def get_invoices():
                 'created_at': invoice.created_at.isoformat() if invoice.created_at else None
             }
             
-            if cos_manager.is_available() and invoice.image_url:
+            if storage_manager.is_available() and invoice.image_url:
                 try:
-                    invoice_data['image_url'] = cos_manager.get_presigned_url(
+                    invoice_data['image_url'] = storage_manager.get_presigned_url(
                         invoice.image_url,
                         expires=3600
                     )
@@ -137,7 +137,7 @@ def create_invoice():
             return jsonify({'code': 2001, 'message': '比赛不存在', 'data': None}), 404
         
         file_md5 = None
-        if cos_manager.is_available():
+        if storage_manager.is_available():
             file_content = file.read()
             file_md5 = hashlib.md5(file_content).hexdigest()
             file.seek(0)
@@ -159,7 +159,7 @@ def create_invoice():
                     }
                 }), 400
             
-            upload_result = cos_manager.upload_file(int(event_id), file, file.filename)
+            upload_result = storage_manager.upload_file(int(event_id), file, file.filename)
             image_url = upload_result['file_key']
             logger.info(f'文件上传成功: {image_url}')
         else:
@@ -203,7 +203,7 @@ def create_invoice():
             'data': {
                 'invoice_id': invoice.invoice_id,
                 'file_name': invoice.file_name,
-                'image_url': cos_manager.get_presigned_url(image_url) if cos_manager.is_available() and image_url else image_url
+                'image_url': storage_manager.get_presigned_url(image_url) if storage_manager.is_available() and image_url else image_url
             }
         }), 200
         
@@ -243,8 +243,8 @@ def delete_invoice(invoice_id):
             event.invoice_count = max(0, event.invoice_count - 1)
             event.invoice_total_amount = max(0, event.invoice_total_amount - invoice.amount)
         
-        if cos_manager.is_available() and invoice.image_url:
-            cos_manager.delete_file(invoice.image_url)
+        if storage_manager.is_available() and invoice.image_url:
+            storage_manager.delete_file(invoice.image_url)
         
         db.session.commit()
         
@@ -333,9 +333,9 @@ def get_preview(invoice_id):
         
         preview_url = None
         if invoice.preview_image_url:
-            if cos_manager.is_available():
+            if storage_manager.is_available():
                 try:
-                    preview_url = cos_manager.get_presigned_url(
+                    preview_url = storage_manager.get_presigned_url(
                         invoice.preview_image_url,
                         expires=3600
                     )
@@ -377,9 +377,9 @@ def generate_preview(invoice_id):
         file_ext = invoice.file_name.rsplit('.', 1)[1].lower() if '.' in invoice.file_name else ''
         
         if file_ext == 'pdf':
-            if cos_manager.is_available():
+            if storage_manager.is_available():
                 try:
-                    preview_url = cos_manager.get_presigned_url(invoice.image_url, expires=3600)
+                    preview_url = storage_manager.get_presigned_url(invoice.image_url, expires=3600)
                 except Exception as e:
                     logger.error(f'生成PDF预览URL失败: {str(e)}')
                     preview_url = invoice.image_url
@@ -399,9 +399,9 @@ def generate_preview(invoice_id):
             }), 200
             
         elif file_ext in ['png', 'jpg', 'jpeg']:
-            if cos_manager.is_available():
+            if storage_manager.is_available():
                 try:
-                    preview_url = cos_manager.get_presigned_url(invoice.image_url, expires=3600)
+                    preview_url = storage_manager.get_presigned_url(invoice.image_url, expires=3600)
                 except Exception as e:
                     logger.error(f'生成图片预览URL失败: {str(e)}')
                     preview_url = invoice.image_url
@@ -446,8 +446,8 @@ def download_invoice(invoice_id):
             logger.warning(f'发票没有文件: invoice_id={invoice_id}')
             return jsonify({'code': 400, 'message': '发票没有关联的文件', 'data': None}), 400
         
-        if cos_manager.is_available():
-            file_content = cos_manager.download_file(invoice.image_url)
+        if storage_manager.is_available():
+            file_content = storage_manager.download_file(invoice.image_url)
             
             if not file_content:
                 logger.error(f'无法下载文件: {invoice.image_url}')

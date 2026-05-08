@@ -57,6 +57,13 @@ class ExportService:
                 task.progress_message = f'已获取 {len(records)} 条记录'
                 db.session.commit()
 
+                # Verify and log export order for PDF-Excel consistency
+                logger.info(f'导出顺序验证: 共 {len(records)} 条记录, 按创建时间排序')
+                for i, rec in enumerate(records):
+                    logger.debug(f'  [{i}] id={rec["id"]} type={rec["type"]} '
+                                 f'has_invoice={rec.get("has_invoice")} '
+                                 f'created_at={rec.get("created_at")}')
+
                 if not records:
                     task.status = 'failed'
                     task.error_message = '没有可导出的数据'
@@ -214,6 +221,9 @@ class ExportService:
             top=Side(style='thin'), bottom=Side(style='thin')
         )
 
+        if not selected_columns:
+            raise ValueError('selected_columns is empty')
+
         has_image_cols = any(c in IMAGE_COLUMNS for c in selected_columns)
         logger.info(f'生成Excel: 列={selected_columns}, 含图片列={has_image_cols}')
 
@@ -227,46 +237,82 @@ class ExportService:
             col_letter = get_column_letter(col_idx)
             ws.column_dimensions[col_letter].width = COLUMN_DEFINITIONS[col_key]['width']
 
-        # Image columns need wider columns
+        # Image columns need wider columns to accommodate embedded images
         for col_idx, col_key in enumerate(selected_columns, 1):
             if col_key in IMAGE_COLUMNS:
                 col_letter = get_column_letter(col_idx)
-                ws.column_dimensions[col_letter].width = 22
+                ws.column_dimensions[col_letter].width = (IMG_TARGET_WIDTH_PX / 7) + 2
 
         # Write data rows
         data_font = Font(name='微软雅黑', size=10)
+        img_fallback_font = Font(name='微软雅黑', size=8, color='999999')
+        cell_alignment = Alignment(vertical='center', wrap_text=True)
         img_success_count = 0
         img_fail_count = 0
 
         for row_idx, record in enumerate(records, 2):
-            # If we have image columns, set row height
-            if has_image_cols:
-                ws.row_dimensions[row_idx].height = IMG_TARGET_HEIGHT_PX * 0.75
+            # Determine if this row will have embedded images for row height
+            row_has_image = False
+            for col_key in selected_columns:
+                if col_key in IMAGE_COLUMNS:
+                    fk = self._get_image_file_key(record, col_key)
+                    if fk:
+                        row_has_image = True
+                        break
+
+            if row_has_image:
+                ws.row_dimensions[row_idx].height = IMG_TARGET_HEIGHT_PX * 0.8
+            else:
+                ws.row_dimensions[row_idx].height = 22
 
             for col_idx, col_key in enumerate(selected_columns, 1):
                 if col_key in IMAGE_COLUMNS:
-                    # Download and embed image
+                    # has_invoice guard for invoice_image column
+                    if col_key == 'invoice_image' and not record.get('has_invoice', False):
+                        cell = ws.cell(row=row_idx, column=col_idx, value='无发票信息')
+                        cell.font = data_font
+                        cell.alignment = cell_alignment
+                        cell.border = thin_border
+                        continue
+
                     file_key = self._get_image_file_key(record, col_key)
-                    if file_key:
-                        img_path = self._download_and_save_image(file_key, temp_dir, record, col_key)
-                        if img_path and os.path.exists(img_path):
-                            try:
-                                img = XlImage(img_path)
-                                img.width = IMG_TARGET_WIDTH_PX
-                                img.height = IMG_TARGET_HEIGHT_PX
-                                cell_ref = f'{get_column_letter(col_idx)}{row_idx}'
-                                ws.add_image(img, cell_ref)
-                                img_success_count += 1
-                            except Exception as e:
-                                logger.warning(f'插入图片失败: record={record.get("id")}, col={col_key}, path={img_path}, error={str(e)}')
-                                ws.cell(row=row_idx, column=col_idx, value='图片加载失败')
-                                img_fail_count += 1
-                        else:
-                            logger.debug(f'图片下载失败: record={record.get("id")}, col={col_key}, key={file_key[:60] if file_key else "空"}')
-                            ws.cell(row=row_idx, column=col_idx, value='无')
+                    if not file_key:
+                        label = '无发票信息' if col_key == 'invoice_image' else '无'
+                        cell = ws.cell(row=row_idx, column=col_idx, value=label)
+                        cell.font = data_font
+                        cell.alignment = cell_alignment
+                        cell.border = thin_border
+                        if col_key == 'invoice_image':
+                            img_fail_count += 1
+                        continue
+
+                    img_path = self._download_and_save_image(file_key, temp_dir, record, col_key)
+                    if img_path and os.path.exists(img_path):
+                        try:
+                            img = XlImage(img_path)
+                            img.width = IMG_TARGET_WIDTH_PX
+                            img.height = IMG_TARGET_HEIGHT_PX
+                            cell_ref = f'{get_column_letter(col_idx)}{row_idx}'
+                            ws.add_image(img, cell_ref)
+                            cell = ws.cell(row=row_idx, column=col_idx, value='[图片]')
+                            cell.font = img_fallback_font
+                            cell.alignment = cell_alignment
+                            cell.border = thin_border
+                            img_success_count += 1
+                        except Exception as e:
+                            logger.warning(f'插入图片失败: record={record.get("id")}, col={col_key}, path={img_path}, error={str(e)}')
+                            cell = ws.cell(row=row_idx, column=col_idx, value='图片加载失败')
+                            cell.font = data_font
+                            cell.alignment = cell_alignment
+                            cell.border = thin_border
                             img_fail_count += 1
                     else:
-                        ws.cell(row=row_idx, column=col_idx, value='无')
+                        logger.debug(f'图片下载失败: record={record.get("id")}, col={col_key}, key={file_key[:60] if file_key else "空"}')
+                        cell = ws.cell(row=row_idx, column=col_idx, value='资源未找到')
+                        cell.font = data_font
+                        cell.alignment = cell_alignment
+                        cell.border = thin_border
+                        img_fail_count += 1
                 else:
                     value = self._get_column_value(record, col_key)
                     cell = ws.cell(row=row_idx, column=col_idx, value=value)
@@ -274,7 +320,9 @@ class ExportService:
                     cell.border = thin_border
                     if col_key == 'amount':
                         cell.number_format = '#,##0.00'
-                        cell.alignment = Alignment(horizontal='right')
+                        cell.alignment = Alignment(horizontal='right', vertical='center')
+                    else:
+                        cell.alignment = cell_alignment
 
         logger.info(f'Excel图片统计: 成功={img_success_count}, 失败={img_fail_count}')
         excel_path = os.path.join(output_dir, '购物信息.xlsx')
@@ -348,7 +396,7 @@ class ExportService:
 
         # For non-image files, skip
         if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'):
-            logger.warning(f'不支持的图片格式: ext={ext}, file_key={file_key[:60]}')
+            logger.warning(f'不支持的图片格式: ext={ext}, record={record.get("id")}, file_key={file_key[:80]}')
             return None
 
         return local_path
@@ -367,7 +415,10 @@ class ExportService:
         elif col_key == 'uploader':
             return record.get('uploader_name', '')
         elif col_key == 'invoice_tax_number':
-            return record.get('invoice_tax_number', '')
+            if not record.get('has_invoice', False):
+                return '无发票信息'
+            tax = record.get('invoice_tax_number', '')
+            return tax if tax else '无'
         return ''
 
     def _extract_cos_key(self, file_key):
@@ -422,16 +473,16 @@ class ExportService:
                 logger.warning(f'从URL下载失败: {file_key[:80]}, error={str(e)}')
             return None
 
-        # Strategy 3: It's a bare COS key — use COS SDK
+        # Strategy 3: Use storage backend (local or COS)
         try:
-            from utils.cos_manager import cos_manager
-            if cos_manager.is_available():
-                content = cos_manager.download_file(file_key)
+            from utils.storage import storage_manager
+            if storage_manager.is_available():
+                content = storage_manager.download_file(file_key)
                 if content:
-                    logger.debug(f'COS下载成功: {len(content)} bytes')
+                    logger.debug(f'存储下载成功: {len(content)} bytes')
                     return content
         except Exception as e:
-            logger.warning(f'COS下载失败: {file_key}, error={str(e)}')
+            logger.warning(f'存储下载失败: {file_key}, error={str(e)}')
 
         # Strategy 4: Try as relative path in uploads dir
         local_path = os.path.join(uploads_dir, file_key)
@@ -466,8 +517,12 @@ class ExportService:
             if tax_number:
                 filename = f'{tax_number}_{idx + 1}.pdf'
             else:
-                original = record.get('invoice_original_filename', f'发票_{idx + 1}.pdf')
-                filename = original if original.endswith('.pdf') else f'{original}.pdf'
+                original = record.get('invoice_original_filename', '')
+                if not original:
+                    filename = f'发票_{idx + 1}.pdf'
+                else:
+                    name, ext = os.path.splitext(original)
+                    filename = f'{name}.pdf' if ext.lower() != '.pdf' else original
 
             filepath = os.path.join(invoices_dir, filename)
             with open(filepath, 'wb') as f:
@@ -478,16 +533,22 @@ class ExportService:
 
         merged_pdf_path = None
         if options.get('merged_pdf') and invoice_files:
-            merged_pdf_path = os.path.join(temp_dir, '发票汇总.pdf')
             merger = PdfMerger()
+            successful_merges = 0
             for pdf_file in invoice_files:
                 try:
                     merger.append(pdf_file)
+                    successful_merges += 1
                 except Exception as e:
                     logger.warning(f'合并PDF失败: {pdf_file}, error={str(e)}')
-            if invoice_files:
+            if successful_merges > 0:
+                merged_pdf_path = os.path.join(temp_dir, '发票汇总.pdf')
                 merger.write(merged_pdf_path)
                 merger.close()
+                logger.info(f'PDF合并成功: {successful_merges}/{len(invoice_files)} 个文件')
+            else:
+                merger.close()
+                logger.warning('PDF合并失败: 所有文件都无法合并，已跳过生成合并PDF')
 
         return invoice_files, merged_pdf_path
 

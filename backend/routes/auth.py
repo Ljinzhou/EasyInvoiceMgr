@@ -414,18 +414,18 @@ def upload_avatar():
         import hashlib
         file_md5 = hashlib.md5(file_bytes).hexdigest()
 
-        from utils.cos_manager import cos_manager
+        from utils.storage import storage_manager
 
-        if cos_manager.is_available():
+        if storage_manager.is_available():
             if user.avatar_url:
                 old_key = user.avatar_url.split('/')[-1] if '/' in user.avatar_url else user.avatar_url
                 try:
-                    cos_manager.delete_file(old_key)
+                    storage_manager.delete_file(old_key)
                     logger.info(f'已删除旧头像: {old_key}')
                 except Exception as del_err:
                     logger.warning(f'删除旧头像失败（可能不存在）: {str(del_err)}')
 
-            result = cos_manager.upload_avatar(current_user_id_int, file_bytes, content_type)
+            result = storage_manager.upload_avatar(current_user_id_int, file_bytes, content_type)
             user.avatar_url = result['avatar_url']
             db.session.commit()
 
@@ -496,10 +496,10 @@ def delete_avatar():
             return jsonify({'code': 404, 'message': '用户不存在', 'data': None}), 404
 
         if user.avatar_url:
-            from utils.cos_manager import cos_manager
+            from utils.storage import storage_manager
             old_key = user.avatar_url.split('/')[-1] if '/' in user.avatar_url else user.avatar_url
             try:
-                cos_manager.delete_file(old_key)
+                storage_manager.delete_file(old_key)
                 logger.info(f'头像文件已删除: {old_key}')
             except Exception as del_err:
                 logger.warning(f'删除头像文件失败: {str(del_err)}')
