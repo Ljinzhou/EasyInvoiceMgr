@@ -29,6 +29,8 @@ services:
       STORAGE_BACKEND: local
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      GLM_MODEL: ${GLM_MODEL:-glm-4.6v-flash}
     volumes:
       - uploads:/app/uploads
       - exports:/app/exports
