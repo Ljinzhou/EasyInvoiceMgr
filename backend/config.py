@@ -1,5 +1,11 @@
 import os
 
+# CORS 允许的来源列表，通过环境变量配置（用逗号分隔）
+CORS_ORIGINS = [o.strip() for o in os.environ.get(
+    'CORS_ORIGINS',
+    'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001'
+).split(',')]
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'easy-invoice-mgr-secret-key'
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'easy-invoice-mgr-jwt-secret'

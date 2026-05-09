@@ -41,10 +41,10 @@ class ExportService:
     def run_export(self, task_id):
         with self.app.app_context():
             from models import db, ExportTask
-            task = db.session.get(ExportTask, task_id)
-            if not task:
-                return
             try:
+                task = db.session.get(ExportTask, task_id)
+                if not task:
+                    return
                 task.status = 'processing'
                 task.progress_percent = 5
                 task.progress_message = '正在获取数据...'
@@ -122,10 +122,18 @@ class ExportService:
 
             except Exception as e:
                 logger.error(f'导出失败: task_id={task_id}, error={str(e)}', exc_info=True)
-                task.status = 'failed'
-                task.error_message = str(e)
-                task.completed_at = datetime.now(timezone.utc)
-                db.session.commit()
+                try:
+                    task.status = 'failed'
+                    task.error_message = str(e)
+                    task.completed_at = datetime.now(timezone.utc)
+                    db.session.commit()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    db.session.remove()
+                except Exception:
+                    pass
 
     def _normalize_options(self, options):
         """Normalize camelCase frontend keys to snake_case backend keys."""
@@ -169,6 +177,7 @@ class ExportService:
                 'invoice_tax_number': record.invoice_tax_number or '',
                 'has_invoice': record.has_invoice or False,
                 'invoice_file_key': record.invoice_file_key or '',
+                'invoice_preview_key': record.invoice_preview_key or '',
                 'invoice_original_filename': record.invoice_original_filename or '',
                 'receipt_image_url': record.receipt_image_url or '',
                 'receipt_image_name': record.receipt_image_name or '',
@@ -334,8 +343,10 @@ class ExportService:
         if col_key == 'receipt_image':
             return record.get('receipt_image_url', '')
         elif col_key == 'invoice_image':
-            # PurchaseRecord uses 'invoice_file_key', Invoice uses 'image_url'
-            return record.get('invoice_file_key', '') or record.get('image_url', '')
+            # Prefer preview JPG over original PDF for embedding in Excel
+            return (record.get('invoice_preview_key', '')
+                    or record.get('invoice_file_key', '')
+                    or record.get('image_url', ''))
         return ''
 
     def _download_and_save_image(self, file_key, temp_dir, record, col_key):
@@ -351,12 +362,12 @@ class ExportService:
             original_name = record.get('invoice_original_filename', '') or record.get('file_name', '')
             prefix = 'invoice'
 
-        # Get extension from original name, or from file_key, or default
+        # Get extension from file_key first (actual file), then original name, or default
         ext = ''
-        if original_name:
-            ext = os.path.splitext(original_name)[1].lower()
-        if not ext and file_key:
+        if file_key:
             ext = os.path.splitext(file_key.split('?')[0])[1].lower()
+        if not ext and original_name:
+            ext = os.path.splitext(original_name)[1].lower()
         if not ext:
             ext = '.jpg'  # default
 

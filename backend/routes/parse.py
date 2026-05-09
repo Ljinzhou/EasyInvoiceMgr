@@ -3,6 +3,7 @@ from flask_cors import cross_origin
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.invoice_parser import invoice_parser
 from utils.storage import storage_manager
+from config import CORS_ORIGINS
 from utils.glm_vision_service import GLMVisionService
 import logging
 import uuid
@@ -140,27 +141,17 @@ class InvoiceUploadService:
     
     @staticmethod
     def upload_to_storage(file_bytes: bytes, file_key: str, content_type: str = None) -> bool:
-        """上传文件到对象存储"""
+        """上传文件到存储（COS或本地）"""
         if storage_manager.is_available():
             try:
-                extra_args = {}
-                if content_type:
-                    extra_args['ContentType'] = content_type
-                
-                storage_manager.client.put_object(
-                    Bucket=storage_manager.bucket,
-                    Body=file_bytes,
-                    Key=file_key,
-                    EnableMD5=False,
-                    **extra_args
-                )
-                logger.info(f'文件上传到COS成功: {file_key}')
+                storage_manager.upload_bytes(file_bytes, file_key)
+                logger.info(f'文件上传成功: {file_key}')
                 return True
             except Exception as e:
-                logger.error(f'COS上传失败: {str(e)}', exc_info=True)
+                logger.error(f'文件上传失败: {str(e)}', exc_info=True)
                 return False
         else:
-            logger.warning('COS服务不可用，无法上传')
+            logger.warning('存储不可用，无法上传')
             return False
     
     @staticmethod
@@ -182,7 +173,7 @@ class InvoiceUploadService:
 
 
 @parse_bp.route('/upload-file', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
 def upload_file():
     if request.method == 'OPTIONS':
         response = make_response()

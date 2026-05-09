@@ -368,8 +368,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useUserStore } from '~/stores/userStore'
 
-definePageMeta({ 
+const userStore = useUserStore()
+
+definePageMeta({
   layout: 'default',
   middleware: [
     function(to, from) {
@@ -842,10 +845,14 @@ const updateUser = async () => {
     const response = await $api.put(`/auth/users/${editingUserId.value}`, editForm.value, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
+
     if (response.data.code === 200) {
       showEditModal.value = false
       await loadUsers()
+      // 如果编辑的是当前登录用户，同步更新 store 使 UI 立即刷新
+      if (editingUserId.value === userStore.userId) {
+        userStore.saveToStorage(editForm.value)
+      }
       alert('更新成功')
     } else {
       alert(response.data.message || '更新失败')

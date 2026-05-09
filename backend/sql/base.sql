@@ -226,6 +226,7 @@ CREATE TABLE export_tasks (
     progress_percent INTEGER DEFAULT 0,
     progress_message VARCHAR(200),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP WITH TIME ZONE,
     expires_at TIMESTAMP WITH TIME ZONE
 );
@@ -342,8 +343,5 @@ FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 -- 5. 默认数据插入
 -- ============================================
 
--- 插入默认管理员账户
--- 密码使用MD5加密，实际生产环境应使用更安全的加密方式
-INSERT INTO users (username, password_hash, real_name, email, user_type, account_status)
-VALUES ('admin', 'admin', '系统管理员', 'admin@example.com', 'admin', 'active');
+-- 管理员账户由应用启动时自动创建/更新（使用安全哈希），此处不再硬编码
 

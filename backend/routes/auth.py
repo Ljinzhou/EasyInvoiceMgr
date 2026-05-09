@@ -3,6 +3,7 @@ from flask_cors import cross_origin
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User, InvitationCode
+from config import CORS_ORIGINS
 from datetime import datetime, timezone
 import logging
 
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route('/register', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
 def register():
     if request.method == 'OPTIONS':
         response = make_response()
@@ -97,7 +98,7 @@ def register():
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
 @auth_bp.route('/login', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
 def login():
     if request.method == 'OPTIONS':
         response = make_response()
@@ -251,7 +252,7 @@ def get_user(user_id):
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
 @auth_bp.route('/users/<int:user_id>', methods=['PUT', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
 @jwt_required()
 def update_user(user_id):
     if request.method == 'OPTIONS':
@@ -364,7 +365,7 @@ def get_avatar():
 
 
 @auth_bp.route('/avatar/upload', methods=['POST', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
 @jwt_required()
 def upload_avatar():
     if request.method == 'OPTIONS':
@@ -475,7 +476,7 @@ def upload_avatar():
 
 
 @auth_bp.route('/avatar', methods=['DELETE', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
 @jwt_required()
 def delete_avatar():
     if request.method == 'OPTIONS':
@@ -521,7 +522,7 @@ def delete_avatar():
 
 
 @auth_bp.route('/users/<int:user_id>', methods=['DELETE', 'OPTIONS'])
-@cross_origin(origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'], supports_credentials=True)
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
 @jwt_required()
 def delete_user(user_id):
     if request.method == 'OPTIONS':

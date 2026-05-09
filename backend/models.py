@@ -214,6 +214,7 @@ class ExportTask(db.Model):
     progress_percent = db.Column(db.Integer, default=0)
     progress_message = db.Column(db.String(200))
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
     completed_at = db.Column(db.DateTime(timezone=True))
     expires_at = db.Column(db.DateTime(timezone=True))
 

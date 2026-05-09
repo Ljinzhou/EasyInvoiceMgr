@@ -100,12 +100,14 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useUserStore } from '~/stores/userStore'
 
 definePageMeta({
   layout: false
 })
 
 const { $api } = useNuxtApp()
+const userStore = useUserStore()
 
 const form = ref({
   username: '',
@@ -132,7 +134,7 @@ const handleLogin = async () => {
     if (response.data.code === 200) {
       console.log('登录成功，保存token和用户信息')
       localStorage.setItem('token', response.data.data.token)
-      localStorage.setItem('user', JSON.stringify(response.data.data.user))
+      userStore.saveToStorage(response.data.data.user)
       console.log('准备跳转到总览面板')
       navigateTo('/dashboard')
     } else {

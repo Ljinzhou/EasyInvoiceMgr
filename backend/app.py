@@ -17,23 +17,29 @@ logger = logging.getLogger(__name__)
 
 
 def _seed_admin_user(app):
-    """Create default admin user if not exists."""
+    """Ensure a valid admin user exists, updating password hash if needed."""
     from werkzeug.security import generate_password_hash
     with app.app_context():
         from models import User, db
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'admin')
+        password_hash = generate_password_hash(admin_password)
         admin = User.query.filter_by(username='admin').first()
         if not admin:
             admin = User(
                 username='admin',
-                password_hash=generate_password_hash('admin'),
+                password_hash=password_hash,
                 real_name='系统管理员',
                 email='admin@example.com',
                 user_type='admin',
                 account_status='active',
             )
             db.session.add(admin)
-            db.session.commit()
-            logger.info('已创建默认管理员账户 (admin/admin)')
+            logger.info('已创建默认管理员账户')
+        else:
+            # Always update password hash to ensure correct hash on every deploy
+            admin.password_hash = password_hash
+            logger.info('已更新管理员密码')
+        db.session.commit()
 
 
 def create_app():
@@ -41,17 +47,19 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
     logger.info('配置加载完成')
-    
-    # 配置CORS - 允许API和静态文件访问
+
+    # 配置CORS - 通过环境变量支持自定义域名
+    from config import CORS_ORIGINS as cors_origins
+    logger.info(f'CORS 允许来源: {cors_origins}')
     CORS(app, resources={
         r"/api/*": {
-            "origins": ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
+            "origins": cors_origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
             "supports_credentials": True
         },
         r"/uploads/*": {
-            "origins": ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
+            "origins": cors_origins,
             "methods": ["GET", "OPTIONS"],
             "allow_headers": ["Content-Type", "Range"],
             "supports_credentials": True

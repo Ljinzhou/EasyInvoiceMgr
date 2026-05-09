@@ -225,13 +225,14 @@
   </transition>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useUserStore } from '~/stores/userStore'
 
 const { $api } = useNuxtApp()
 const route = useRoute()
+const userStore = useUserStore()
 
-const user = ref(null)
 const showSettingsModal = ref(false)
 const activeTab = ref('profile')
 const saving = ref(false)
@@ -245,8 +246,12 @@ const toggleMobileMenu = () => {
 watch(() => route.path, () => {
   mobileMenuOpen.value = false
 })
-const userAvatarUrl = ref('')
-	const avatarLoadError = ref(false)
+const userAvatarUrl = computed(() => userStore.avatarUrl)
+const avatarLoadError = ref(false)
+// 头像 URL 变化时重置加载错误状态
+watch(userAvatarUrl, () => {
+  avatarLoadError.value = false
+})
 	const settingsMsg = ref('')
 	const settingsMsgType = ref('success')
 	const globalToast = reactive({ visible: false, message: '', type: 'success' })
@@ -269,58 +274,44 @@ const settingsForm = ref({
 })
 
 onMounted(() => {
-  const userStr = localStorage.getItem('user')
-  if (userStr) {
-    user.value = JSON.parse(userStr)
-    userAvatarUrl.value = user.value?.avatar_url || ''
+  userStore.loadFromStorage()
+  const u = userStore.user
+  if (u) {
     settingsForm.value = {
-      username: user.value.username || '',
-      real_name: user.value.real_name || '',
-      email: user.value.email || '',
-      phone: user.value.phone || '',
-      student_or_staff_id: user.value.student_or_staff_id || ''
+      username: u.username || '',
+      real_name: u.real_name || '',
+      email: u.email || '',
+      phone: u.phone || '',
+      student_or_staff_id: u.student_or_staff_id || ''
     }
   }
 })
 
-const userName = computed(() => user.value?.real_name || '未登录')
-const userRole = computed(() => {
-  const roles = {
-    admin: '管理员',
-    teacher: '教师',
-    student_admin: '学生管理员',
-    student: '学生'
-  }
-  return roles[user.value?.user_type] || '未知'
-})
-const userInitial = computed(() => userName.value.charAt(0).toUpperCase())
+const userName = userStore.realName
+const userRole = userStore.userRole
+const userInitial = computed(() => (userName.value || '?').charAt(0).toUpperCase())
 
 const canManageUsers = computed(() => {
-  return ['admin', 'teacher', 'student_admin'].includes(user.value?.user_type)
+  return ['admin', 'teacher', 'student_admin'].includes(userStore.userType)
 })
 
 const canManageInvitationCodes = computed(() => {
-  return ['admin', 'teacher', 'student_admin'].includes(user.value?.user_type)
+  return ['admin', 'teacher', 'student_admin'].includes(userStore.userType)
 })
 
 const permissionDescription = computed(() => {
-  const descriptions = {
+  const descriptions: Record<string, string> = {
     admin: '拥有系统最高权限，可管理所有用户、项目和发票，可修改用户角色和系统设置。',
     teacher: '拥有完全管理权限，可审核发票、管理项目和人员，可管理邀请码。',
     student_admin: '可审核发票、管理人员和邀请码，协助老师进行数据管理工作。',
     student: '默认权限，仅可查看和上传发票。'
   }
-  return descriptions[user.value?.user_type] || ''
+  return descriptions[userStore.userType] || ''
 })
 
 function handleAvatarUpdated(newUrl) {
-  userAvatarUrl.value = newUrl || ''
+  userStore.updateAvatar(newUrl || '')
   avatarLoadError.value = false
-  if (user.value) {
-    user.value.avatar_url = newUrl || null
-    localStorage.setItem('user', JSON.stringify(user.value))
-  }
-  // 上传头像成功后关闭设置页面并提示
   if (newUrl) {
     showSettingsModal.value = false
     showGlobalToast('头像保存成功')
@@ -331,14 +322,12 @@ const saveSettings = async () => {
   saving.value = true
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.put(`/auth/users/${user.value.user_id}`, settingsForm.value, {
+    const response = await $api.put(`/auth/users/${userStore.userId}`, settingsForm.value, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
+
     if (response.data.code === 200) {
-      const updatedUser = { ...user.value, ...settingsForm.value }
-      localStorage.setItem('user', JSON.stringify(updatedUser))
-      user.value = updatedUser
+      userStore.saveToStorage(settingsForm.value)
       settingsMsg.value = '设置保存成功'
       settingsMsgType.value = 'success'
     } else {
@@ -355,7 +344,7 @@ const saveSettings = async () => {
 
 const handleLogout = () => {
   localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  userStore.clearUser()
   navigateTo('/login')
 }
 </script>
@@ -374,12 +363,16 @@ const handleLogout = () => {
 
 .sidebar {
   width: 260px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
   background: linear-gradient(180deg, #2c3e50 0%, #1a252f 100%);
   color: white;
   display: flex;
   flex-direction: column;
   box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
+  overflow-y: auto;
 }
 
 .sidebar-header {
