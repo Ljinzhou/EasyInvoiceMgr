@@ -44,4 +44,3 @@ backend/instance/
 
 # Documentation
 *.md
-!README_DOCKER.md
