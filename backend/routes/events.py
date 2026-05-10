@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Event, User, Invoice, PurchaseRecord
+from models import db, Event, User, Invoice, PurchaseRecord, EventMember
 from datetime import datetime
 import logging
 
@@ -14,9 +14,10 @@ def create_event():
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
         
-        if not user or user.user_type not in ['admin', 'teacher']:
-            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+        if not user:
+            return jsonify({'code': 403, 'message': '用户不存在', 'data': None}), 403
+        # All authenticated users can create events
+
         data = request.get_json()
         
         required_fields = ['event_name', 'event_start_time', 'event_end_time']
@@ -93,11 +94,26 @@ def create_event():
 @jwt_required()
 def get_events():
     try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 10, type=int)
         status = request.args.get('status')
 
         query = Event.query.filter_by(is_deleted=False)
+
+        # Non-admin/teacher users can only see events they created or are members of
+        if user and user.user_type not in ['admin', 'teacher']:
+            member_event_ids = db.session.query(EventMember.event_id).filter_by(
+                user_id=current_user_id, is_deleted=False
+            ).subquery()
+            query = query.filter(
+                db.or_(
+                    Event.creator_id == current_user_id,
+                    Event.event_id.in_(member_event_ids)
+                )
+            )
 
         if status:
             query = query.filter_by(status=status)
@@ -138,6 +154,7 @@ def get_events():
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
                 'voucher_count': invoice_count + purchase_count,
+                'creator_id': event.creator_id,
                 'leader_name': leader.real_name if leader else None,
                 'need_invoice_review': event.need_invoice_review
             })
@@ -224,11 +241,22 @@ def update_event(event_id):
 @jwt_required()
 def get_event(event_id):
     try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+
         event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
-        
+
         if not event:
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
-        
+
+        # Non-admin/teacher users can only view events they created or are members of
+        if user and user.user_type not in ['admin', 'teacher']:
+            is_member = EventMember.query.filter_by(
+                event_id=event_id, user_id=current_user_id, is_deleted=False
+            ).first()
+            if event.creator_id != current_user_id and not is_member:
+                return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
+
         leader = User.query.get(event.leader_id) if event.leader_id else None
         
         invoice_count = Invoice.query.filter_by(event_id=event_id, is_deleted=False).count()

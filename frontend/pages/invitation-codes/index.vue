@@ -340,21 +340,37 @@ const deleteCode = async () => {
   }
 }
 
+const copyToClipboard = (text, label) => {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      alert(label + '已复制到剪贴板！')
+    }).catch(() => {
+      prompt('复制以下' + label + ':', text)
+    })
+  } else {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    try {
+      document.execCommand('copy')
+      alert(label + '已复制到剪贴板！')
+    } catch (_) {
+      prompt('复制以下' + label + ':', text)
+    }
+    document.body.removeChild(textarea)
+  }
+}
+
 const copyCode = (code) => {
-  navigator.clipboard.writeText(code).then(() => {
-    alert('邀请码已复制到剪贴板！')
-  }).catch(() => {
-    prompt('复制以下邀请码:', code)
-  })
+  copyToClipboard(code, '邀请码')
 }
 
 const copyAllCodes = () => {
   const text = createdCodes.value.map(c => c.code).join('\n')
-  navigator.clipboard.writeText(text).then(() => {
-    alert('所有邀请码已复制到剪贴板！')
-  }).catch(() => {
-    prompt('复制以下邀请码:', text)
-  })
+  copyToClipboard(text, '所有邀请码')
 }
 
 const changePage = (page) => {

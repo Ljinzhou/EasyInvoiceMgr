@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Invoice, Event, User
+from models import db, Invoice, Event, User, EventMember
 from utils.storage import storage_manager
 from datetime import datetime
 import logging
@@ -25,7 +25,18 @@ def get_invoices():
         if not event_id:
             logger.warning('缺少event_id参数')
             return jsonify({'code': 400, 'message': '缺少event_id参数', 'data': None}), 400
-        
+
+        # Check event membership for non-admin/teacher users
+        user = User.query.get(current_user_id)
+        if user and user.user_type not in ['admin', 'teacher']:
+            event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+            if event:
+                is_member = EventMember.query.filter_by(
+                    event_id=event_id, user_id=current_user_id, is_deleted=False
+                ).first()
+                if event.creator_id != current_user_id and not is_member:
+                    return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
+
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 20, type=int)
         

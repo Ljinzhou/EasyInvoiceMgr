@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, Response, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, PurchaseRecord, Event, User
+from models import db, PurchaseRecord, Event, User, EventMember
 from datetime import datetime, timezone
 from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
@@ -44,7 +44,15 @@ def get_purchase_records(event_id):
         event = Event.query.get(event_id)
         if not event:
             return jsonify({'code': 404, 'message': '赛事不存在', 'data': None}), 404
-        
+
+        # Non-admin/teacher users can only access events they created or are members of
+        if user.user_type not in ['admin', 'teacher']:
+            is_member = EventMember.query.filter_by(
+                event_id=event_id, user_id=current_user_id, is_deleted=False
+            ).first()
+            if event.creator_id != current_user_id and not is_member:
+                return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
+
         records = PurchaseRecord.query.filter_by(
             event_id=event_id, 
             is_deleted=False

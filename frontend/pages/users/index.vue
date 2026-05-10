@@ -442,8 +442,7 @@ const addForm = ref({
 const currentUser = ref(null)
 
 const canManageUsers = computed(() => {
-  const userType = currentUser.value?.user_type
-  return ['admin', 'teacher', 'student_admin'].includes(userType)
+  return currentUser.value?.user_type === 'admin'
 })
 
 const canChangeRole = computed(() => currentUser.value?.user_type === 'admin')

@@ -3,7 +3,7 @@ import axios from 'axios'
 export default defineNuxtPlugin((nuxtApp) => {
   const api = axios.create({
     baseURL: nuxtApp.$config.public.apiBase,
-    timeout: 10000
+    timeout: 30000
   })
 
   api.interceptors.request.use(

@@ -19,11 +19,11 @@
             <button @click="toggleEventStatus(event)" v-if="event.status === 'ongoing'" class="action-btn end-btn">⏹ 结束</button>
             <button @click="openAddMemberModal(event)" class="action-btn member-btn">👥 添加人员</button>
             <button @click="viewMembers(event)" class="action-btn view-btn">📋 查看人员</button>
-            <button @click="editEvent(event)" class="edit-button">
+            <button v-if="canEditEvent(event)" @click="editEvent(event)" class="edit-button">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               编辑
             </button>
-            <button @click="confirmDelete(event)" class="delete-button">
+            <button v-if="canEditEvent(event)" @click="confirmDelete(event)" class="delete-button">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
               删除
             </button>
@@ -430,6 +430,7 @@ const { $api } = useNuxtApp()
 const eventStore = useEventStore()
 
 // Events from the unified store (reactive)
+const currentUser = ref(null)
 const events = ref([])
 
 const showEditModal = ref(false)
@@ -474,9 +475,20 @@ onMounted(async () => {
     return
   }
 
+  const userStr = localStorage.getItem('user')
+  currentUser.value = userStr ? JSON.parse(userStr) : null
+
   await eventStore.ensureLoaded()
   syncFromStore()
 })
+
+const canEditEvent = (event) => {
+  if (!currentUser.value) return false
+  const userType = currentUser.value.user_type
+  if (userType === 'admin' || userType === 'teacher') return true
+  if (event.creator_id === currentUser.value.user_id) return true
+  return false
+}
 
 // Keep local events in sync with store (reactive binding)
 const syncFromStore = () => {
@@ -554,7 +566,8 @@ const searchUsers = async () => {
     })
     
     if (response.data.code === 200) {
-      filteredUsers.value = response.data.data
+      const users = response.data.data.data || response.data.data || []
+      filteredUsers.value = Array.isArray(users) ? users : []
     }
   } catch (error) {
     console.error('搜索用户失败:', error)

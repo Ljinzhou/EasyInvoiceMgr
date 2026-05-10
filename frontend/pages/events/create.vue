@@ -220,7 +220,8 @@ const searchUsers = async () => {
       })
       
       if (response.data.code === 200) {
-        filteredUsers.value = response.data.data.filter(u => 
+        const users = response.data.data.data || response.data.data || []
+        filteredUsers.value = (Array.isArray(users) ? users : []).filter(u =>
           u.user_type === 'admin' || u.user_type === 'teacher'
         )
       }

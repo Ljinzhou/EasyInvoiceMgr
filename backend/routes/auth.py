@@ -290,17 +290,6 @@ def update_user(user_id):
                 user.user_type = data['user_type']
             if 'account_status' in data:
                 user.account_status = data['account_status']
-        elif current_user.user_type in ['teacher', 'student_admin']:
-            if 'real_name' in data:
-                user.real_name = data['real_name']
-            if 'email' in data:
-                user.email = data['email']
-            if 'phone' in data:
-                user.phone = data['phone']
-            if 'student_or_staff_id' in data:
-                user.student_or_staff_id = data['student_or_staff_id']
-            if 'account_status' in data:
-                user.account_status = data['account_status']
         elif current_user_id == user_id:
             if 'real_name' in data:
                 user.real_name = data['real_name']
@@ -538,7 +527,7 @@ def delete_user(user_id):
         current_user_id = get_jwt_identity()
         current_user = User.query.get(current_user_id)
         
-        if not current_user or current_user.user_type not in ['admin', 'teacher', 'student_admin']:
+        if not current_user or current_user.user_type != 'admin':
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
         
         user = User.query.get(user_id)
