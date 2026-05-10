@@ -191,7 +191,6 @@
                       type="text"
                       class="form-input"
                       placeholder="搜索负责人姓名..."
-                      @input="searchUsers"
                       @focus="showLeaderDropdown = true"
                     />
                     <transition name="dropdown-slide">
@@ -345,7 +344,6 @@
                   type="text"
                   placeholder="搜索用户姓名或用户名..."
                   class="member-search__input"
-                  @input="searchUsersForMember"
                   @focus="showMemberDropdown = true"
                 />
                 <button v-if="memberSearch" @click="memberSearch = ''; filteredMembers = []" class="member-search__clear">
@@ -553,20 +551,22 @@ const updateEvent = async () => {
   }
 }
 
-let searchTimeout = null
+let leaderSearchTimer = null
 
-const searchUsers = () => {
-  if (searchTimeout) clearTimeout(searchTimeout)
+watch(leaderSearch, (newVal) => {
+  if (leaderSearchTimer) clearTimeout(leaderSearchTimer)
 
-  if (!leaderSearch.value) {
+  if (!newVal) {
     filteredUsers.value = []
     return
   }
 
-  searchTimeout = setTimeout(async () => {
+  filteredUsers.value = []
+
+  leaderSearchTimer = setTimeout(async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await $api.get(`/auth/users?search=${encodeURIComponent(leaderSearch.value)}&user_type=admin,teacher`, {
+      const response = await $api.get(`/auth/users?search=${encodeURIComponent(newVal)}&user_type=admin,teacher`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 
@@ -578,7 +578,7 @@ const searchUsers = () => {
       console.error('搜索用户失败:', error)
     }
   }, 300)
-}
+})
 
 const selectLeader = (user) => {
   editForm.value.leader_id = user.user_id
@@ -634,19 +634,20 @@ const openAddMemberModal = (event) => {
 
 let memberSearchTimer = null
 
-const searchUsersForMember = () => {
+watch(memberSearch, (newVal) => {
   if (memberSearchTimer) clearTimeout(memberSearchTimer)
 
-  if (!memberSearch.value) {
+  if (!newVal) {
     filteredMembers.value = []
-    filteredUsers.value = []
     return
   }
+
+  filteredMembers.value = []
 
   memberSearchTimer = setTimeout(async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await $api.get(`/auth/users?search=${encodeURIComponent(memberSearch.value)}`, {
+      const response = await $api.get(`/auth/users?search=${encodeURIComponent(newVal)}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
 
@@ -658,7 +659,7 @@ const searchUsersForMember = () => {
       console.error('搜索用户失败:', error)
     }
   }, 300)
-}
+})
 
 const selectMember = (user) => {
   selectedMember.value = user

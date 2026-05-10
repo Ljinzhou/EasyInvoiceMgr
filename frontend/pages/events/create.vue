@@ -83,7 +83,6 @@
                 v-model="leaderSearch"
                 type="text"
                 placeholder="输入姓名搜索负责人"
-                @input="searchUsers"
                 @focus="showDropdown = true"
                 @blur="hideDropdown"
               />
@@ -138,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({
@@ -171,8 +170,6 @@ const success = ref('')
 const leaderSearch = ref('')
 const filteredUsers = ref([])
 const showDropdown = ref(false)
-let searchTimeout = null
-
 onMounted(async () => {
   console.log('=== 创建/编辑比赛：页面加载 ===')
   const token = localStorage.getItem('token')
@@ -202,23 +199,26 @@ onMounted(async () => {
   }
 })
 
-const searchUsers = async () => {
-  if (searchTimeout) {
-    clearTimeout(searchTimeout)
-  }
-  
-  if (!leaderSearch.value) {
+let searchTimer = null
+
+watch(leaderSearch, (newVal) => {
+  if (searchTimer) clearTimeout(searchTimer)
+
+  if (!newVal) {
     filteredUsers.value = []
     return
   }
-  
-  searchTimeout = setTimeout(async () => {
+
+  // Clear previous results immediately while searching
+  filteredUsers.value = []
+
+  searchTimer = setTimeout(async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await $api.get(`/auth/users?search=${leaderSearch.value}`, {
+      const response = await $api.get(`/auth/users?search=${encodeURIComponent(newVal)}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
-      
+
       if (response.data.code === 200) {
         const users = response.data.data.data || response.data.data || []
         filteredUsers.value = (Array.isArray(users) ? users : []).filter(u =>
@@ -229,7 +229,7 @@ const searchUsers = async () => {
       console.error('搜索用户失败:', err)
     }
   }, 300)
-}
+})
 
 const selectLeader = (user) => {
   form.value.leader_id = user.user_id
