@@ -553,25 +553,31 @@ const updateEvent = async () => {
   }
 }
 
-const searchUsers = async () => {
+let searchTimeout = null
+
+const searchUsers = () => {
+  if (searchTimeout) clearTimeout(searchTimeout)
+
   if (!leaderSearch.value) {
     filteredUsers.value = []
     return
   }
-  
-  try {
-    const token = localStorage.getItem('token')
-    const response = await $api.get(`/auth/users?search=${leaderSearch.value}&user_type=admin,teacher`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    
-    if (response.data.code === 200) {
-      const users = response.data.data.data || response.data.data || []
-      filteredUsers.value = Array.isArray(users) ? users : []
+
+  searchTimeout = setTimeout(async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await $api.get(`/auth/users?search=${encodeURIComponent(leaderSearch.value)}&user_type=admin,teacher`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      if (response.data.code === 200) {
+        const users = response.data.data.data || response.data.data || []
+        filteredUsers.value = Array.isArray(users) ? users : []
+      }
+    } catch (error) {
+      console.error('搜索用户失败:', error)
     }
-  } catch (error) {
-    console.error('搜索用户失败:', error)
-  }
+  }, 300)
 }
 
 const selectLeader = (user) => {
@@ -626,24 +632,32 @@ const openAddMemberModal = (event) => {
   showAddMemberModal.value = true
 }
 
-const searchUsersForMember = async () => {
+let memberSearchTimer = null
+
+const searchUsersForMember = () => {
+  if (memberSearchTimer) clearTimeout(memberSearchTimer)
+
   if (!memberSearch.value) {
     filteredMembers.value = []
+    filteredUsers.value = []
     return
   }
-  
-  try {
-    const token = localStorage.getItem('token')
-    const response = await $api.get(`/auth/users?search=${memberSearch.value}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    
-    if (response.data.code === 200) {
-      filteredMembers.value = response.data.data
+
+  memberSearchTimer = setTimeout(async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await $api.get(`/auth/users?search=${encodeURIComponent(memberSearch.value)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      if (response.data.code === 200) {
+        const users = response.data.data.data || response.data.data || []
+        filteredMembers.value = Array.isArray(users) ? users : []
+      }
+    } catch (error) {
+      console.error('搜索用户失败:', error)
     }
-  } catch (error) {
-    console.error('搜索用户失败:', error)
-  }
+  }, 300)
 }
 
 const selectMember = (user) => {
