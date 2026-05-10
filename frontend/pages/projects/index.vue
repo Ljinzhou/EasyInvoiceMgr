@@ -452,9 +452,7 @@ const editForm = ref({
   need_invoice_review: true
 })
 
-const { searchText: leaderSearch, results: filteredUsers } = useUserSearch({
-  filter: (u) => u.user_type === 'admin' || u.user_type === 'teacher'
-})
+const { searchText: leaderSearch, results: filteredUsers } = useUserSearch()
 const showLeaderDropdown = ref(false)
 
 // 添加人员相关变量

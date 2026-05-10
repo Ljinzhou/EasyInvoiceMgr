@@ -168,9 +168,7 @@ const loading = ref(false)
 const error = ref('')
 const success = ref('')
 
-const { searchText: leaderSearch, results: filteredUsers } = useUserSearch({
-  filter: (u) => u.user_type === 'admin' || u.user_type === 'teacher'
-})
+const { searchText: leaderSearch, results: filteredUsers } = useUserSearch()
 const showDropdown = ref(false)
 onMounted(async () => {
   console.log('=== 创建/编辑比赛：页面加载 ===')
