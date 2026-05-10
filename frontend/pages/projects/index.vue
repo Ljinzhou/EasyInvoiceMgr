@@ -417,8 +417,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useEventStore } from '~/stores/eventStore'
+import { useUserSearch } from '~/composables/useUserSearch'
 
 definePageMeta({
   layout: 'default'
@@ -451,15 +452,15 @@ const editForm = ref({
   need_invoice_review: true
 })
 
-const leaderSearch = ref('')
-const filteredUsers = ref([])
+const { searchText: leaderSearch, results: filteredUsers } = useUserSearch({
+  filter: (u) => u.user_type === 'admin' || u.user_type === 'teacher'
+})
 const showLeaderDropdown = ref(false)
 
 // 添加人员相关变量
 const showAddMemberModal = ref(false)
 const currentEvent = ref(null)
-const memberSearch = ref('')
-const filteredMembers = ref([])
+const { searchText: memberSearch, results: filteredMembers } = useUserSearch()
 const showMemberDropdown = ref(false)
 const selectedMember = ref(null)
 const addingMember = ref(false)
@@ -551,34 +552,6 @@ const updateEvent = async () => {
   }
 }
 
-let leaderSearchTimer = null
-
-watch(leaderSearch, (newVal) => {
-  if (leaderSearchTimer) clearTimeout(leaderSearchTimer)
-
-  if (!newVal) {
-    filteredUsers.value = []
-    return
-  }
-
-  filteredUsers.value = []
-
-  leaderSearchTimer = setTimeout(async () => {
-    try {
-      const token = localStorage.getItem('token')
-      const response = await $api.get(`/auth/users?search=${encodeURIComponent(newVal)}&user_type=admin,teacher`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      if (response.data.code === 200) {
-        const users = response.data.data.data || response.data.data || []
-        filteredUsers.value = Array.isArray(users) ? users : []
-      }
-    } catch (error) {
-      console.error('搜索用户失败:', error)
-    }
-  }, 300)
-})
 
 const selectLeader = (user) => {
   editForm.value.leader_id = user.user_id
@@ -632,34 +605,6 @@ const openAddMemberModal = (event) => {
   showAddMemberModal.value = true
 }
 
-let memberSearchTimer = null
-
-watch(memberSearch, (newVal) => {
-  if (memberSearchTimer) clearTimeout(memberSearchTimer)
-
-  if (!newVal) {
-    filteredMembers.value = []
-    return
-  }
-
-  filteredMembers.value = []
-
-  memberSearchTimer = setTimeout(async () => {
-    try {
-      const token = localStorage.getItem('token')
-      const response = await $api.get(`/auth/users?search=${encodeURIComponent(newVal)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      if (response.data.code === 200) {
-        const users = response.data.data.data || response.data.data || []
-        filteredMembers.value = Array.isArray(users) ? users : []
-      }
-    } catch (error) {
-      console.error('搜索用户失败:', error)
-    }
-  }, 300)
-})
 
 const selectMember = (user) => {
   selectedMember.value = user

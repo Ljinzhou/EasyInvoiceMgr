@@ -137,8 +137,9 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useEventStore } from '~/stores/eventStore'
+import { useUserSearch } from '~/composables/useUserSearch'
 
 definePageMeta({
   layout: 'default'
@@ -167,8 +168,9 @@ const loading = ref(false)
 const error = ref('')
 const success = ref('')
 
-const leaderSearch = ref('')
-const filteredUsers = ref([])
+const { searchText: leaderSearch, results: filteredUsers } = useUserSearch({
+  filter: (u) => u.user_type === 'admin' || u.user_type === 'teacher'
+})
 const showDropdown = ref(false)
 onMounted(async () => {
   console.log('=== 创建/编辑比赛：页面加载 ===')
@@ -197,38 +199,6 @@ onMounted(async () => {
       console.log('默认负责人已设置:', user.real_name)
     }
   }
-})
-
-let searchTimer = null
-
-watch(leaderSearch, (newVal) => {
-  if (searchTimer) clearTimeout(searchTimer)
-
-  if (!newVal) {
-    filteredUsers.value = []
-    return
-  }
-
-  // Clear previous results immediately while searching
-  filteredUsers.value = []
-
-  searchTimer = setTimeout(async () => {
-    try {
-      const token = localStorage.getItem('token')
-      const response = await $api.get(`/auth/users?search=${encodeURIComponent(newVal)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      if (response.data.code === 200) {
-        const users = response.data.data.data || response.data.data || []
-        filteredUsers.value = (Array.isArray(users) ? users : []).filter(u =>
-          u.user_type === 'admin' || u.user_type === 'teacher'
-        )
-      }
-    } catch (err) {
-      console.error('搜索用户失败:', err)
-    }
-  }, 300)
 })
 
 const selectLeader = (user) => {
