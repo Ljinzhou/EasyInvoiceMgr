@@ -1,6 +1,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue'
 
 export function useUserSearch(options: { filter?: (user: any) => boolean } = {}) {
+  const { $api } = useNuxtApp()
   const searchText = ref('')
   const results = ref<any[]>([])
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -18,8 +19,10 @@ export function useUserSearch(options: { filter?: (user: any) => boolean } = {})
     timer = setTimeout(async () => {
       try {
         const token = localStorage.getItem('token')
-        const { $api } = useNuxtApp()
-        const response = await $api.get(`/auth/users?search=${encodeURIComponent(val)}`, {
+        if (!token) return
+
+        const response = await $api.get('/auth/users', {
+          params: { search: val },
           headers: { Authorization: `Bearer ${token}` }
         })
 
