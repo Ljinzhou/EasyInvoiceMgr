@@ -232,6 +232,7 @@ import { useUserStore } from '~/stores/userStore'
 const { $api } = useNuxtApp()
 const route = useRoute()
 const userStore = useUserStore()
+userStore.loadFromStorage()
 
 const showSettingsModal = ref(false)
 const activeTab = ref('profile')
@@ -274,7 +275,6 @@ const settingsForm = ref({
 })
 
 onMounted(() => {
-  userStore.loadFromStorage()
   const u = userStore.user
   if (u) {
     settingsForm.value = {
