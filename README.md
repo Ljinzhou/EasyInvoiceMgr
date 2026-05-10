@@ -48,6 +48,13 @@
 ### 前置准备
 
 ```bash
+# 安装 Node.js 22+
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 安装 pnpm
+npm install -g pnpm
+
 # 安装 Docker & Docker Compose
 curl -fsSL https://get.docker.com | bash
 sudo apt install -y docker-compose-plugin git nginx
@@ -57,6 +64,8 @@ sudo apt install -y docker-compose-plugin git nginx
 git clone https://github.com/Ljinzhou/EasyInvoiceMgr.git
 cd EasyInvoiceMgr
 ```
+
+> 前端依赖由 Dockerfile 在构建时自动安装（`pnpm install --frozen-lockfile`），无需预先手动安装。
 
 ### 环境变量说明
 
@@ -157,7 +166,9 @@ docker compose logs -f   # 确认无报错后 Ctrl+C 退出
 
 浏览器打开 `http://<IP>:3000`，默认管理员 `admin` / 密码为 `ADMIN_PASSWORD` 的值。
 
-> 如果部署在云服务器上，除了服务器自身的防火墙，还需要在云服务商控制台的**安全组**中放行 3000 端口（TCP），否则外网无法访问。
+> 如果部署在云服务器上，除了服务器自身的防火墙，还需要在云服务商控制台的**安全组**中放行 **3000 和 5000 端口**（TCP），否则外网无法访问。
+
+> **推荐**：若服务器已安装 Nginx 且 80 端口已对外放开，可将 `NUXT_PUBLIC_API_BASE` 设为相对路径（如 `/api`），搭配 Nginx 反向代理统一从 80 端口提供服务，无需放行 3000 端口。具体配置参考上方"方式二"的 Nginx 配置部分。
 
 ***
 
@@ -259,6 +270,153 @@ sudo ufw enable
 > 云服务器还需在**安全组**中放行 80 和 443 端口（TCP）。
 
 访问 `https://invoice.example.com`。
+
+## 更新部署
+
+当代码仓库有更新后，需要在服务器上拉取最新代码并重新构建容器。
+
+### 方式一：通过 Git 更新（推荐）
+
+如果服务器上的项目目录是通过 `git clone` 获取的：
+
+```bash
+cd EasyInvoiceMgr
+git pull origin dev          # 拉取最新代码
+docker compose up -d --build backend frontend   # 仅重建后端和前端
+```
+
+> PostgreSQL 容器无需重建，`--build` 参数确保代码变更被打包进新镜像。
+
+### 方式二：手动上传文件更新
+
+如果服务器上未配置 Git（例如通过 FTP/SCP 部署），需要将本地修改过的文件上传到服务器对应目录后重建：
+
+```bash
+# 1. 在本地将修改的文件上传到服务器的 /root/EasyInvoiceMgr/ 对应路径
+
+# 2. 在服务器上重建容器
+cd /root/EasyInvoiceMgr
+docker compose up -d --build backend frontend
+```
+
+### 快速验证
+
+更新完成后确认服务正常：
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}"
+docker compose logs --tail=5 backend frontend
+```
+
+浏览器访问 `http://<IP>:3000` 验证功能。
+
+## 故障排除
+
+### 前端构建失败：`packages field missing or empty`
+
+**现象**：`docker compose up -d --build` 执行时前端构建报错 `ERROR packages field missing or empty`。
+
+**原因**：`frontend/pnpm-workspace.yaml` 文件损坏或内容不正确。pnpm 检测到该文件后会按 workspace 模式运行，但缺少必需的 `packages` 字段。
+
+**修复**：确保 `pnpm-workspace.yaml` 内容为：
+
+```yaml
+packages:
+  - '.'
+```
+
+### 后端构建失败：`fatal error: stdlib.h: No such file or directory`
+
+**现象**：后端镜像构建时 `pip install psycopg2` 编译失败，提示 `fatal error: stdlib.h: No such file or directory`。
+
+**原因**：`psycopg2` 需要完整的 C 编译工具链（gcc + libc-dev），而 `python:3.11-slim` 基础镜像不包含这些。
+
+**修复**：将 `backend/requirements.txt` 中的 `psycopg2==2.9.12` 改为 `psycopg2-binary==2.9.12`，使用预编译版本：
+
+```diff
+- psycopg2==2.9.12
++ psycopg2-binary==2.9.12
+```
+
+同时可将 `backend/Dockerfile` 中不再需要的构建依赖（`gcc`、`libpq-dev`）移除。
+
+### pip/apt 下载慢或超时（国内服务器）
+
+**现象**：构建过程中 `apt-get update` 或 `pip install` 长时间无响应，或构建超过 10 分钟仍未完成。
+
+**原因**：国内服务器访问 Debian/PyPI 官方源速度极慢。
+
+**修复**：在 `backend/Dockerfile` 中配置国内镜像源加速：
+
+```dockerfile
+FROM python:3.11-slim
+
+# apt 使用阿里云镜像（加速 Debian 包下载）
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    mupdf-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+# pip 使用阿里云镜像（加速 Python 包下载）
+RUN pip install --no-cache-dir \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
+    -r requirements.txt
+
+COPY . .
+RUN mkdir -p uploads exports
+EXPOSE 5000
+CMD ["python", "app.py"]
+```
+
+### 外网无法访问前端（端口 3000 被拦截）
+
+**现象**：服务启动后内网访问正常，但外网浏览器无法打开页面。
+
+**原因**：云服务商安全组默认只开放了常用端口（22、80、443），3000 端口未放行。
+
+**解决方案**（二选一）：
+
+1. **放行端口**：在云服务商控制台的安全组中添加 3000 和 5000 端口的 TCP 入站规则。
+2. **使用 Nginx 反向代理**：利用已开放的 80 端口代理前后端服务（参考上方"方式二"），配置 `/` 转发到前端 3000 端口，`/api/` 转发到后端 5000 端口。
+
+### 容器启动后立即退出
+
+**现象**：`docker compose up -d` 后容器很快变为 `Exited` 状态。
+
+**排查**：
+
+```bash
+# 查看容器退出日志
+docker logs easyinvoicemgr-backend-1 --tail 50
+docker logs easyinvoicemgr-postgres-1 --tail 50
+
+# 检查端口是否被占用（特别是 5432、5000、3000）
+ss -tlnp | grep -E '(:5432|:5000|:3000)'
+
+# 检查 .env 文件是否存在且配置正确
+cat .env
+```
+
+常见原因：端口冲突、`.env` 文件缺失或配置错误、数据库连接失败。
+
+### 数据库密码修改后连接失败
+
+如果修改了数据库密码但忘记同步更新 `docker-compose.yml` 中 `DATABASE_URL` 的密码部分，后端将无法连接数据库。
+
+检查两处密码必须一致：
+- `docker-compose.yml` → `postgres.POSTGRES_PASSWORD`
+- `docker-compose.yml` → `backend.environment.DATABASE_URL` 中的密码
+
+修改后需重建容器：
+```bash
+docker compose down -v   # -v 会删除旧数据卷
+docker compose up -d --build
+```
 
 ## 许可证
 
