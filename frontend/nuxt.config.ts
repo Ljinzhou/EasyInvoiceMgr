@@ -12,7 +12,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     public: {
-      apiBase: 'http://localhost:5000/api'
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:5000/api'
     }
   },
   nitro: {

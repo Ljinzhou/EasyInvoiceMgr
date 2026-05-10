@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -7,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: easy_invoice_mgr
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: root
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-root}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./backend/sql/base.sql:/docker-entrypoint-initdb.d/01_base.sql
@@ -23,7 +21,7 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://postgres:root@postgres:5432/easy_invoice_mgr
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-root}@postgres:5432/easy_invoice_mgr
       SECRET_KEY: ${SECRET_KEY:-easy-invoice-mgr-secret-key}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-easy-invoice-mgr-jwt-secret-32bytes}
       STORAGE_BACKEND: local
