@@ -58,7 +58,9 @@ docker compose up -d
 
 浏览器打开 `http://<服务器IP>:3000`，默认账号 `admin`，密码 `admin`。
 
-> 云服务器需在安全组放行 **3000 端口**（TCP）。首次启动需拉取镜像，约 3-10 分钟。
+> **非本地部署必做**：在项目目录创建 `.env` 文件，写入 `NUXT_PUBLIC_API_BASE=http://<服务器IP>:5000/api`，然后 `docker compose up -d --build` 重建，否则登录时会报 Network Error。
+>
+> 云服务器需在安全组放行 **3000 和 5000 端口**（TCP）。首次启动需拉取镜像，约 3-10 分钟。
 
 ---
 
