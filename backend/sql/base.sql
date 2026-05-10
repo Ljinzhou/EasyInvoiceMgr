@@ -244,6 +244,30 @@ CREATE TABLE invitation_codes (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 2.10 系统配置表 (system_configs)
+-- 键值对存储系统配置，支持加密敏感字段
+CREATE TABLE system_configs (
+    id BIGSERIAL PRIMARY KEY,
+    config_key VARCHAR(128) UNIQUE NOT NULL,
+    config_value TEXT NOT NULL DEFAULT '',
+    is_encrypted BOOLEAN NOT NULL DEFAULT FALSE,
+    description VARCHAR(255),
+    updated_by BIGINT REFERENCES users(user_id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2.11 管理员审计日志表 (admin_audit_logs)
+CREATE TABLE admin_audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    admin_id BIGINT NOT NULL REFERENCES users(user_id),
+    action VARCHAR(64) NOT NULL,
+    target VARCHAR(128) NOT NULL,
+    detail TEXT,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 2.5 审核记录表 (audit_logs)
 -- 记录发票的每一次状态变更，便于追溯
 CREATE TABLE audit_logs (
@@ -281,6 +305,14 @@ CREATE INDEX idx_invoices_uploader ON invoices(uploader_id);
 CREATE INDEX idx_invoices_status ON invoices(status);
 CREATE INDEX idx_invoices_md5 ON invoices(file_md5); -- 用于秒传/去重检测
 CREATE INDEX idx_invoices_date ON invoices(invoice_date);
+
+-- 系统配置表索引
+CREATE INDEX idx_system_configs_key ON system_configs(config_key);
+
+-- 管理员审计日志索引
+CREATE INDEX idx_admin_audit_logs_admin ON admin_audit_logs(admin_id);
+CREATE INDEX idx_admin_audit_logs_action ON admin_audit_logs(action);
+CREATE INDEX idx_admin_audit_logs_created ON admin_audit_logs(created_at);
 
 -- 审核记录索引
 CREATE INDEX idx_audit_logs_invoice ON audit_logs(invoice_id);
@@ -337,6 +369,9 @@ CREATE TRIGGER trigger_purchase_records_update BEFORE UPDATE ON purchase_records
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 CREATE TRIGGER trigger_export_tasks_update BEFORE UPDATE ON export_tasks
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER trigger_system_configs_update BEFORE UPDATE ON system_configs
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 -- ============================================

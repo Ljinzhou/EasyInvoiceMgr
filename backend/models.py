@@ -198,6 +198,37 @@ class PurchaseRecord(db.Model):
     reviewer = db.relationship('User', foreign_keys=[reviewer_id], backref='reviewed_purchase_records')
 
 
+class SystemConfig(db.Model):
+    """系统配置键值存储，敏感值加密保存"""
+    __tablename__ = 'system_configs'
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    config_key = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    config_value = db.Column(db.Text, nullable=False, default='')
+    is_encrypted = db.Column(db.Boolean, default=False)
+    description = db.Column(db.String(255))
+    updated_by = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    updater = db.relationship('User', foreign_keys=[updated_by])
+
+
+class AdminAuditLog(db.Model):
+    """管理员操作审计日志"""
+    __tablename__ = 'admin_audit_logs'
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    admin_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
+    action = db.Column(db.String(64), nullable=False)
+    target = db.Column(db.String(128), nullable=False)
+    detail = db.Column(db.Text)
+    ip_address = db.Column(db.String(45))
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+
+    admin = db.relationship('User', foreign_keys=[admin_id], backref='admin_audit_logs')
+
+
 class ExportTask(db.Model):
     __tablename__ = 'export_tasks'
 

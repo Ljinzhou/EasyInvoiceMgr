@@ -24,4 +24,4 @@ class Config:
 
     # 智谱AI GLM视觉模型配置
     GLM_API_KEY = os.environ.get('GLM_API_KEY')
-    GLM_MODEL = os.environ.get('GLM_MODEL', 'glm-4.6v-flash')
+    GLM_MODEL = os.environ.get('GLM_MODEL', 'GLM-4V-Flash')

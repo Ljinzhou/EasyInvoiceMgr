@@ -37,6 +37,10 @@
           <span class="nav-icon">🎫</span>
           <span class="nav-text">邀请码管理</span>
         </NuxtLink>
+        <NuxtLink v-if="isAdmin" to="/settings" class="nav-item" :class="{ active: $route.path.startsWith('/settings') }" @click="mobileMenuOpen = false">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-text">系统设置</span>
+        </NuxtLink>
       </nav>
       <div class="sidebar-footer">
         <div class="user-info" @click="showSettingsModal = true">
@@ -298,6 +302,8 @@ const canManageUsers = computed(() => {
 const canManageInvitationCodes = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(userStore.userType)
 })
+
+const isAdmin = computed(() => userStore.userType === 'admin')
 
 const permissionDescription = computed(() => {
   const descriptions: Record<string, string> = {

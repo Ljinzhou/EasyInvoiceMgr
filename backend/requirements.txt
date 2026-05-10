@@ -9,6 +9,7 @@ Pillow==12.2.0
 PyMuPDF>=1.25.0
 PyPDF2==3.0.1
 cos-python-sdk-v5>=1.9.25
+cryptography>=42.0.0
 Requests==2.33.1
 Werkzeug==3.1.8
 python-dotenv==1.2.2
