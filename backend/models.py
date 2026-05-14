@@ -214,21 +214,6 @@ class SystemConfig(db.Model):
     updater = db.relationship('User', foreign_keys=[updated_by])
 
 
-class AdminAuditLog(db.Model):
-    """管理员操作审计日志"""
-    __tablename__ = 'admin_audit_logs'
-
-    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-    admin_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
-    action = db.Column(db.String(64), nullable=False)
-    target = db.Column(db.String(128), nullable=False)
-    detail = db.Column(db.Text)
-    ip_address = db.Column(db.String(45))
-    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
-
-    admin = db.relationship('User', foreign_keys=[admin_id], backref='admin_audit_logs')
-
-
 class ExportTask(db.Model):
     __tablename__ = 'export_tasks'
 
@@ -251,3 +236,25 @@ class ExportTask(db.Model):
 
     event = db.relationship('Event', backref='export_tasks')
     requester = db.relationship('User', foreign_keys=[requester_id], backref='export_tasks')
+
+
+class BackupRecord(db.Model):
+    """备份记录 - 跟踪手动/定时/恢复备份任务状态"""
+    __tablename__ = 'backup_records'
+
+    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    backup_type = db.Column(db.String(20), nullable=False, default='manual')  # manual / scheduled / restore
+    backup_scope = db.Column(db.String(20), nullable=False, default='full')  # database / full
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending / running / completed / failed
+    progress = db.Column(db.Integer, default=0)  # 0-100
+    progress_message = db.Column(db.String(200))
+    file_path = db.Column(db.Text)
+    file_size = db.Column(db.BigInteger)
+    file_count = db.Column(db.Integer)
+    error_message = db.Column(db.Text)
+    created_by = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))  # 定时备份时为 NULL
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
+    completed_at = db.Column(db.DateTime(timezone=True))
+    updated_at = db.Column(db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    creator = db.relationship('User', foreign_keys=[created_by], backref='backup_records')

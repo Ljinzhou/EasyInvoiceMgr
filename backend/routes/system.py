@@ -1,20 +1,32 @@
 import logging
-from flask import Blueprint, request, jsonify
+import os
+import threading
+from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, SystemConfig, AdminAuditLog, User
+from models import db, SystemConfig, User, BackupRecord
 from utils.crypto_utils import encrypt_value, decrypt_value
 
 logger = logging.getLogger(__name__)
 
 system_bp = Blueprint('system', __name__)
 
-# Config keys that should be encrypted at rest
+# 需要加密存储的配置键
 ENCRYPTED_KEYS = {'ai_api_key'}
 
-# Current application version
-CURRENT_VERSION = '1.2.0'
 
-# GitHub release check URL
+def _get_version():
+    """从 VERSION 文件读取应用版本号。"""
+    version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'VERSION')
+    try:
+        with open(version_file, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return '1.0.0'
+
+
+CURRENT_VERSION = _get_version()
+
+# GitHub 发布检查 URL
 GITHUB_REPO = 'Ljinzhou/EasyInvoiceMgr'
 GITHUB_API_RELEASES = f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest'
 
@@ -35,21 +47,6 @@ def _admin_required():
     if user.user_type != 'admin':
         return jsonify({'code': 403, 'message': '需要管理员权限'}), 403
     return None
-
-
-def _write_audit_log(admin_id: int, action: str, target: str, detail: str = None):
-    """Record an admin action in the audit log."""
-    try:
-        log_entry = AdminAuditLog(
-            admin_id=admin_id,
-            action=action,
-            target=target,
-            detail=detail,
-            ip_address=request.remote_addr
-        )
-        db.session.add(log_entry)
-    except Exception as e:
-        logger.error(f'Failed to write audit log: {e}')
 
 
 def _get_config_value(config_key: str) -> str | None:
@@ -194,13 +191,6 @@ def update_system_config():
             _set_config_value(key, str(value) if value else '', admin_id=admin_id)
             updated_keys.append(key)
 
-            # Write audit log
-            is_sensitive = key in ENCRYPTED_KEYS
-            detail = f'更新配置项: {key}'
-            if is_sensitive and value:
-                detail += ' (敏感信息已加密存储)'
-            _write_audit_log(admin_id, 'update_config', key, detail)
-
         db.session.commit()
         logger.info(f'管理员 {admin_id} 更新了系统配置: {updated_keys}')
         return jsonify({
@@ -226,14 +216,18 @@ def check_update():
         'current_version': CURRENT_VERSION,
         'latest_version': CURRENT_VERSION,
         'has_update': False,
-        'update_info': None
+        'update_info': None,
+        'update_commands': {
+            'pull': 'git pull',
+            'build': 'docker compose build',
+            'restart': 'docker compose up -d',
+            'full': 'git pull && docker compose build && docker compose up -d',
+        }
     }
 
     try:
         import requests as req
         headers = {'Accept': 'application/vnd.github+json'}
-        # Use a GitHub token if configured for higher rate limits
-        import os
         gh_token = os.environ.get('GITHUB_TOKEN')
         if gh_token:
             headers['Authorization'] = f'Bearer {gh_token}'
@@ -253,15 +247,284 @@ def check_update():
                         'download_url': release.get('html_url', ''),
                         'published_at': release.get('published_at', '')
                     }
+                    result['update_commands']['full_with_prune'] = (
+                        'git pull && docker compose build --no-cache && '
+                        'docker compose up -d && docker image prune -f'
+                    )
         elif resp.status_code == 404:
             result['check_error'] = '暂无发布版本'
         else:
             result['check_error'] = f'GitHub API 返回 {resp.status_code}'
     except Exception as e:
-        logger.warning(f'Update check failed: {e}')
+        logger.warning(f'更新检查失败: {e}')
         result['check_error'] = str(e)
 
     return jsonify({'code': 200, 'data': result})
+
+
+@system_bp.route('/system/backup', methods=['POST'])
+@jwt_required()
+def manual_backup():
+    """手动触发全量备份。仅管理员可用。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    # 检查是否有正在运行的备份
+    running = BackupRecord.query.filter(
+        BackupRecord.status.in_(['pending', 'running']),
+        BackupRecord.backup_type != 'restore'
+    ).first()
+    if running:
+        return jsonify({'code': 409, 'message': '已有备份任务正在执行，请等待完成'}), 409
+
+    from utils.backup_service import get_backup_service
+
+    admin_id = get_jwt_identity()
+    record = BackupRecord(
+        backup_type='manual',
+        backup_scope='full',
+        status='pending',
+        created_by=admin_id,
+    )
+    db.session.add(record)
+    db.session.commit()
+
+    service = get_backup_service()
+    thread = threading.Thread(target=service.run_backup, args=(record.id,), daemon=True)
+    thread.start()
+
+    return jsonify({
+        'code': 200,
+        'message': '备份任务已创建',
+        'data': {'id': record.id, 'status': 'pending'}
+    })
+
+
+@system_bp.route('/system/backups', methods=['GET'])
+@jwt_required()
+def list_backups():
+    """获取备份记录列表。仅管理员可用。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    per_page = min(per_page, 100)
+
+    query = BackupRecord.query.order_by(BackupRecord.created_at.desc())
+    total = query.count()
+    records = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    items = []
+    for r in records:
+        creator_name = None
+        if r.created_by:
+            creator = db.session.get(User, r.created_by)
+            creator_name = creator.real_name if creator else None
+        items.append({
+            'id': r.id,
+            'backup_type': r.backup_type,
+            'backup_scope': r.backup_scope,
+            'status': r.status,
+            'progress': r.progress,
+            'progress_message': r.progress_message,
+            'file_size': r.file_size,
+            'file_count': r.file_count,
+            'error_message': r.error_message,
+            'created_at': r.created_at.isoformat() if r.created_at else None,
+            'completed_at': r.completed_at.isoformat() if r.completed_at else None,
+            'created_by_name': creator_name,
+        })
+
+    return jsonify({
+        'code': 200,
+        'data': {
+            'items': items,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+        }
+    })
+
+
+@system_bp.route('/system/backup/<int:backup_id>/download', methods=['GET'])
+@jwt_required()
+def download_backup(backup_id):
+    """下载备份文件。仅管理员可用。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    record = db.session.get(BackupRecord, backup_id)
+    if not record:
+        return jsonify({'code': 404, 'message': '备份记录不存在'}), 404
+
+    if record.status != 'completed' or not record.file_path:
+        return jsonify({'code': 400, 'message': '备份文件不可用'}), 400
+
+    if not os.path.exists(record.file_path):
+        return jsonify({'code': 404, 'message': '备份文件已被删除'}), 404
+
+    return send_file(record.file_path, as_attachment=True)
+
+
+@system_bp.route('/system/backup/<int:backup_id>', methods=['DELETE'])
+@jwt_required()
+def delete_backup(backup_id):
+    """删除备份记录及文件。仅管理员可用。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    record = db.session.get(BackupRecord, backup_id)
+    if not record:
+        return jsonify({'code': 404, 'message': '备份记录不存在'}), 404
+
+    # 删除文件
+    if record.file_path and os.path.exists(record.file_path):
+        try:
+            os.remove(record.file_path)
+        except Exception as e:
+            logger.warning(f'删除备份文件失败: {record.file_path}, error={str(e)}')
+
+    db.session.delete(record)
+    db.session.commit()
+
+    return jsonify({'code': 200, 'message': '备份已删除'})
+
+
+@system_bp.route('/system/backup/restore/<int:backup_id>', methods=['POST'])
+@jwt_required()
+def restore_backup(backup_id):
+    """从备份恢复数据。仅管理员可用，需确认。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    data = request.get_json(silent=True)
+    if not data or not data.get('confirm'):
+        return jsonify({'code': 400, 'message': '请确认恢复操作（需传入 confirm: true）'}), 400
+
+    record = db.session.get(BackupRecord, backup_id)
+    if not record:
+        return jsonify({'code': 404, 'message': '备份记录不存在'}), 404
+
+    if record.status != 'completed' or not record.file_path:
+        return jsonify({'code': 400, 'message': '该备份不可用于恢复'}), 400
+
+    if not os.path.exists(record.file_path):
+        return jsonify({'code': 404, 'message': '备份文件已被删除'}), 404
+
+    # 检查是否有正在运行的任务
+    running = BackupRecord.query.filter(
+        BackupRecord.status.in_(['pending', 'running'])
+    ).first()
+    if running:
+        return jsonify({'code': 409, 'message': '已有任务正在执行，请等待完成'}), 409
+
+    from utils.backup_service import get_backup_service
+
+    service = get_backup_service()
+    thread = threading.Thread(target=service.restore_backup, args=(backup_id,), daemon=True)
+    thread.start()
+
+    admin_id = get_jwt_identity()
+    logger.warning(f'管理员 {admin_id} 发起数据恢复: 备份id={backup_id}')
+
+    return jsonify({
+        'code': 200,
+        'message': '恢复任务已启动',
+        'data': {'backup_id': backup_id}
+    })
+
+
+@system_bp.route('/system/backup/config', methods=['GET'])
+@jwt_required()
+def get_backup_config():
+    """获取定时备份配置。仅管理员可用。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    def _get(key, default):
+        record = SystemConfig.query.filter_by(config_key=key).first()
+        return record.config_value if record and record.config_value else default
+
+    return jsonify({
+        'code': 200,
+        'data': {
+            'enabled': _get('backup_schedule_enabled', 'false') == 'true',
+            'frequency': _get('backup_schedule_frequency', 'daily'),
+            'time': _get('backup_schedule_time', '03:00'),
+            'retention_count': int(_get('backup_retention_count', '10')),
+        }
+    })
+
+
+@system_bp.route('/system/backup/config', methods=['PUT'])
+@jwt_required()
+def update_backup_config():
+    """更新定时备份配置。仅管理员可用。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'code': 400, 'message': '请求数据为空'}), 400
+
+    admin_id = get_jwt_identity()
+    allowed = {
+        'backup_schedule_enabled': str(data.get('enabled', False)).lower(),
+        'backup_schedule_frequency': data.get('frequency', 'daily'),
+        'backup_schedule_time': data.get('time', '03:00'),
+        'backup_retention_count': str(data.get('retention_count', 10)),
+    }
+
+    # 校验
+    if allowed['backup_schedule_frequency'] not in ('daily', 'weekly', 'monthly'):
+        return jsonify({'code': 400, 'message': '频率必须为 daily/weekly/monthly'}), 400
+
+    try:
+        parts = allowed['backup_schedule_time'].split(':')
+        h, m = int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError
+    except (ValueError, IndexError):
+        return jsonify({'code': 400, 'message': '时间格式无效，请使用 HH:MM'}), 400
+
+    try:
+        ret = int(allowed['backup_retention_count'])
+        if ret < 1 or ret > 100:
+            raise ValueError
+    except ValueError:
+        return jsonify({'code': 400, 'message': '保留数量必须为 1-100 的整数'}), 400
+
+    for key, value in allowed.items():
+        existing = SystemConfig.query.filter_by(config_key=key).first()
+        if existing:
+            existing.config_value = value
+            existing.updated_by = admin_id
+        else:
+            db.session.add(SystemConfig(
+                config_key=key,
+                config_value=value,
+                description='',
+                updated_by=admin_id,
+            ))
+
+    db.session.commit()
+
+    # 更新调度器
+    try:
+        from utils.backup_service import reschedule_backup
+        reschedule_backup()
+    except Exception as e:
+        logger.warning(f'更新备份调度失败: {e}')
+
+    return jsonify({'code': 200, 'message': '备份配置已保存'})
 
 
 @system_bp.route('/system/test-model', methods=['POST'])
@@ -345,47 +608,6 @@ def test_model():
     except Exception as e:
         logger.error(f'Model test error: {e}', exc_info=True)
         return jsonify({'code': 500, 'message': f'测试失败: {str(e)}'}), 500
-
-
-@system_bp.route('/system/audit-logs', methods=['GET'])
-@jwt_required()
-def get_audit_logs():
-    """Get admin audit logs. Admin only. Supports ?page=1&per_page=20"""
-    err = _admin_required()
-    if err:
-        return err
-
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 20, type=int)
-    per_page = min(per_page, 100)
-
-    pagination = AdminAuditLog.query \
-        .order_by(AdminAuditLog.created_at.desc()) \
-        .paginate(page=page, per_page=per_page, error_out=False)
-
-    logs = []
-    for log_entry in pagination.items:
-        admin = db.session.get(User, log_entry.admin_id)
-        logs.append({
-            'id': log_entry.id,
-            'admin_name': admin.real_name if admin else '未知',
-            'action': log_entry.action,
-            'target': log_entry.target,
-            'detail': log_entry.detail,
-            'ip_address': log_entry.ip_address,
-            'created_at': log_entry.created_at.isoformat() if log_entry.created_at else None
-        })
-
-    return jsonify({
-        'code': 200,
-        'data': {
-            'logs': logs,
-            'total': pagination.total,
-            'page': page,
-            'per_page': per_page,
-            'pages': pagination.pages
-        }
-    })
 
 
 def _compare_versions(a: str, b: str) -> int:

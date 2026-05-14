@@ -11,6 +11,7 @@ class Config:
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'easy-invoice-mgr-jwt-secret'
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'postgresql://postgres:root@localhost:5432/easy_invoice_mgr')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_MIGRATE_REPO = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'migrations')
     JWT_ACCESS_TOKEN_EXPIRES = 3600
 
     # 文件存储后端: 'local' | 'cos'

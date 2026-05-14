@@ -112,8 +112,21 @@
                 <span v-if="updateReleaseName" class="release-name">{{ updateReleaseName }}</span>
               </div>
               <p v-if="updateInfo" class="update-notes">{{ updateInfo }}</p>
-              <a v-if="updateDownloadUrl" :href="updateDownloadUrl" target="_blank" class="update-now-btn">
-                前往 GitHub 下载
+
+              <div class="update-commands">
+                <p class="commands-label">在服务器上执行以下命令完成更新：</p>
+                <div class="command-block">
+                  <code>{{ updateCommands }}</code>
+                  <button class="copy-btn" @click="copyCommands" :title="copied ? '已复制' : '复制'">
+                    <svg v-if="!copied" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
+                </div>
+                <p class="commands-hint">数据库将在更新时自动备份并迁移</p>
+              </div>
+
+              <a v-if="updateDownloadUrl" :href="updateDownloadUrl" target="_blank" class="github-link">
+                查看 GitHub 发布页面
               </a>
             </div>
 
@@ -139,29 +152,165 @@
           </div>
         </section>
 
-        <!-- Audit Logs -->
-        <section class="config-card audit-card">
+        <!-- Data Backup & Restore -->
+        <section class="config-card backup-card">
           <div class="card-header">
-            <span class="card-icon">📋</span>
+            <span class="card-icon">💾</span>
             <div>
-              <h2>配置变更记录</h2>
-              <p class="card-desc">管理员操作审计日志</p>
+              <h2>数据备份与恢复</h2>
+              <p class="card-desc">全量备份数据库、发票文件、用户头像及系统配置</p>
             </div>
           </div>
 
-          <div v-if="auditLoading" class="audit-loading">加载中...</div>
-          <div v-else-if="auditLogs.length === 0" class="audit-empty">暂无记录</div>
-          <div v-else class="audit-list">
-            <div v-for="log in auditLogs" :key="log.id" class="audit-item">
-              <div class="audit-meta">
-                <span class="audit-admin">{{ log.admin_name }}</span>
-                <span class="audit-action">{{ log.action }}</span>
-                <span class="audit-target">{{ log.target }}</span>
+          <!-- Quick Backup -->
+          <div class="backup-quick">
+            <div class="backup-quick-row">
+              <div class="backup-quick-info">
+                <span class="backup-quick-label">手动全量备份</span>
+                <span class="backup-quick-hint">包含数据库 + 发票文件 + 头像 + 系统配置</span>
               </div>
-              <div class="audit-time">{{ formatTime(log.created_at) }}</div>
+              <button
+                class="backup-primary-btn"
+                :disabled="backupInProgress"
+                @click="startBackup"
+              >
+                <span v-if="backupInProgress" class="btn-spinner"></span>
+                <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                {{ backupInProgress ? '备份中...' : '立即备份' }}
+              </button>
+            </div>
+            <!-- Progress -->
+            <div v-if="backupInProgress" class="backup-progress">
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill" :style="{ width: backupProgress + '%' }"></div>
+              </div>
+              <span class="progress-text">{{ backupProgress }}% · {{ backupProgressMsg }}</span>
+            </div>
+            <transition name="msg-fade">
+              <div v-if="backupActionMsg" class="form-msg" :class="backupActionType">{{ backupActionMsg }}</div>
+            </transition>
+          </div>
+
+          <!-- Scheduled Backup Config -->
+          <div class="backup-schedule">
+            <div class="schedule-header">
+              <span class="schedule-title">定时备份</span>
+              <label class="toggle-switch">
+                <input type="checkbox" v-model="scheduleConfig.enabled" @change="saveScheduleConfig" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div v-if="scheduleConfig.enabled" class="schedule-fields">
+              <div class="schedule-row">
+                <div class="schedule-field">
+                  <label class="field-label">备份频率</label>
+                  <div class="select-wrapper">
+                    <select v-model="scheduleConfig.frequency" class="field-select field-select-sm" @change="saveScheduleConfig">
+                      <option value="daily">每天</option>
+                      <option value="weekly">每周一</option>
+                      <option value="monthly">每月1号</option>
+                    </select>
+                    <svg class="select-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                  </div>
+                </div>
+                <div class="schedule-field">
+                  <label class="field-label">执行时间</label>
+                  <input v-model="scheduleConfig.time" type="time" class="field-input field-input-sm" @change="saveScheduleConfig" />
+                </div>
+                <div class="schedule-field">
+                  <label class="field-label">保留份数</label>
+                  <input v-model.number="scheduleConfig.retentionCount" type="number" min="1" max="100" class="field-input field-input-sm" @change="saveScheduleConfig" />
+                </div>
+              </div>
+              <span class="schedule-hint">
+                将{{ scheduleConfig.frequency === 'daily' ? '每天' : scheduleConfig.frequency === 'weekly' ? '每周一' : '每月1号' }}
+                {{ scheduleConfig.time }} 自动执行全量备份，保留最近 {{ scheduleConfig.retentionCount }} 份
+              </span>
+            </div>
+          </div>
+
+          <!-- Backup History -->
+          <div class="backup-history">
+            <div class="history-header">
+              <span class="history-title">备份记录</span>
+              <button class="refresh-btn" @click="loadBackups" :disabled="backupsLoading">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" :class="{ 'spin-anim': backupsLoading }"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              </button>
+            </div>
+
+            <div v-if="backupsLoading && backups.length === 0" class="history-empty">
+              <div class="btn-spinner" style="margin: 0 auto;"></div>
+            </div>
+            <div v-else-if="backups.length === 0" class="history-empty">
+              暂无备份记录
+            </div>
+
+            <div v-else class="history-list">
+              <div v-for="b in backups" :key="b.id" class="history-item">
+                <div class="history-item-main">
+                  <div class="history-item-top">
+                    <span class="history-type-badge" :class="b.backup_type">
+                      {{ b.backup_type === 'manual' ? '手动' : b.backup_type === 'scheduled' ? '定时' : '恢复' }}
+                    </span>
+                    <span class="history-status" :class="b.status">
+                      <span v-if="b.status === 'running'" class="mini-spinner"></span>
+                      {{ b.status === 'pending' ? '等待中' : b.status === 'running' ? '进行中' : b.status === 'completed' ? '已完成' : '失败' }}
+                    </span>
+                    <span class="history-date">{{ formatDateTime(b.created_at) }}</span>
+                  </div>
+                  <div class="history-item-detail">
+                    <span v-if="b.file_size" class="history-size">{{ formatFileSize(b.file_size) }}</span>
+                    <span v-if="b.file_count" class="history-files">{{ b.file_count }} 个文件</span>
+                    <span v-if="b.created_by_name" class="history-creator">by {{ b.created_by_name }}</span>
+                    <span v-if="b.status === 'running'" class="history-progress-msg">{{ b.progress_message }}</span>
+                    <span v-if="b.status === 'failed' && b.error_message" class="history-error" :title="b.error_message">{{ b.error_message }}</span>
+                  </div>
+                </div>
+                <div class="history-actions" v-if="b.status === 'completed' && b.backup_type !== 'restore'">
+                  <button class="action-btn download" @click="downloadBackup(b.id)" title="下载">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                  <button class="action-btn restore" @click="confirmRestore(b.id)" title="恢复">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                  </button>
+                  <button class="action-btn delete" @click="deleteBackup(b.id)" title="删除">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
+
+        <!-- Restore Confirm Modal -->
+        <Teleport to="body">
+          <transition name="modal-fade">
+            <div v-if="restoreConfirmVisible" class="modal-overlay" @click.self="restoreConfirmVisible = false">
+              <div class="modal-content">
+                <div class="modal-icon">⚠️</div>
+                <h3 class="modal-title">确认数据恢复</h3>
+                <p class="modal-desc">
+                  恢复操作将<strong>覆盖当前数据库和文件</strong>，此操作不可撤销。<br/>
+                  系统将在恢复前自动创建当前状态的备份。
+                </p>
+                <div v-if="restoreInProgress" class="restore-progress">
+                  <div class="progress-bar-track">
+                    <div class="progress-bar-fill" :style="{ width: restoreProgress + '%' }"></div>
+                  </div>
+                  <span class="progress-text">{{ restoreProgress }}% · {{ restoreProgressMsg }}</span>
+                </div>
+                <div class="modal-actions">
+                  <button class="modal-btn cancel" @click="restoreConfirmVisible = false" :disabled="restoreInProgress">取消</button>
+                  <button class="modal-btn confirm" @click="executeRestore" :disabled="restoreInProgress">
+                    <span v-if="restoreInProgress" class="btn-spinner"></span>
+                    {{ restoreInProgress ? '恢复中...' : '确认恢复' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </transition>
+        </Teleport>
+
       </div>
     </template>
   </div>
@@ -273,14 +422,34 @@ async function testModel() {
 }
 
 // ---- Update Check ----
-const currentVersion = ref('1.2.0')
+const currentVersion = ref('1.0.0')
 const latestVersion = ref('')
 const updateInfo = ref('')
 const updateReleaseName = ref('')
 const updateDownloadUrl = ref('')
+const updateCommands = ref('')
 const updateState = ref<'idle' | 'checking' | 'has_update' | 'up_to_date' | 'error'>('idle')
 const updateError = ref('')
 const checking = ref(false)
+const copied = ref(false)
+let copyTimer: ReturnType<typeof setTimeout> | null = null
+
+async function copyCommands() {
+  try {
+    await navigator.clipboard.writeText(updateCommands.value)
+    copied.value = true
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = updateCommands.value
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    copied.value = true
+  }
+  if (copyTimer) clearTimeout(copyTimer)
+  copyTimer = setTimeout(() => { copied.value = false }, 2000)
+}
 
 async function checkUpdate() {
   checking.value = true
@@ -295,6 +464,7 @@ async function checkUpdate() {
         updateInfo.value = data.data.update_info?.release_notes || ''
         updateReleaseName.value = data.data.update_info?.release_name || ''
         updateDownloadUrl.value = data.data.update_info?.download_url || ''
+        updateCommands.value = data.data.update_commands?.full || 'git pull && docker compose build && docker compose up -d'
       } else {
         updateState.value = 'up_to_date'
       }
@@ -310,33 +480,219 @@ async function checkUpdate() {
   }
 }
 
-// ---- Audit Logs ----
-const auditLogs = ref<any[]>([])
-const auditLoading = ref(false)
+// ---- Backup & Restore ----
+const backups = ref<any[]>([])
+const backupsLoading = ref(false)
+const backupInProgress = ref(false)
+const currentBackupId = ref<number | null>(null)
+const backupProgress = ref(0)
+const backupProgressMsg = ref('')
+const backupActionMsg = ref('')
+const backupActionType = ref<'success' | 'error'>('success')
+let backupPollTimer: ReturnType<typeof setInterval> | null = null
+let backupMsgTimer: ReturnType<typeof setTimeout> | null = null
 
-async function loadAuditLogs() {
-  auditLoading.value = true
+// 定时备份配置
+const scheduleConfig = reactive({
+  enabled: false,
+  frequency: 'daily',
+  time: '03:00',
+  retentionCount: 10,
+})
+
+// 恢复确认
+const restoreConfirmVisible = ref(false)
+const restoreTargetId = ref<number | null>(null)
+const restoreInProgress = ref(false)
+const restoreProgress = ref(0)
+const restoreProgressMsg = ref('')
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  let size = bytes
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++ }
+  return size.toFixed(i === 0 ? 0 : 1) + ' ' + units[i]
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function showBackupMsg(text: string, type: 'success' | 'error') {
+  backupActionMsg.value = text
+  backupActionType.value = type
+  if (backupMsgTimer) clearTimeout(backupMsgTimer)
+  backupMsgTimer = setTimeout(() => { backupActionMsg.value = '' }, 5000)
+}
+
+async function loadBackups() {
+  backupsLoading.value = true
   try {
-    const { data } = await $api.get('/system/audit-logs', { params: { per_page: 10 } })
+    const { data } = await $api.get('/system/backups', { params: { page: 1, per_page: 20 } })
     if (data.code === 200) {
-      auditLogs.value = data.data.logs || []
+      backups.value = data.data.items || []
     }
-  } catch (e) {
-    // silent
-  } finally {
-    auditLoading.value = false
+  } catch { /* silent */ } finally {
+    backupsLoading.value = false
   }
 }
 
-function formatTime(iso: string) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString('zh-CN', { hour12: false })
+async function loadScheduleConfig() {
+  try {
+    const { data } = await $api.get('/system/backup/config')
+    if (data.code === 200) {
+      scheduleConfig.enabled = data.data.enabled
+      scheduleConfig.frequency = data.data.frequency
+      scheduleConfig.time = data.data.time
+      scheduleConfig.retentionCount = data.data.retention_count
+    }
+  } catch { /* silent */ }
+}
+
+async function saveScheduleConfig() {
+  try {
+    const { data } = await $api.put('/system/backup/config', {
+      enabled: scheduleConfig.enabled,
+      frequency: scheduleConfig.frequency,
+      time: scheduleConfig.time,
+      retention_count: scheduleConfig.retentionCount,
+    })
+    if (data.code === 200) {
+      showBackupMsg('定时备份配置已保存', 'success')
+    } else {
+      showBackupMsg(data.message || '保存失败', 'error')
+    }
+  } catch (e: any) {
+    showBackupMsg(e.response?.data?.message || '保存失败', 'error')
+  }
+}
+
+function startPolling(backupId: number) {
+  currentBackupId.value = backupId
+  backupProgress.value = 0
+  backupProgressMsg.value = '准备中...'
+  if (backupPollTimer) clearInterval(backupPollTimer)
+  backupPollTimer = setInterval(async () => {
+    try {
+      const { data } = await $api.get('/system/backups', { params: { page: 1, per_page: 5 } })
+      if (data.code !== 200) return
+      const record = data.data.items.find((b: any) => b.id === backupId)
+      if (!record) return
+      backupProgress.value = record.progress || 0
+      backupProgressMsg.value = record.progress_message || ''
+      if (record.status === 'completed' || record.status === 'failed') {
+        stopPolling()
+        backupInProgress.value = false
+        if (record.status === 'completed') {
+          showBackupMsg('备份完成', 'success')
+        } else {
+          showBackupMsg(record.error_message || '备份失败', 'error')
+        }
+        loadBackups()
+      }
+    } catch { /* silent */ }
+  }, 1500)
+}
+
+function stopPolling() {
+  if (backupPollTimer) { clearInterval(backupPollTimer); backupPollTimer = null }
+}
+
+async function startBackup() {
+  backupInProgress.value = true
+  backupActionMsg.value = ''
+  try {
+    const { data } = await $api.post('/system/backup')
+    if (data.code === 200 && data.data?.id) {
+      startPolling(data.data.id)
+    } else {
+      backupInProgress.value = false
+      showBackupMsg(data.message || '备份请求失败', 'error')
+    }
+  } catch (e: any) {
+    backupInProgress.value = false
+    showBackupMsg(e.response?.data?.message || '备份请求失败', 'error')
+  }
+}
+
+function downloadBackup(id: number) {
+  window.open(`/api/system/backup/${id}/download`, '_blank')
+}
+
+function confirmRestore(id: number) {
+  restoreTargetId.value = id
+  restoreConfirmVisible.value = true
+  restoreInProgress.value = false
+  restoreProgress.value = 0
+  restoreProgressMsg.value = ''
+}
+
+async function executeRestore() {
+  if (!restoreTargetId.value) return
+  restoreInProgress.value = true
+  try {
+    const { data } = await $api.post(`/system/backup/restore/${restoreTargetId.value}`, { confirm: true })
+    if (data.code === 200) {
+      restoreProgressMsg.value = '恢复任务已启动，正在执行...'
+      // 轮询恢复进度
+      const pollTimer = setInterval(async () => {
+        try {
+          const { data: listData } = await $api.get('/system/backups', { params: { page: 1, per_page: 10 } })
+          if (listData.code !== 200) return
+          // 查找最新的 restore 类型记录
+          const restore = listData.data.items.find((b: any) => b.backup_type === 'restore')
+          if (restore) {
+            restoreProgress.value = restore.progress || 0
+            restoreProgressMsg.value = restore.progress_message || ''
+            if (restore.status === 'completed') {
+              clearInterval(pollTimer)
+              restoreInProgress.value = false
+              restoreConfirmVisible.value = false
+              showBackupMsg('数据恢复完成', 'success')
+              loadBackups()
+            } else if (restore.status === 'failed') {
+              clearInterval(pollTimer)
+              restoreInProgress.value = false
+              showBackupMsg(restore.error_message || '恢复失败', 'error')
+            }
+          }
+        } catch { /* silent */ }
+      }, 1500)
+    } else {
+      restoreInProgress.value = false
+      showBackupMsg(data.message || '恢复请求失败', 'error')
+    }
+  } catch (e: any) {
+    restoreInProgress.value = false
+    showBackupMsg(e.response?.data?.message || '恢复请求失败', 'error')
+  }
+}
+
+async function deleteBackup(id: number) {
+  if (!confirm('确定删除该备份记录及文件？')) return
+  try {
+    const { data } = await $api.delete(`/system/backup/${id}`)
+    if (data.code === 200) {
+      showBackupMsg('备份已删除', 'success')
+      loadBackups()
+    } else {
+      showBackupMsg(data.message || '删除失败', 'error')
+    }
+  } catch (e: any) {
+    showBackupMsg(e.response?.data?.message || '删除失败', 'error')
+  }
 }
 
 onMounted(() => {
   if (isAdmin.value) {
     loadAiConfig()
-    loadAuditLogs()
+    loadBackups()
+    loadScheduleConfig()
   }
 })
 
@@ -665,48 +1021,387 @@ useHead({ title: '系统设置 - 财务管理系统' })
 .update-status.ok { background: #eafaf1; color: #1e7e34; }
 .update-status.error { background: #fdf2f2; color: #9b1c1c; }
 
-/* ---- Audit ---- */
-.audit-card { overflow: hidden; }
-.audit-loading, .audit-empty {
+/* ---- Update Commands ---- */
+.update-commands {
+  margin-top: 1rem;
+}
+.commands-label {
+  font-size: .85rem;
+  color: #475569;
+  margin-bottom: .5rem;
+  font-weight: 500;
+}
+.command-block {
+  position: relative;
+  background: #1e293b;
+  border-radius: 8px;
+  padding: .75rem 2.5rem .75rem 1rem;
+  overflow-x: auto;
+}
+.command-block code {
+  color: #e2e8f0;
+  font-size: .82rem;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  white-space: nowrap;
+}
+.copy-btn {
+  position: absolute;
+  right: .5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255,255,255,.1);
+  border: none;
+  border-radius: 4px;
+  padding: .35rem;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: all .2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.copy-btn:hover {
+  background: rgba(255,255,255,.2);
+  color: white;
+}
+.commands-hint {
+  font-size: .78rem;
+  color: #94a3b8;
+  margin-top: .4rem;
+}
+.github-link {
+  display: inline-block;
+  margin-top: .75rem;
+  color: #667eea;
+  font-size: .85rem;
+  text-decoration: none;
+}
+.github-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Backup Quick ---- */
+.backup-quick {
+  padding: .25rem 0 1rem;
+  border-bottom: 1px solid #f0f2f5;
+}
+.backup-quick-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.backup-quick-info { display: flex; flex-direction: column; gap: .15rem; }
+.backup-quick-label { font-size: .9rem; font-weight: 600; color: #1e293b; }
+.backup-quick-hint { font-size: .78rem; color: #94a3b8; }
+
+.backup-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  padding: .6rem 1.3rem;
+  border: none;
+  border-radius: 8px;
+  font-size: .88rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  transition: all .2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.backup-primary-btn:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); }
+.backup-primary-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.backup-progress { margin-top: .75rem; }
+.progress-bar-track {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 3px;
+  transition: width .3s ease;
+}
+.progress-text {
+  display: block;
+  margin-top: .35rem;
+  font-size: .78rem;
+  color: #64748b;
+}
+
+/* ---- Backup Schedule ---- */
+.backup-schedule {
+  padding: 1rem 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+.schedule-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.schedule-title { font-size: .9rem; font-weight: 600; color: #1e293b; }
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  cursor: pointer;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: #cbd5e1;
+  border-radius: 12px;
+  transition: background .2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform .2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: #667eea; }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+.schedule-fields { margin-top: .75rem; display: flex; flex-direction: column; gap: .6rem; }
+.schedule-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: .6rem;
+}
+.schedule-field { display: flex; flex-direction: column; gap: .25rem; }
+.field-select-sm, .field-input-sm {
+  padding: .5rem .65rem;
+  font-size: .85rem;
+  min-height: 38px;
+}
+.schedule-hint {
+  font-size: .78rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+/* ---- Backup History ---- */
+.backup-history { padding-top: 1rem; }
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: .6rem;
+}
+.history-title { font-size: .9rem; font-weight: 600; color: #1e293b; }
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #94a3b8;
+  border-radius: 6px;
+  transition: all .2s;
+}
+.refresh-btn:hover { background: #f1f5f9; color: #475569; }
+.spin-anim { animation: spin .8s linear infinite; }
+
+.history-empty {
   text-align: center;
-  padding: 1.5rem;
+  padding: 2rem 1rem;
   color: #94a3b8;
   font-size: .88rem;
 }
-.audit-list {
-  max-height: 240px;
-  overflow-y: auto;
-}
-.audit-item {
+
+.history-list { display: flex; flex-direction: column; gap: .5rem; }
+.history-item {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  padding: .65rem 0;
-  border-bottom: 1px solid #f1f5f9;
+  padding: .7rem .85rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  gap: .75rem;
+  transition: background .15s;
 }
-.audit-item:last-child { border-bottom: none; }
-.audit-meta {
+.history-item:hover { background: #f1f5f9; }
+.history-item-main { flex: 1; min-width: 0; }
+.history-item-top {
   display: flex;
-  gap: .5rem;
   align-items: center;
-  font-size: .85rem;
+  gap: .5rem;
+  flex-wrap: wrap;
 }
-.audit-admin { font-weight: 600; color: #1e293b; }
-.audit-action {
-  color: #667eea;
-  font-size: .78rem;
-  background: rgba(102,126,234,.08);
-  padding: .1rem .5rem;
+.history-type-badge {
+  font-size: .72rem;
+  padding: .15rem .45rem;
   border-radius: 4px;
+  font-weight: 600;
 }
-.audit-target { color: #64748b; }
-.audit-time { font-size: .78rem; color: #94a3b8; flex-shrink: 0; margin-left: 1rem; }
+.history-type-badge.manual { background: #e0e7ff; color: #3730a3; }
+.history-type-badge.scheduled { background: #fef3c7; color: #92400e; }
+.history-type-badge.restore { background: #fce7f3; color: #9d174d; }
+
+.history-status {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .75rem;
+  font-weight: 500;
+}
+.history-status.pending { color: #b45309; }
+.history-status.running { color: #2563eb; }
+.history-status.completed { color: #16a34a; }
+.history-status.failed { color: #dc2626; }
+
+.mini-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #bfdbfe;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+
+.history-date {
+  font-size: .78rem;
+  color: #94a3b8;
+  margin-left: auto;
+}
+.history-item-detail {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-top: .25rem;
+  flex-wrap: wrap;
+}
+.history-size, .history-files, .history-creator {
+  font-size: .78rem;
+  color: #64748b;
+}
+.history-progress-msg {
+  font-size: .78rem;
+  color: #2563eb;
+}
+.history-error {
+  font-size: .78rem;
+  color: #dc2626;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-actions {
+  display: flex;
+  gap: .35rem;
+  flex-shrink: 0;
+}
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .15s;
+  background: transparent;
+}
+.action-btn.download { color: #667eea; }
+.action-btn.download:hover { background: #e0e7ff; }
+.action-btn.restore { color: #16a34a; }
+.action-btn.restore:hover { background: #dcfce7; }
+.action-btn.delete { color: #94a3b8; }
+.action-btn.delete:hover { background: #fee2e2; color: #dc2626; }
+
+/* ---- Restore Modal ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.modal-content {
+  background: white;
+  border-radius: 14px;
+  padding: 2rem;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .15);
+}
+.modal-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+.modal-title { margin: 0 0 .5rem; font-size: 1.1rem; font-weight: 700; color: #1e293b; }
+.modal-desc {
+  font-size: .88rem;
+  color: #475569;
+  line-height: 1.6;
+  margin: 0 0 1.25rem;
+}
+.modal-desc strong { color: #dc2626; }
+
+.restore-progress { margin-bottom: 1.25rem; }
+.modal-actions {
+  display: flex;
+  gap: .75rem;
+  justify-content: center;
+}
+.modal-btn {
+  padding: .6rem 1.5rem;
+  border-radius: 8px;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all .2s;
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+.modal-btn.cancel {
+  background: #f1f5f9;
+  color: #475569;
+}
+.modal-btn.cancel:hover { background: #e2e8f0; }
+.modal-btn.confirm {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: white;
+}
+.modal-btn.confirm:hover:not(:disabled) { opacity: .9; }
+.modal-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s ease; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 
 /* ---- Responsive ---- */
 @media (max-width: 768px) {
   .settings-page { padding: 0; }
   .page-header h1 { font-size: 1.3rem; }
   .config-card { padding: 1.15rem; border-radius: 10px; }
-  .audit-meta { flex-wrap: wrap; }
+  .schedule-row { grid-template-columns: 1fr; }
+  .backup-quick-row { flex-direction: column; align-items: flex-start; }
+  .backup-primary-btn { width: 100%; }
+  .history-item { flex-direction: column; align-items: flex-start; }
+  .history-actions { align-self: flex-end; }
+  .modal-content { padding: 1.5rem; }
 }
 </style>

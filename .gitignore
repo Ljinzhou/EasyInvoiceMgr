@@ -67,3 +67,6 @@ Thumbs.db
 # Uploads
 uploads/
 *.tmp
+
+# Alembic compiled
+backend/migrations/versions/*.pyc
