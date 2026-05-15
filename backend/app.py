@@ -108,10 +108,6 @@ def create_app():
     from routes.export import init_export_service
     init_export_service(app)
 
-    # 初始化备份服务和定时调度器
-    from utils.backup_service import init_backup_service
-    init_backup_service(app)
-
     # 配置静态文件服务（用于本地文件访问）
     uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
     if not os.path.exists(uploads_dir):
@@ -213,6 +209,10 @@ def create_app():
                 stamp(revision='head')
 
         _seed_admin_user(app)
+
+    # 初始化备份服务和定时调度器（在数据库迁移完成后）
+    from utils.backup_service import init_backup_service
+    init_backup_service(app)
 
     logger.info('=== Flask应用启动成功 ===')
     return app
