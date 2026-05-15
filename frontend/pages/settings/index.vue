@@ -434,6 +434,15 @@ const checking = ref(false)
 const copied = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
 
+async function loadCurrentVersion() {
+  try {
+    const { data } = await $api.get('/system/config')
+    if (data.code === 200 && data.data?._version?.value) {
+      currentVersion.value = data.data._version.value
+    }
+  } catch { /* silent */ }
+}
+
 async function copyCommands() {
   try {
     await navigator.clipboard.writeText(updateCommands.value)
@@ -457,7 +466,6 @@ async function checkUpdate() {
   try {
     const { data } = await $api.get('/system/check-update')
     if (data.code === 200) {
-      currentVersion.value = data.data.current_version
       if (data.data.has_update) {
         updateState.value = 'has_update'
         latestVersion.value = data.data.update_info?.version || data.data.latest_version
@@ -690,6 +698,7 @@ async function deleteBackup(id: number) {
 
 onMounted(() => {
   if (isAdmin.value) {
+    loadCurrentVersion()
     loadAiConfig()
     loadBackups()
     loadScheduleConfig()
