@@ -1,4 +1,4 @@
-from flask import Flask, send_from_directory, send_file
+from flask import Flask, send_from_directory, send_file, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
@@ -78,6 +78,14 @@ def create_app():
             "supports_credentials": True
         }
     })
+
+    @app.before_request
+    def handle_options_preflight():
+        """Handle CORS preflight OPTIONS requests for all routes."""
+        if request.method == 'OPTIONS':
+            response = app.make_default_options_response()
+            return response
+
     JWTManager(app)
     db.init_app(app)
     from flask_migrate import Migrate
