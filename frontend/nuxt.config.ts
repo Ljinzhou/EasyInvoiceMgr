@@ -15,13 +15,5 @@ export default defineNuxtConfig({
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:5000/api'
     }
   },
-  nitro: {
-    routeRules: {
-      '/uploads/**': {
-        proxy: process.env.NODE_ENV === 'development'
-          ? 'http://localhost:5000/uploads'
-          : 'http://backend:5000/uploads'
-      }
-    }
-  }
+  nitro: {}
 })
