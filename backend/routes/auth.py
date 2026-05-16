@@ -226,8 +226,8 @@ def get_user(user_id):
     try:
         current_user_id = get_jwt_identity()
         logger.info(f'当前登录用户ID: {current_user_id}')
-        
-        if current_user_id != user_id:
+
+        if int(current_user_id) != user_id:
             logger.warning(f'权限不足: 用户{current_user_id}尝试访问用户{user_id}的信息')
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
         
@@ -337,6 +337,20 @@ ALLOWED_AVATAR_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 MAX_AVATAR_SIZE = 5 * 1024 * 1024
 
 
+def _extract_storage_key(avatar_url: str) -> str:
+    """Extract the storage key from an avatar URL for deletion.
+
+    For local storage paths like /uploads/avatars/1/xxx.png,
+    returns avatars/1/xxx.png (the path relative to uploads dir).
+
+    For COS URLs, returns the full URL (COS delete handles it).
+    """
+    if '/uploads/' in (avatar_url or ''):
+        return avatar_url.split('/uploads/', 1)[1]
+    # COS URL or other: extract the last path segment as fallback
+    return avatar_url.split('/')[-1] if '/' in (avatar_url or '') else (avatar_url or '')
+
+
 @auth_bp.route('/avatar', methods=['GET'])
 @jwt_required()
 def get_avatar():
@@ -416,7 +430,7 @@ def upload_avatar():
 
         if storage_manager.is_available():
             if user.avatar_url:
-                old_key = user.avatar_url.split('/')[-1] if '/' in user.avatar_url else user.avatar_url
+                old_key = _extract_storage_key(user.avatar_url)
                 try:
                     storage_manager.delete_file(old_key)
                     logger.info(f'已删除旧头像: {old_key}')
@@ -495,7 +509,7 @@ def delete_avatar():
 
         if user.avatar_url:
             from utils.storage import storage_manager
-            old_key = user.avatar_url.split('/')[-1] if '/' in user.avatar_url else user.avatar_url
+            old_key = _extract_storage_key(user.avatar_url)
             try:
                 storage_manager.delete_file(old_key)
                 logger.info(f'头像文件已删除: {old_key}')

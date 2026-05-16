@@ -629,3 +629,108 @@ def _compare_versions(a: str, b: str) -> int:
         return 0
     except Exception:
         return -1
+
+
+# ---------------------------------------------------------------------------
+# One-click Update
+# ---------------------------------------------------------------------------
+
+import json as _json
+import subprocess as _subprocess
+
+_UPDATE_SCRIPT = 'update.sh'
+
+
+@system_bp.route('/system/update', methods=['POST'])
+@jwt_required()
+def trigger_update():
+    """Trigger one-click system update. Admin only. Runs update.sh as a detached background process."""
+    err = _admin_required()
+    if err:
+        return err
+
+    # Check if update is already running
+    status_path = _update_status_path()
+    if os.path.exists(status_path):
+        try:
+            with open(status_path, 'r', encoding='utf-8') as f:
+                st = _json.load(f)
+            if st.get('status') == 'running':
+                return jsonify({
+                    'code': 409,
+                    'message': '系统更新正在进行中，请勿重复操作',
+                    'data': st
+                }), 409
+        except Exception:
+            pass
+
+    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
+    script_path = os.path.join(project_dir, _UPDATE_SCRIPT) if project_dir else ''
+
+    if not script_path or not os.path.exists(script_path):
+        logger.error(f'Update script not found: {script_path}')
+        return jsonify({
+            'code': 503,
+            'message': '更新脚本未找到，请检查 HOST_PROJECT_DIR 配置。'
+            '更新功能需要将项目目录挂载到容器内相同路径，并挂载 Docker socket。'
+        }), 503
+
+    if not os.access(script_path, os.X_OK):
+        try:
+            os.chmod(script_path, 0o755)
+        except Exception:
+            pass
+
+    try:
+        proc = _subprocess.Popen(
+            ['bash', script_path],
+            cwd=project_dir,
+            stdout=_subprocess.DEVNULL,
+            stderr=_subprocess.DEVNULL,
+            stdin=_subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        logger.info(f'管理员 {get_jwt_identity()} 触发了系统更新, PID={proc.pid}')
+    except Exception as e:
+        logger.error(f'启动更新脚本失败: {e}', exc_info=True)
+        return jsonify({'code': 500, 'message': f'启动更新失败: {str(e)}'}), 500
+
+    return jsonify({
+        'code': 200,
+        'message': '系统更新已启动。服务将在更新完成后自动重启，期间系统将短暂不可用。',
+        'data': {'status': 'running', 'message': '更新已启动'}
+    })
+
+
+@system_bp.route('/system/update/status', methods=['GET'])
+@jwt_required()
+def update_status():
+    """Get current update progress. Reads from update_status.json on the host project directory."""
+    err = _admin_required()
+    if err:
+        return err
+
+    status_path = _update_status_path()
+    if not os.path.exists(status_path):
+        return jsonify({
+            'code': 200,
+            'data': {'status': 'idle', 'message': '没有正在进行的更新'}
+        })
+
+    try:
+        with open(status_path, 'r', encoding='utf-8') as f:
+            st = _json.load(f)
+        return jsonify({'code': 200, 'data': st})
+    except Exception as e:
+        return jsonify({
+            'code': 200,
+            'data': {'status': 'idle', 'message': f'读取状态失败: {str(e)}'}
+        })
+
+
+def _update_status_path():
+    """Return the path to update_status.json on the host project directory."""
+    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
+    if project_dir:
+        return os.path.join(project_dir, 'update_status.json')
+    return '/tmp/update_status.json'

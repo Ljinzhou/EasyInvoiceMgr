@@ -16,10 +16,11 @@ export default defineNuxtConfig({
     }
   },
   nitro: {
-    devProxy: {
-      '/uploads': {
-        target: 'http://localhost:5000/uploads',
-        changeOrigin: true
+    routeRules: {
+      '/uploads/**': {
+        proxy: process.env.NODE_ENV === 'development'
+          ? 'http://localhost:5000'
+          : 'http://backend:5000'
       }
     }
   }

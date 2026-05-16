@@ -1,109 +1,132 @@
 /**
  * useUploadUrl Composable Tests
- * Tests for URL prefix handling
+ * Tests for URL path handling - returns relative paths for frontend proxy.
+ *
+ * In production, the Nitro server proxies /uploads/** to the backend,
+ * so all upload paths are returned as relative URLs (same-origin).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
-// Mock useRuntimeConfig
-vi.mock('#app', () => ({
-  useRuntimeConfig: () => ({
-    public: {
-      apiBase: 'http://localhost:5000/api',
-    },
-  }),
-}))
-
-// We need to import the composable directly and test its logic
-// Since Nuxt composables use auto-imports, we test the core logic pattern
-
-describe('useUploadUrl', () => {
-  // Replicate the composable logic for testing (since it depends on Nuxt runtime)
-  function getUploadUrl(path: string | null | undefined, apiBase: string): string {
-    const uploadBase = apiBase.replace(/\/api\/?$/, '')
+function getUploadUrl(path: string | null | undefined): string {
     if (!path) return ''
     if (path.startsWith('http://') || path.startsWith('https://')) return path
-    return uploadBase + path
-  }
+    return path.startsWith('/') ? path : '/' + path
+}
 
-  const apiBase = 'http://localhost:5000/api'
-  const expectedUploadBase = 'http://localhost:5000'
+describe('useUploadUrl getUploadUrl logic', () => {
 
-  describe('path handling', () => {
-    it('should prepend base URL to relative paths', () => {
-      expect(getUploadUrl('/uploads/avatar.jpg', apiBase)).toBe(
-        'http://localhost:5000/uploads/avatar.jpg'
-      )
+    describe('path handling', () => {
+        it('should return relative path as-is when it starts with /', () => {
+            expect(getUploadUrl('/uploads/avatar.jpg')).toBe('/uploads/avatar.jpg')
+        })
+
+        it('should add leading slash when path lacks it', () => {
+            expect(getUploadUrl('uploads/avatar.jpg')).toBe('/uploads/avatar.jpg')
+        })
+
+        it('should return absolute URLs as-is', () => {
+            const absUrl = 'https://cdn.example.com/avatar.jpg'
+            expect(getUploadUrl(absUrl)).toBe(absUrl)
+        })
+
+        it('should return http absolute URLs as-is', () => {
+            expect(getUploadUrl('http://other-server.com/file.jpg')).toBe(
+                'http://other-server.com/file.jpg'
+            )
+        })
+
+        it('should return empty string for null', () => {
+            expect(getUploadUrl(null)).toBe('')
+        })
+
+        it('should return empty string for undefined', () => {
+            expect(getUploadUrl(undefined)).toBe('')
+        })
+
+        it('should return empty string for empty string', () => {
+            expect(getUploadUrl('')).toBe('')
+        })
     })
 
-    it('should handle paths without leading slash (no separator added)', () => {
-      // When path lacks leading / the raw concatenation result is preserved
-      // This documents the current behavior - caller should ensure leading /
-      const result = getUploadUrl('uploads/avatar.jpg', apiBase)
-      expect(result).toBe('http://localhost:5000uploads/avatar.jpg')
+    // ── Avatar-specific scenarios ──────────────────────────────────────────
+
+    describe('avatar URL resolution', () => {
+        it('should resolve local backend avatar path to same-origin relative URL', () => {
+            // Backend returns: /uploads/avatars/1/20260516_abc12345.png
+            // Frontend proxy serves it at same origin
+            const avatarPath = '/uploads/avatars/1/20260516_abc12345.png'
+            expect(getUploadUrl(avatarPath)).toBe(avatarPath)
+            // This ensures browser requests http://frontend:3000/uploads/avatars/1/...
+            // which Nitro proxies to http://backend:5000/uploads/avatars/1/...
+        })
+
+        it('should handle avatar path with COS-style subdirectory', () => {
+            // LocalStorage generates: avatars/{user_id}/{timestamp}_{uuid}.{ext}
+            const avatarPath = '/uploads/avatars/42/20260516120000_a1b2c3d4.png'
+            expect(getUploadUrl(avatarPath)).toBe(avatarPath)
+        })
+
+        it('should handle avatar path with legacy flat format', () => {
+            // Legacy format: /uploads/avatars/{user_id}_{uuid}.{ext}
+            const avatarPath = '/uploads/avatars/5_e8f3a2b1.jpg'
+            expect(getUploadUrl(avatarPath)).toBe(avatarPath)
+        })
+
+        it('should handle webp avatar format', () => {
+            const avatarPath = '/uploads/avatars/10/20260516_ff00aa11.webp'
+            expect(getUploadUrl(avatarPath)).toBe(avatarPath)
+        })
+
+        it('should return external COS URLs unchanged', () => {
+            const cosUrl = 'https://cos.ap-guangzhou.myqcloud.com/avatars/1/xxx.png'
+            expect(getUploadUrl(cosUrl)).toBe(cosUrl)
+        })
+
+        it('should return empty for null avatar (no avatar set)', () => {
+            expect(getUploadUrl(null)).toBe('')
+        })
     })
 
-    it('should return absolute URLs as-is', () => {
-      const absUrl = 'https://cdn.example.com/avatar.jpg'
-      expect(getUploadUrl(absUrl, apiBase)).toBe(absUrl)
+    // ── Proxy correctness ──────────────────────────────────────────────────
+
+    describe('proxy path integrity', () => {
+        it('should preserve path so Nitro proxy forwards correctly', () => {
+            // The returned path must be exactly what the backend expects
+            // Backend route: @app.route('/uploads/<path:filename>')
+            // When the frontend proxies /uploads/avatars/1/xxx.png to backend:5000,
+            // the backend receives: /uploads/avatars/1/xxx.png -> filename = 'avatars/1/xxx.png'
+            const avatarPath = '/uploads/avatars/1/20260516_abc12345.png'
+            const resolved = getUploadUrl(avatarPath)
+            // Must start with /uploads/ so the Nitro route rule matches
+            expect(resolved).toMatch(/^\/uploads\//)
+            // Must end with the unique filename
+            expect(resolved).toMatch(/20260516_abc12345\.png$/)
+        })
+
+        it('should handle paths with multiple path segments', () => {
+            const deepPath = '/uploads/invoices/5/submissions/2026/doc.pdf'
+            expect(getUploadUrl(deepPath)).toBe(deepPath)
+        })
     })
 
-    it('should return empty string for null', () => {
-      expect(getUploadUrl(null, apiBase)).toBe('')
-    })
+    describe('edge cases', () => {
+        it('should handle paths with query strings', () => {
+            expect(getUploadUrl('/uploads/file.jpg?t=123')).toBe(
+                '/uploads/file.jpg?t=123'
+            )
+        })
 
-    it('should return empty string for undefined', () => {
-      expect(getUploadUrl(undefined, apiBase)).toBe('')
-    })
+        it('should handle long paths', () => {
+            const longPath = '/uploads/invoices/123/2026/abc-def-ghi/file.pdf'
+            expect(getUploadUrl(longPath)).toBe(longPath)
+        })
 
-    it('should return empty string for empty string', () => {
-      expect(getUploadUrl('', apiBase)).toBe('')
-    })
-  })
+        it('should not mutate paths without uploads prefix', () => {
+            expect(getUploadUrl('/some/other/path')).toBe('/some/other/path')
+        })
 
-  describe('apiBase stripping', () => {
-    it('should strip /api suffix', () => {
-      expect(getUploadUrl('/path', 'http://host:5000/api')).toBe(
-        'http://host:5000/path'
-      )
+        it('should not double-slash paths already starting with /', () => {
+            expect(getUploadUrl('/uploads/avatar.jpg')).toBe('/uploads/avatar.jpg')
+        })
     })
-
-    it('should strip /api/ suffix', () => {
-      expect(getUploadUrl('/path', 'http://host:5000/api/')).toBe(
-        'http://host:5000/path'
-      )
-    })
-
-    it('should handle apiBase without /api suffix', () => {
-      expect(getUploadUrl('/path', 'http://host:5000')).toBe(
-        'http://host:5000/path'
-      )
-    })
-  })
-
-  describe('edge cases', () => {
-    it('should handle paths with query strings', () => {
-      expect(getUploadUrl('/uploads/file.jpg?t=123', apiBase)).toBe(
-        'http://localhost:5000/uploads/file.jpg?t=123'
-      )
-    })
-
-    it('should handle long paths', () => {
-      const longPath = '/uploads/invoices/123/2026/abc-def-ghi/file.pdf'
-      expect(getUploadUrl(longPath, apiBase)).toBe(
-        `http://localhost:5000${longPath}`
-      )
-    })
-
-    it('should handle http absolute URLs', () => {
-      expect(getUploadUrl('http://other-server.com/file.jpg', apiBase)).toBe(
-        'http://other-server.com/file.jpg'
-      )
-    })
-
-    it('should handle https absolute URLs', () => {
-      expect(getUploadUrl('https://secure.example.com/file.jpg', apiBase)).toBe(
-        'https://secure.example.com/file.jpg'
-      )
-    })
-  })
 })

@@ -32,10 +32,13 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       GLM_API_KEY: ${GLM_API_KEY:-}
       GLM_MODEL: ${GLM_MODEL:-GLM-4V-Flash}
+      HOST_PROJECT_DIR: ${PWD}
     volumes:
       - uploads:/app/uploads
       - exports:/app/exports
       - ./backend/VERSION:/app/VERSION:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}:${PWD}
     ports:
       - "5000:5000"
     depends_on:
