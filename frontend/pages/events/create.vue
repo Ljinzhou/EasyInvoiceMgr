@@ -176,30 +176,24 @@ const success = ref('')
 const { searchText: leaderSearch, results: filteredUsers } = useUserSearch()
 const showDropdown = ref(false)
 onMounted(async () => {
-  console.log('=== 创建/编辑比赛：页面加载 ===')
   const token = localStorage.getItem('token')
-  console.log('检查token:', token ? '已登录' : '未登录')
-  
+
   if (!token) {
-    console.log('用户未登录，跳转到登录页面')
     navigateTo('/login')
     return
   }
-  console.log('用户已登录，可以操作比赛')
-  
+
   // 如果是编辑模式，加载现有数据
   if (isEditMode.value && eventId.value) {
     await loadEventData()
   }
-  
+
   const userStr = localStorage.getItem('user')
   if (userStr) {
     const user = JSON.parse(userStr)
-    console.log('当前登录用户:', user)
     if (user.user_type === 'admin' || user.user_type === 'teacher') {
       form.value.leader_id = user.user_id
       leaderSearch.value = user.real_name
-      console.log('默认负责人已设置:', user.real_name)
     }
   }
 })
@@ -280,12 +274,11 @@ const loadEventData = async () => {
         need_invoice_review: event.need_invoice_review !== false // 默认为true
       }
       
-      console.log('比赛数据加载成功:', form.value)
     } else {
       error.value = '加载比赛数据失败'
     }
   } catch (err) {
-    console.error('加载比赛数据异常:', err)
+    console.error('加载比赛数据失败:', err.message)
     error.value = err.response?.data?.message || '加载失败，请稍后重试'
   }
 }
@@ -318,9 +311,6 @@ const handleSubmit = async () => {
     
     if (response.data.code === 200) {
       success.value = isEditMode.value ? '✅ 比赛更新成功！' : '✅ 比赛创建成功！'
-
-      const reviewStatus = form.value.need_invoice_review ? '已开启（需要审核）' : '已关闭（自动通过）'
-      console.log(`比赛${isEditMode.value ? '更新' : '创建'}成功，发票审核设置：${reviewStatus}`)
 
       // Notify the unified store so all modules auto-refresh
       eventStore.invalidateAndRefresh({ eventId: isEditMode.value ? eventId.value : undefined })

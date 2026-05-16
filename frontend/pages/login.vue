@@ -101,6 +101,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useUserStore } from '~/stores/userStore'
+import { useEventStore } from '~/stores/eventStore'
+import { useCacheStore } from '~/stores/cache'
 
 definePageMeta({
   layout: false
@@ -121,39 +123,30 @@ const handleLogin = async () => {
   loading.value = true
   error.value = ''
 
-  console.log('=== 开始登录 ===')
-  console.log('登录表单数据:', form.value)
-
   try {
-    console.log('发送登录请求到: /api/auth/login')
     const response = await $api.post('/auth/login', form.value)
 
-    console.log('登录响应状态:', response.status)
-    console.log('登录响应数据:', response.data)
-
     if (response.data.code === 200) {
-      console.log('登录成功，保存token和用户信息')
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('app_cache')
+      userStore.clearUser()
+      const eventStore = useEventStore()
+      eventStore.$reset()
+      const cacheStore = useCacheStore()
+      cacheStore.clear()
+
       localStorage.setItem('token', response.data.data.token)
       userStore.saveToStorage(response.data.data.user)
-      console.log('准备跳转到总览面板')
       navigateTo('/dashboard')
     } else {
-      console.error('登录失败，错误码:', response.data.code)
-      console.error('错误信息:', response.data.message)
       error.value = response.data.message
     }
   } catch (err) {
-    console.error('=== 登录异常 ===')
-    console.error('错误对象:', err)
-    console.error('错误响应:', err.response)
-    console.error('错误响应数据:', err.response?.data)
-    console.error('错误状态码:', err.response?.status)
-    console.error('错误消息:', err.message)
-
+    console.error('登录失败:', err.message)
     error.value = err.response?.data?.message || '登录失败，请稍后重试'
   } finally {
     loading.value = false
-    console.log('=== 登录流程结束 ===')
   }
 }
 </script>

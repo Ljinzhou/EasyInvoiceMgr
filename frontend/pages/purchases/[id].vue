@@ -841,8 +841,6 @@ const filteredRecords = computed(() => {
 
 // 应用过滤
 const applyFilters = () => {
-  // 过滤逻辑已在computed中实现，这里可以添加额外的逻辑
-  console.log('应用过滤条件:', filters.value)
 }
 
 // 重置过滤
@@ -857,7 +855,6 @@ const resetFilters = () => {
     reviewStatus: '',
     reimburseStatus: ''
   }
-  console.log('重置过滤条件')
 }
 
 const canReview = computed(() => {
@@ -907,7 +904,7 @@ const loadEvent = async () => {
       }
     }
   } catch (e) {
-    console.error('加载赛事失败:', e)
+    console.error('加载赛事失败:', e.message)
   }
 }
 
@@ -971,7 +968,7 @@ const loadRecords = async () => {
       total_count: allRecords.length
     }
   } catch (e) {
-    console.error('加载记录失败:', e)
+    console.error('加载记录失败:', e.message)
   }
 }
 
@@ -1217,7 +1214,7 @@ const handleInvoiceUpload = async (e) => {
       _invoice_preview_blob.value = imageBlob
       _invoice_blob_url.value = URL.createObjectURL(imageBlob)
     } catch (err) {
-      console.error('PDF转图片失败:', err)
+      console.error('PDF转图片失败:', err.message)
       _invoice_blob_url.value = ''
       _invoice_preview_blob.value = null
     } finally {
@@ -1303,37 +1300,16 @@ const getFullImageUrl = (url) => {
 }
 
 const onInvoiceImageLoad = () => {
-  console.log('发票图片加载成功')
   invoiceImageLoading.value = false
   imageLoadingError.value = false
 }
 
 const onInvoiceImageError = (e) => {
-  console.error('❌ 发票图片加载失败:', e)
-  console.error('📍 失败的URL:', e.target?.src)
-  console.error('🔍 完整事件对象:', e)
-  
   invoiceImageLoading.value = false
   imageLoadingError.value = true
-  
-  // 尝试获取更多错误信息
-  const failedUrl = e.target?.src || '未知'
-  
-  // 检查是否是CORS问题
-  if (failedUrl.includes('localhost:5000') && window.location.port === '3000') {
-    console.warn('⚠️ 可能是CORS跨域问题')
-    console.warn('💡 请检查后端CORS配置是否包含 /uploads/* 路径')
-  }
-  
-  // 检查文件是否存在
-  if (failedUrl.includes('/uploads/')) {
-    console.warn('📁 文件路径格式正确，但可能文件不存在或无法访问')
-    console.warn('💡 请检查后端控制台日志查看详细错误信息')
-  }
 }
 
 const retryLoadImage = () => {
-  console.log('重试加载发票图片...')
   imageLoadingError.value = false
   invoiceImageLoading.value = true
   
@@ -1393,7 +1369,7 @@ const autoParseLocalInvoice = async () => {
       aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
     }
   } catch (err) {
-    console.error('发票解析失败:', err)
+    console.error('发票解析失败:', err.message)
     aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
   } finally {
     parsingInvoice.value = false
@@ -1452,7 +1428,7 @@ const parseInvoiceFromUrl = async () => {
       showToast(response.data.message || '解析失败', 'error')
     }
   } catch (err) {
-    console.error('解析失败:', err)
+    console.error('解析失败:', err.message)
     const msg = err.response?.data?.message || '解析失败，请重试'
     showToast(msg, 'error')
   } finally {
@@ -1537,7 +1513,7 @@ const saveRecord = async () => {
           aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
         }
       } catch (invErr) {
-        console.error('发票上传/解析失败:', invErr)
+        console.error('发票上传/解析失败:', invErr.message)
         if (invErr.response?.status === 409) {
           showToast('检测到重复发票文件，请勿重复上传', 'error')
           saving.value = false
@@ -1578,7 +1554,7 @@ const saveRecord = async () => {
       alert(response.data.message || '保存失败')
     }
   } catch (error) {
-    console.error('保存失败:', error)
+    console.error('保存失败:', error.message)
     alert(error.message || '保存失败，请重试')
   } finally {
     saving.value = false

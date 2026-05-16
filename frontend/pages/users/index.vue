@@ -77,7 +77,7 @@
               <div class="avatar-cell">
                 <img
                   v-if="user.avatar_url && !getAvatarError(user.user_id)"
-                  :src="user.avatar_url"
+                  :src="getUploadUrl(user.avatar_url)"
                   class="avatar-sm"
                   loading="lazy"
                   @error="() => setAvatarError(user.user_id, true)"
@@ -392,6 +392,7 @@ definePageMeta({
 })
 
 const { $api } = useNuxtApp()
+const { getUploadUrl } = useUploadUrl()
 
 const users = ref([])
 const searchQuery = ref('')
@@ -497,7 +498,7 @@ const loadUsers = async () => {
       users.value = response.data.data.data || response.data.data || []
     }
   } catch (error) {
-    console.error('加载用户列表失败:', error)
+    console.error('加载用户列表失败:', error.message)
   }
 }
 
@@ -517,7 +518,7 @@ const loadEvents = async () => {
       availableEvents.value = response.data.data.data || []
     }
   } catch (error) {
-    console.error('加载比赛列表失败:', error)
+    console.error('加载比赛列表失败:', error.message)
   }
 }
 
@@ -532,7 +533,7 @@ const getEventName = async (eventId) => {
       return response.data.data.event_name
     }
   } catch (error) {
-    console.error('获取比赛名称失败:', error)
+    console.error('获取比赛名称失败:', error.message)
   }
   return ''
 }
@@ -571,25 +572,38 @@ const addUser = async () => {
       student_or_staff_id: addForm.value.student_or_staff_id?.trim() || null,
       user_type: addForm.value.user_type
     }
-    
-    console.log('提交用户数据:', { ...payload, password: '***' })
-    
+
     const response = await $api.post('/auth/register', payload, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
-    console.log('注册响应:', response.data)
-    
+
     if (response.data.code === 200 || response.data.code === 201) {
       // 显示成功消息
       const newUser = response.data.data
       addSuccess.value = `✅ 用户 "${newUser.real_name}"（@${newUser.username}）添加成功！`
-      
+
+      // 如果选择了关联比赛，将用户添加到比赛成员
+      if (addForm.value.event_id && newUser.user_id) {
+        try {
+          const memberRole = addForm.value.user_type === 'teacher' ? 'teacher'
+            : addForm.value.user_type === 'student_admin' ? 'student_admin'
+            : 'student'
+          await $api.post(`/events/${addForm.value.event_id}/members`, {
+            user_id: newUser.user_id,
+            role_in_event: memberRole
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        } catch (memberErr) {
+          console.error('将用户添加到比赛失败:', memberErr.message)
+        }
+      }
+
       // 延迟关闭弹窗，让用户看到成功提示
       setTimeout(() => {
         closeAddModal()
         loadUsers()
-        
+
         // 显示全局成功提示
         alert(`🎉 用户添加成功！\n\n用户名：${newUser.username}\n真实姓名：${newUser.real_name}\n角色：${getUserTypeText(newUser.user_type)}\n\n该用户现在可以使用系统了。`)
       }, 1500)
@@ -604,7 +618,7 @@ const addUser = async () => {
       addError.value = response.data.message || '添加失败，请稍后重试'
     }
   } catch (error) {
-    console.error('添加用户失败:', error)
+    console.error('添加用户失败:', error.message)
     if (error.response?.status === 401) {
       addError.value = '登录已过期，请重新登录后操作'
     } else if (error.response?.status === 403) {

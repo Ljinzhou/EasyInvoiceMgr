@@ -53,8 +53,9 @@ def register():
             logger.warning(f'用户名已存在: {data["username"]}')
             return jsonify({'code': 1001, 'message': '用户名已存在', 'data': None}), 400
         
-        if User.query.filter_by(email=data['email']).first():
-            logger.warning(f'邮箱已被注册: {data["email"]}')
+        email = data.get('email')
+        if email and User.query.filter_by(email=email).first():
+            logger.warning(f'邮箱已被注册: {email}')
             return jsonify({'code': 1002, 'message': '邮箱已被注册', 'data': None}), 400
         
         user = User(
@@ -156,12 +157,19 @@ def login():
 def get_users():
     logger.info('=== 获取用户列表请求 ===')
     try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+
+        # Role check: only admin, teacher, student_admin can view user list (BUG-03 fix)
+        if not current_user or current_user.user_type not in ['admin', 'teacher', 'student_admin']:
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
         search = request.args.get('search', '')
         user_type = request.args.get('user_type')
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 10, type=int)
         logger.info(f'搜索参数: search={search}, user_type={user_type}, page={page}, page_size={page_size}')
-        
+
         query = User.query.filter_by(is_deleted=False)
         
         if search:

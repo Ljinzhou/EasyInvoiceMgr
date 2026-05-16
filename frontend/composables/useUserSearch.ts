@@ -32,7 +32,7 @@ export function useUserSearch(options: { filter?: (user: any) => boolean } = {})
           results.value = options.filter ? arr.filter(options.filter) : arr
         }
       } catch (e) {
-        console.error('搜索用户失败:', e)
+        console.error('搜索用户失败:', e.message)
       }
     }, 300)
   })

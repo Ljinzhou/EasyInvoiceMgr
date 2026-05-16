@@ -75,31 +75,25 @@ export const useCacheStore = defineStore('cache', {
         expiry,
         version: this.version
       })
-
-      console.log(`[Cache] SET: ${key}, 过期时间: ${expiry / 1000}秒`)
     },
 
     get<T>(key: string): T | null {
       const item = this.cache.get(key)
       
       if (!item) {
-        console.log(`[Cache] MISS: ${key} - 缓存不存在`)
         return null
       }
 
       if (Date.now() - item.timestamp > item.expiry) {
-        console.log(`[Cache] EXPIRED: ${key} - 缓存已过期`)
         this.cache.delete(key)
         return null
       }
 
       if (item.version !== this.version) {
-        console.log(`[Cache] VERSION_MISMATCH: ${key} - 版本不匹配`)
         this.cache.delete(key)
         return null
       }
 
-      console.log(`[Cache] HIT: ${key}`)
       return item.data as T
     },
 
@@ -122,9 +116,6 @@ export const useCacheStore = defineStore('cache', {
 
     delete(key: string): boolean {
       const result = this.cache.delete(key)
-      if (result) {
-        console.log(`[Cache] DELETE: ${key}`)
-      }
       return result
     },
 
@@ -143,17 +134,11 @@ export const useCacheStore = defineStore('cache', {
         count++
       })
 
-      if (count > 0) {
-        console.log(`[Cache] DELETE_BY_PREFIX: ${prefix}, 删除数量: ${count}`)
-      }
-      
       return count
     },
 
     clear(): void {
-      const size = this.cache.size
       this.cache.clear()
-      console.log(`[Cache] CLEAR: 清空所有缓存, 删除数量: ${size}`)
     },
 
     evictOldest(): void {
@@ -169,7 +154,6 @@ export const useCacheStore = defineStore('cache', {
 
       if (oldestKey) {
         this.cache.delete(oldestKey)
-        console.log(`[Cache] EVICT: ${oldestKey} - 缓存已满，移除最旧项`)
       }
     },
 
@@ -180,7 +164,6 @@ export const useCacheStore = defineStore('cache', {
         this.deleteByPrefix(`/events/${eventId}/records`)
       }
       this.deleteByPrefix('/events')
-      console.log(`[Cache] INVALIDATE_EVENT: event_id=${eventId || 'all'}`)
     },
 
     invalidateInvoiceCache(eventId?: number): void {
@@ -189,12 +172,10 @@ export const useCacheStore = defineStore('cache', {
         this.deleteByPrefix(`/events/${eventId}/records`)
       }
       this.deleteByPrefix('/purchases')
-      console.log(`[Cache] INVALIDATE_INVOICE: event_id=${eventId || 'all'}`)
     },
 
     invalidateUserCache(): void {
       this.deleteByPrefix('/auth/users')
-      console.log(`[Cache] INVALIDATE_USER`)
     },
 
     recordRequest(fromCache: boolean, loadTime: number, cacheKey?: string): void {
@@ -292,8 +273,6 @@ export const useCacheStore = defineStore('cache', {
 
     printPerformanceReport(): void {
       const report = this.getPerformanceReport()
-      console.table([report.summary])
-      console.log('[Cache] 性能详情:', report.details)
     },
 
     async fetchWithCache<T>(
@@ -311,20 +290,17 @@ export const useCacheStore = defineStore('cache', {
         if (cachedData !== null) {
           const loadTime = performance.now() - startTime
           this.recordRequest(true, loadTime, key)
-          console.log(`[Cache] 从缓存加载: ${key}, 耗时: ${loadTime.toFixed(2)}ms`)
           return cachedData
         }
       }
 
-      console.log(`[Cache] 从数据库加载: ${key}`)
       const data = await fetcher()
-      
+
       this.set(key, data, options?.expiry)
-      
+
       const loadTime = performance.now() - startTime
       this.recordRequest(false, loadTime, key)
-      console.log(`[Cache] 数据加载完成: ${key}, 耗时: ${loadTime.toFixed(2)}ms`)
-      
+
       return data
     },
 
@@ -343,9 +319,8 @@ export const useCacheStore = defineStore('cache', {
         })
 
         localStorage.setItem('app_cache', JSON.stringify(cacheData))
-        console.log(`[Cache] 持久化到 localStorage, 数量: ${Object.keys(cacheData.items).length}`)
       } catch (error) {
-        console.error('[Cache] 持久化失败:', error)
+        console.error('Cache persist failed:', error.message)
       }
     },
 
@@ -357,7 +332,6 @@ export const useCacheStore = defineStore('cache', {
         const cacheData = JSON.parse(cacheStr)
         
         if (cacheData.version !== this.version) {
-          console.log('[Cache] 版本不匹配，跳过恢复')
           localStorage.removeItem('app_cache')
           return
         }
@@ -371,17 +345,14 @@ export const useCacheStore = defineStore('cache', {
             restored++
           }
         })
-
-        console.log(`[Cache] 从 localStorage 恢复, 数量: ${restored}`)
       } catch (error) {
-        console.error('[Cache] 恢复失败:', error)
+        console.error('Cache restore failed:', error.message)
         localStorage.removeItem('app_cache')
       }
     },
 
     clearLocalStorage(): void {
       localStorage.removeItem('app_cache')
-      console.log('[Cache] 清空 localStorage 缓存')
     }
   }
 })

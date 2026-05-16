@@ -156,7 +156,7 @@ const loadEvent = async () => {
       event.value = response.data.data
     }
   } catch (e) {
-    console.error('加载赛事信息失败:', e)
+    console.error('加载赛事信息失败:', e.message)
   }
 }
 
@@ -235,7 +235,7 @@ const loadTaskStatus = async () => {
       }
     }
   } catch (e) {
-    console.error('查询导出状态失败:', e)
+    console.error('查询导出状态失败:', e.message)
   }
 }
 

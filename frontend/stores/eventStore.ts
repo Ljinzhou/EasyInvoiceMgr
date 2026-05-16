@@ -192,7 +192,7 @@ export const useEventStore = defineStore('eventStore', {
         }
       } catch (e: any) {
         this.error = e?.message || '网络错误'
-        console.error('[EventStore] fetchEvents error:', e)
+        console.error('获取赛事列表失败:', e.message)
         throw e
       } finally {
         this.loading = false

@@ -49,6 +49,7 @@ class Event(db.Model):
     remaining_budget = db.Column(db.Numeric(12, 2), default=0.00)
     invoice_count = db.Column(db.Integer, default=0)
     invoice_total_amount = db.Column(db.Numeric(12, 2), default=0.00)
+    purchase_record_count = db.Column(db.Integer, default=0)
     voucher_count = db.Column(db.Integer, default=0)
     voucher_total_amount = db.Column(db.Numeric(12, 2), default=0.00)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)

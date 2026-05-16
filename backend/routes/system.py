@@ -291,6 +291,9 @@ def manual_backup():
     db.session.commit()
 
     service = get_backup_service()
+    if not service:
+        return jsonify({'code': 503, 'message': '备份服务未初始化', 'data': None}), 503
+
     thread = threading.Thread(target=service.run_backup, args=(record.id,), daemon=True)
     thread.start()
 

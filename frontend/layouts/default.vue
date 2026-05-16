@@ -29,15 +29,15 @@
           <span class="nav-icon">📁</span>
           <span class="nav-text">项目管理</span>
         </NuxtLink>
-        <NuxtLink v-if="canManageUsers" to="/users" class="nav-item" :class="{ active: $route.path.startsWith('/users') }" @click="mobileMenuOpen = false">
+        <NuxtLink v-if="isMounted && canManageUsers" to="/users" class="nav-item" :class="{ active: $route.path.startsWith('/users') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">👥</span>
           <span class="nav-text">人员管理</span>
         </NuxtLink>
-        <NuxtLink v-if="canManageInvitationCodes" to="/invitation-codes" class="nav-item" :class="{ active: $route.path.startsWith('/invitation-codes') }" @click="mobileMenuOpen = false">
+        <NuxtLink v-if="isMounted && canManageInvitationCodes" to="/invitation-codes" class="nav-item" :class="{ active: $route.path.startsWith('/invitation-codes') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">🎫</span>
           <span class="nav-text">邀请码管理</span>
         </NuxtLink>
-        <NuxtLink v-if="isAdmin" to="/settings" class="nav-item" :class="{ active: $route.path.startsWith('/settings') }" @click="mobileMenuOpen = false">
+        <NuxtLink v-if="isMounted && isAdmin" to="/settings" class="nav-item" :class="{ active: $route.path.startsWith('/settings') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">⚙️</span>
           <span class="nav-text">系统设置</span>
         </NuxtLink>
@@ -45,7 +45,7 @@
       <div class="sidebar-footer">
         <div class="user-info" @click="showSettingsModal = true">
           <div class="user-avatar">
-            <template v-if="userAvatarUrl && !avatarLoadError">
+            <template v-if="isMounted && userAvatarUrl && !avatarLoadError">
               <img
                 :src="userAvatarUrl"
                 class="avatar-image"
@@ -57,8 +57,8 @@
             <span v-else class="avatar-initial">{{ userInitial }}</span>
           </div>
           <div class="user-details">
-            <div class="user-name">{{ userName }}</div>
-            <div class="user-role">{{ userRole }}</div>
+            <div class="user-name">{{ isMounted ? userName : '未登录' }}</div>
+            <div class="user-role">{{ isMounted ? userRole : '未知' }}</div>
           </div>
           <button class="settings-btn" title="设置">⚙️</button>
         </div>
@@ -238,10 +238,15 @@ const route = useRoute()
 const userStore = useUserStore()
 userStore.loadFromStorage()
 
+const isMounted = ref(false)
 const showSettingsModal = ref(false)
 const activeTab = ref('profile')
 const saving = ref(false)
 const mobileMenuOpen = ref(false)
+
+onMounted(() => {
+  isMounted.value = true
+})
 
 const toggleMobileMenu = () => {
   mobileMenuOpen.value = !mobileMenuOpen.value
