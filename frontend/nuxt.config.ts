@@ -19,8 +19,8 @@ export default defineNuxtConfig({
     routeRules: {
       '/uploads/**': {
         proxy: process.env.NODE_ENV === 'development'
-          ? 'http://localhost:5000'
-          : 'http://backend:5000'
+          ? 'http://localhost:5000/uploads'
+          : 'http://backend:5000/uploads'
       }
     }
   }
