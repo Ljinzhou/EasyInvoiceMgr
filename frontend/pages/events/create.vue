@@ -63,6 +63,11 @@
             />
           </div>
         </div>
+        <div class="quick-set-row">
+          <button type="button" @click="syncUploadTimes" class="quick-set-button" :disabled="!form.event_start_time || !form.event_end_time">
+            与比赛时间同步
+          </button>
+        </div>
 
         <div class="form-row">
           <div class="form-group">
@@ -205,6 +210,11 @@ const selectLeader = (user) => {
   showDropdown.value = false
 }
 
+const syncUploadTimes = () => {
+  form.value.upload_start_time = form.value.event_start_time
+  form.value.upload_end_time = form.value.event_end_time
+}
+
 const hideDropdown = () => {
   setTimeout(() => {
     showDropdown.value = false
@@ -257,13 +267,14 @@ const loadEventData = async () => {
     
     if (response.data.code === 200) {
       const event = response.data.data
+      const toLocal = (iso) => iso ? new Date(iso).toISOString().slice(0, 16) : ''
       form.value = {
         event_name: event.event_name || '',
         description: event.description || '',
-        event_start_time: event.event_start_time ? event.event_start_time.split('T')[0] : '',
-        event_end_time: event.event_end_time ? event.event_end_time.split('T')[0] : '',
-        upload_start_time: event.upload_start_time ? event.upload_start_time.split('T')[0] : '',
-        upload_end_time: event.upload_end_time ? event.upload_end_time.split('T')[0] : '',
+        event_start_time: toLocal(event.event_start_time),
+        event_end_time: toLocal(event.event_end_time),
+        upload_start_time: toLocal(event.upload_start_time),
+        upload_end_time: toLocal(event.upload_end_time),
         total_budget: parseFloat(event.total_budget) || 0,
         leader_id: event.leader_id || null,
         need_invoice_review: event.need_invoice_review !== false // 默认为true
@@ -527,6 +538,34 @@ const resetForm = (clearMessages = false) => {
 
 .submit-button:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.quick-set-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -0.5rem;
+}
+
+.quick-set-button {
+  padding: 0.4rem 1rem;
+  background: transparent;
+  border: 1px dashed #667eea;
+  border-radius: 5px;
+  color: #667eea;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quick-set-button:hover:not(:disabled) {
+  background: #667eea;
+  color: white;
+  border-style: solid;
+}
+
+.quick-set-button:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 

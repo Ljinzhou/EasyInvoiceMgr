@@ -257,17 +257,6 @@ CREATE TABLE system_configs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2.11 管理员审计日志表 (admin_audit_logs)
-CREATE TABLE admin_audit_logs (
-    id BIGSERIAL PRIMARY KEY,
-    admin_id BIGINT NOT NULL REFERENCES users(user_id),
-    action VARCHAR(64) NOT NULL,
-    target VARCHAR(128) NOT NULL,
-    detail TEXT,
-    ip_address VARCHAR(45),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
 -- 2.5 审核记录表 (audit_logs)
 -- 记录发票的每一次状态变更，便于追溯
 CREATE TABLE audit_logs (
@@ -308,11 +297,6 @@ CREATE INDEX idx_invoices_date ON invoices(invoice_date);
 
 -- 系统配置表索引
 CREATE INDEX idx_system_configs_key ON system_configs(config_key);
-
--- 管理员审计日志索引
-CREATE INDEX idx_admin_audit_logs_admin ON admin_audit_logs(admin_id);
-CREATE INDEX idx_admin_audit_logs_action ON admin_audit_logs(action);
-CREATE INDEX idx_admin_audit_logs_created ON admin_audit_logs(created_at);
 
 -- 审核记录索引
 CREATE INDEX idx_audit_logs_invoice ON audit_logs(invoice_id);

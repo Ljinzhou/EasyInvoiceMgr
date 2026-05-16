@@ -173,6 +173,11 @@
                   <input v-model="editForm.upload_end_time" type="datetime-local" class="form-input" />
                 </div>
               </div>
+              <div class="quick-set-row">
+                <button type="button" @click="syncEditUploadTimes" class="quick-set-button" :disabled="!editForm.event_start_time || !editForm.event_end_time">
+                  与比赛时间同步
+                </button>
+              </div>
             </div>
 
             <!-- Section: Budget & Leader -->
@@ -555,6 +560,11 @@ const selectLeader = (user) => {
   editForm.value.leader_id = user.user_id
   leaderSearch.value = user.real_name
   showLeaderDropdown.value = false
+}
+
+const syncEditUploadTimes = () => {
+  editForm.value.upload_start_time = editForm.value.event_start_time
+  editForm.value.upload_end_time = editForm.value.event_end_time
 }
 
 const formatDateTime = (dateStr) => {
@@ -1294,6 +1304,37 @@ const deleteEvent = async () => {
   opacity: 0.5;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.quick-set-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.quick-set-button {
+  padding: 0.35rem 0.9rem;
+  background: transparent;
+  border: 1px dashed #c96b4f;
+  border-radius: 8px;
+  color: #c96b4f;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.quick-set-button:hover:not(:disabled) {
+  background: #c96b4f;
+  color: white;
+  border-style: solid;
+}
+
+.quick-set-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .btn-spin {

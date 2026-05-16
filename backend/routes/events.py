@@ -145,6 +145,8 @@ def get_events():
                 'status': event.status,
                 'event_start_time': event.event_start_time.isoformat() if event.event_start_time else None,
                 'event_end_time': event.event_end_time.isoformat() if event.event_end_time else None,
+                'upload_start_time': event.upload_start_time.isoformat() if event.upload_start_time else None,
+                'upload_end_time': event.upload_end_time.isoformat() if event.upload_end_time else None,
                 'total_budget': float(event.total_budget),
                 'reimbursed_amount': float(event.reimbursed_amount),
                 'remaining_budget': float(event.remaining_budget),
