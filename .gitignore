@@ -55,6 +55,11 @@ dist/
 logs/
 *.log
 
+# Update artifacts
+update_status.json
+.update.lock
+backups/
+
 # OS
 .DS_Store
 Thumbs.db

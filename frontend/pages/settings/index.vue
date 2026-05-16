@@ -125,6 +125,32 @@
                 <p class="commands-hint">数据库将在更新时自动备份并迁移</p>
               </div>
 
+              <div v-if="updateState === 'has_update'" class="update-action">
+                <button
+                  class="update-now-btn"
+                  :disabled="updating || updateTriggered"
+                  @click="confirmUpdate"
+                >
+                  <span v-if="updating" class="btn-spinner"></span>
+                  <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  {{ updating ? '启动中...' : updateTriggered ? '更新已启动' : '立即更新' }}
+                </button>
+              </div>
+
+              <transition name="msg-fade">
+                <div v-if="updateTriggered" class="update-progress-notice">
+                  <div class="update-progress-header">
+                    <span class="mini-spinner"></span>
+                    <span>{{ updateStatusMsg }}</span>
+                  </div>
+                  <div class="progress-bar-track" style="margin-top: .5rem;">
+                    <div class="progress-bar-fill" :style="{ width: updateProgress + '%' }"></div>
+                  </div>
+                  <span class="progress-text" style="margin-top: .3rem;">{{ updateProgress }}%</span>
+                  <p class="update-progress-hint">服务将在更新完成后自动重启，页面将自动刷新。</p>
+                </div>
+              </transition>
+
               <a v-if="updateDownloadUrl" :href="updateDownloadUrl" target="_blank" class="github-link">
                 查看 GitHub 发布页面
               </a>
@@ -311,6 +337,34 @@
           </transition>
         </Teleport>
 
+        <!-- Update Confirm Modal -->
+        <Teleport to="body">
+          <transition name="modal-fade">
+            <div v-if="updateConfirmVisible" class="modal-overlay" @click.self="updateConfirmVisible = false">
+              <div class="modal-content">
+                <div class="modal-icon">🔄</div>
+                <h3 class="modal-title">确认系统更新</h3>
+                <p class="modal-desc">
+                  将更新到 <strong>v{{ latestVersion }}</strong><br/>
+                  系统将自动执行以下操作：<br/>
+                  1. 备份数据库<br/>
+                  2. 拉取最新代码<br/>
+                  3. 构建 Docker 镜像<br/>
+                  4. 重启服务<br/>
+                  <strong>更新期间系统将短暂不可用（约 2-5 分钟）。</strong>
+                </p>
+                <div class="modal-actions">
+                  <button class="modal-btn cancel" @click="updateConfirmVisible = false">取消</button>
+                  <button class="modal-btn confirm" @click="triggerUpdate">
+                    <span v-if="updating" class="btn-spinner"></span>
+                    {{ updating ? '启动中...' : '确认更新' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </transition>
+        </Teleport>
+
       </div>
     </template>
   </div>
@@ -434,6 +488,14 @@ const checking = ref(false)
 const copied = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
 
+// One-click update
+const updateConfirmVisible = ref(false)
+const updating = ref(false)
+const updateTriggered = ref(false)
+const updateProgress = ref(0)
+const updateStatusMsg = ref('')
+let updatePollTimer: ReturnType<typeof setInterval> | null = null
+
 async function loadCurrentVersion() {
   try {
     const { data } = await $api.get('/system/config')
@@ -458,6 +520,94 @@ async function copyCommands() {
   }
   if (copyTimer) clearTimeout(copyTimer)
   copyTimer = setTimeout(() => { copied.value = false }, 2000)
+}
+
+function confirmUpdate() {
+  updateConfirmVisible.value = true
+}
+
+async function triggerUpdate() {
+  updating.value = true
+  try {
+    const { data } = await $api.post('/system/update')
+    if (data.code === 200) {
+      updateConfirmVisible.value = false
+      updateTriggered.value = true
+      updateProgress.value = 5
+      updateStatusMsg.value = data.message || '更新已启动'
+      startUpdatePolling()
+    } else if (data.code === 409) {
+      // Already running
+      updateConfirmVisible.value = false
+      updateTriggered.value = true
+      updateProgress.value = data.data?.progress || 0
+      updateStatusMsg.value = data.message || '更新正在进行中'
+      startUpdatePolling()
+    } else {
+      alert(data.message || '启动更新失败')
+    }
+  } catch (e: any) {
+    // The request may fail because the backend restarts immediately
+    // This is expected - assume the update started
+    updateConfirmVisible.value = false
+    updateTriggered.value = true
+    updateProgress.value = 30
+    updateStatusMsg.value = '更新已触发，等待服务重启...'
+    startPostUpdatePolling()
+  } finally {
+    updating.value = false
+  }
+}
+
+function startUpdatePolling() {
+  if (updatePollTimer) clearInterval(updatePollTimer)
+  updatePollTimer = setInterval(async () => {
+    try {
+      const { data } = await $api.get('/system/update/status')
+      if (data.code === 200 && data.data) {
+        updateStatusMsg.value = data.data.message || ''
+        updateProgress.value = data.data.progress || 0
+        if (data.data.status === 'completed') {
+          clearInterval(updatePollTimer!)
+          updatePollTimer = null
+          updateStatusMsg.value = '更新完成，服务正在重启...'
+          startPostUpdatePolling()
+        }
+      }
+    } catch {
+      // Backend may have restarted, switch to post-update polling
+      clearInterval(updatePollTimer!)
+      updatePollTimer = null
+      updateProgress.value = 90
+      updateStatusMsg.value = '服务重启中，等待恢复...'
+      startPostUpdatePolling()
+    }
+  }, 2000)
+}
+
+function startPostUpdatePolling() {
+  if (updatePollTimer) clearInterval(updatePollTimer)
+  let attempts = 0
+  updatePollTimer = setInterval(async () => {
+    attempts++
+    updateProgress.value = Math.min(90 + attempts, 98)
+    updateStatusMsg.value = `等待服务恢复... (${attempts})`
+    try {
+      const { data } = await $api.get('/system/config')
+      if (data.code === 200) {
+        // Backend is back!
+        clearInterval(updatePollTimer!)
+        updatePollTimer = null
+        updateProgress.value = 100
+        updateStatusMsg.value = '更新完成！页面即将刷新...'
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      }
+    } catch {
+      // Still waiting for backend to come back
+    }
+  }, 3000)
 }
 
 async function checkUpdate() {
@@ -1078,6 +1228,31 @@ useHead({ title: '系统设置 - 财务管理系统' })
   color: #94a3b8;
   margin-top: .4rem;
 }
+.update-action {
+  margin-top: .75rem;
+}
+
+.update-progress-notice {
+  margin-top: .75rem;
+  padding: .85rem;
+  background: linear-gradient(135deg, #eff6ff, #f0f9ff);
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+}
+.update-progress-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: .88rem;
+  font-weight: 500;
+  color: #1e40af;
+}
+.update-progress-hint {
+  font-size: .78rem;
+  color: #64748b;
+  margin: .4rem 0 0;
+}
+
 .github-link {
   display: inline-block;
   margin-top: .75rem;
