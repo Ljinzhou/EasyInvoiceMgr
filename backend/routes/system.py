@@ -683,7 +683,7 @@ def trigger_update():
 
     try:
         proc = _subprocess.Popen(
-            ['bash', script_path],
+            ['bash', script_path, '--force'],
             cwd=project_dir,
             stdout=_subprocess.DEVNULL,
             stderr=_subprocess.DEVNULL,
