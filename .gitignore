@@ -58,6 +58,7 @@ logs/
 # Update artifacts
 update_status.json
 .update.lock
+.last_backup
 backups/
 
 # OS
