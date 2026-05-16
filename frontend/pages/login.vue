@@ -101,6 +101,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useUserStore } from '~/stores/userStore'
+import { useEventStore } from '~/stores/eventStore'
+import { useCacheStore } from '~/stores/cache'
 
 definePageMeta({
   layout: false
@@ -132,7 +134,17 @@ const handleLogin = async () => {
     console.log('登录响应数据:', response.data)
 
     if (response.data.code === 200) {
-      console.log('登录成功，保存token和用户信息')
+      console.log('登录成功，清除旧缓存并保存新token和用户信息')
+      // 清除上一个账号的所有缓存数据
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+      localStorage.removeItem('app_cache')
+      userStore.clearUser()
+      const eventStore = useEventStore()
+      eventStore.$reset()
+      const cacheStore = useCacheStore()
+      cacheStore.clear()
+
       localStorage.setItem('token', response.data.data.token)
       userStore.saveToStorage(response.data.data.user)
       console.log('准备跳转到总览面板')

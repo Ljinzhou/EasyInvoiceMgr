@@ -61,8 +61,38 @@ def create_event():
         )
         
         db.session.add(event)
+        db.session.flush()  # 获取 event_id 但不提交事务
+
+        # 如果指定了负责人，自动将负责人添加为赛事成员
+        if event.leader_id:
+            existing = EventMember.query.filter_by(
+                event_id=event.event_id, user_id=event.leader_id, is_deleted=False
+            ).first()
+            if not existing:
+                leader_user = User.query.get(event.leader_id)
+                role = leader_user.user_type if leader_user and leader_user.user_type in ['teacher', 'student_admin'] else 'teacher'
+                leader_member = EventMember(
+                    event_id=event.event_id,
+                    user_id=event.leader_id,
+                    role_in_event=role
+                )
+                db.session.add(leader_member)
+
+        # 同时将创建者添加为赛事成员
+        if event.creator_id != event.leader_id:
+            existing_creator = EventMember.query.filter_by(
+                event_id=event.event_id, user_id=event.creator_id, is_deleted=False
+            ).first()
+            if not existing_creator:
+                creator_member = EventMember(
+                    event_id=event.event_id,
+                    user_id=event.creator_id,
+                    role_in_event='teacher'
+                )
+                db.session.add(creator_member)
+
         db.session.commit()
-        
+
         return jsonify({
             'code': 200,
             'message': 'success',
@@ -85,7 +115,7 @@ def create_event():
                 'need_invoice_review': event.need_invoice_review
             }
         }), 201
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
@@ -206,12 +236,26 @@ def update_event(event_id):
             event.upload_end_time = datetime.fromisoformat(data['upload_end_time'].replace('Z', '+00:00'))
         if 'leader_id' in data:
             event.leader_id = data['leader_id']
+            # 如果设置了负责人，确保负责人是赛事成员
+            if event.leader_id:
+                existing = EventMember.query.filter_by(
+                    event_id=event_id, user_id=event.leader_id, is_deleted=False
+                ).first()
+                if not existing:
+                    leader_user = User.query.get(event.leader_id)
+                    role = leader_user.user_type if leader_user and leader_user.user_type in ['teacher', 'student_admin'] else 'teacher'
+                    leader_member = EventMember(
+                        event_id=event_id,
+                        user_id=event.leader_id,
+                        role_in_event=role
+                    )
+                    db.session.add(leader_member)
         if 'total_budget' in data:
             event.total_budget = data['total_budget']
             event.remaining_budget = data['total_budget'] - float(event.reimbursed_amount)
         if 'need_invoice_review' in data:
             event.need_invoice_review = bool(data['need_invoice_review'])
-        
+
         db.session.commit()
         
         return jsonify({
@@ -424,7 +468,7 @@ def add_event_member(event_id):
         
         data = request.get_json()
         user_id = data.get('user_id')
-        role_in_event = data.get('role_in_event', 'member')
+        role_in_event = data.get('role_in_event', 'student')
         
         if not user_id:
             return jsonify({'code': 400, 'message': '用户ID不能为空', 'data': None}), 400

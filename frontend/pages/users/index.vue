@@ -77,7 +77,7 @@
               <div class="avatar-cell">
                 <img
                   v-if="user.avatar_url && !getAvatarError(user.user_id)"
-                  :src="user.avatar_url"
+                  :src="getUploadUrl(user.avatar_url)"
                   class="avatar-sm"
                   loading="lazy"
                   @error="() => setAvatarError(user.user_id, true)"
@@ -392,6 +392,7 @@ definePageMeta({
 })
 
 const { $api } = useNuxtApp()
+const { getUploadUrl } = useUploadUrl()
 
 const users = ref([])
 const searchQuery = ref('')
@@ -584,12 +585,29 @@ const addUser = async () => {
       // 显示成功消息
       const newUser = response.data.data
       addSuccess.value = `✅ 用户 "${newUser.real_name}"（@${newUser.username}）添加成功！`
-      
+
+      // 如果选择了关联比赛，将用户添加到比赛成员
+      if (addForm.value.event_id && newUser.user_id) {
+        try {
+          const memberRole = addForm.value.user_type === 'teacher' ? 'teacher'
+            : addForm.value.user_type === 'student_admin' ? 'student_admin'
+            : 'student'
+          await $api.post(`/events/${addForm.value.event_id}/members`, {
+            user_id: newUser.user_id,
+            role_in_event: memberRole
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        } catch (memberErr) {
+          console.error('将用户添加到比赛失败:', memberErr)
+        }
+      }
+
       // 延迟关闭弹窗，让用户看到成功提示
       setTimeout(() => {
         closeAddModal()
         loadUsers()
-        
+
         // 显示全局成功提示
         alert(`🎉 用户添加成功！\n\n用户名：${newUser.username}\n真实姓名：${newUser.real_name}\n角色：${getUserTypeText(newUser.user_type)}\n\n该用户现在可以使用系统了。`)
       }, 1500)

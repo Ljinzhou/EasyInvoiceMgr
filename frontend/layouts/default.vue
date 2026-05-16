@@ -232,11 +232,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '~/stores/userStore'
+import { useEventStore } from '~/stores/eventStore'
+import { useCacheStore } from '~/stores/cache'
 
 const { $api } = useNuxtApp()
 const route = useRoute()
 const userStore = useUserStore()
 userStore.loadFromStorage()
+const { getUploadUrl } = useUploadUrl()
 
 const showSettingsModal = ref(false)
 const activeTab = ref('profile')
@@ -251,7 +254,7 @@ const toggleMobileMenu = () => {
 watch(() => route.path, () => {
   mobileMenuOpen.value = false
 })
-const userAvatarUrl = computed(() => userStore.avatarUrl)
+const userAvatarUrl = computed(() => getUploadUrl(userStore.avatarUrl))
 const avatarLoadError = ref(false)
 // 头像 URL 变化时重置加载错误状态
 watch(userAvatarUrl, () => {
@@ -349,8 +352,18 @@ const saveSettings = async () => {
 }
 
 const handleLogout = () => {
+  // 清除所有 localStorage 数据
   localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('app_cache')
+
+  // 清除所有 Pinia store
   userStore.clearUser()
+  const eventStore = useEventStore()
+  eventStore.$reset()
+  const cacheStore = useCacheStore()
+  cacheStore.clear()
+
   navigateTo('/login')
 }
 </script>

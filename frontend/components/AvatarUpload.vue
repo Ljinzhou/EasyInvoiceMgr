@@ -120,10 +120,11 @@ const props = defineProps({
 const emit = defineEmits(['avatar-updated'])
 
 const { $api } = useNuxtApp()
+const { getUploadUrl } = useUploadUrl()
 
 const fileInputRef = ref(null)
 const cropperRef = ref(null)
-const displayUrl = ref(props.currentAvatarUrl || '')
+const displayUrl = ref(getUploadUrl(props.currentAvatarUrl) || '')
 const showCropper = ref(false)
 const cropSourceUrl = ref('')
 const cropperReady = ref(false)
@@ -135,7 +136,7 @@ let statusTimer = null
 
 // 同步外部头像 URL 变化
 watch(() => props.currentAvatarUrl, (url) => {
-  displayUrl.value = url || ''
+  displayUrl.value = getUploadUrl(url) || ''
 })
 
 function showStatus(msg, type = 'info') {
@@ -241,7 +242,7 @@ async function confirmCrop() {
 
     if (res.data?.code === 200 && res.data?.data?.avatar_url) {
       const newUrl = res.data.data.avatar_url
-      displayUrl.value = newUrl
+      displayUrl.value = getUploadUrl(newUrl)
       emit('avatar-updated', newUrl)
       showStatus('头像更新成功', 'success')
       cancelCrop()

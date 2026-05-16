@@ -62,7 +62,7 @@
         <tbody>
           <tr v-for="member in filteredMembers" :key="member.user_id">
             <td>
-              <img :src="member.avatar_url || '/default-avatar.png'" class="avatar-sm" />
+              <img :src="getUploadUrl(member.avatar_url) || '/default-avatar.png'" class="avatar-sm" />
             </td>
             <td>{{ member.username }}</td>
             <td><strong>{{ member.real_name }}</strong></td>
@@ -90,6 +90,7 @@ import { ref, computed, onMounted } from 'vue'
 definePageMeta({ layout: 'default' })
 
 const { $api } = useNuxtApp()
+const { getUploadUrl } = useUploadUrl()
 const route = useRoute()
 const router = useRouter()
 

@@ -365,7 +365,7 @@
                     @click="selectMember(user)"
                   >
                     <div class="member-search__avatar">
-                      <img v-if="user.avatar_url" :src="user.avatar_url" alt="" />
+                      <img v-if="user.avatar_url" :src="getUploadUrl(user.avatar_url)" alt="" />
                       <span v-else>{{ (user.real_name || user.username || '?').charAt(0) }}</span>
                     </div>
                     <div class="member-search__info">
@@ -384,7 +384,7 @@
             <transition name="card-rise">
               <div v-if="selectedMember" class="member-card">
                 <div class="member-card__avatar">
-                  <img v-if="selectedMember.avatar_url" :src="selectedMember.avatar_url" alt="" />
+                  <img v-if="selectedMember.avatar_url" :src="getUploadUrl(selectedMember.avatar_url)" alt="" />
                   <span v-else class="member-card__initial">{{ (selectedMember.real_name || '?').charAt(0) }}</span>
                 </div>
                 <div class="member-card__body">
@@ -431,6 +431,7 @@ definePageMeta({
 })
 
 const { $api } = useNuxtApp()
+const { getUploadUrl } = useUploadUrl()
 const eventStore = useEventStore()
 
 // Events from the unified store (reactive)
@@ -628,7 +629,7 @@ const addMember = async () => {
     const token = localStorage.getItem('token')
     const response = await $api.post(`/events/${currentEvent.value.event_id}/members`, {
       user_id: selectedMember.value.user_id,
-      role_in_event: 'member'
+      role_in_event: 'student'
     }, {
       headers: { Authorization: `Bearer ${token}` }
     })
