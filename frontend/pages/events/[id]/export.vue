@@ -53,6 +53,13 @@
             <span class="option-desc">导出所有购物凭证截图到独立文件夹</span>
           </div>
         </label>
+        <label class="option-item">
+          <input type="checkbox" v-model="options.onlyMine" />
+          <div class="option-content">
+            <span class="option-label">仅导出自己发票</span>
+            <span class="option-desc">仅导出由当前用户上传的购买记录和发票数据</span>
+          </div>
+        </label>
       </div>
     </div>
 
@@ -126,6 +133,7 @@ const options = ref({
   mergedPdf: true,
   individualInvoices: false,
   receiptImages: true,
+  onlyMine: false,
 })
 
 const taskId = ref(null)
@@ -674,10 +682,15 @@ onBeforeUnmount(() => {
 
   .page-header {
     gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   .page-title {
     font-size: 1.3rem;
+  }
+
+  .export-section {
+    padding: 1rem;
   }
 }
 
@@ -691,6 +704,10 @@ onBeforeUnmount(() => {
     padding: 0.7rem 0.4rem;
   }
 
+  .column-label { font-size: 0.8rem; }
+  .column-desc { font-size: 0.7rem; }
+  .column-icon { font-size: 1.2rem; }
+
   .export-actions {
     flex-direction: column;
   }
@@ -699,6 +716,21 @@ onBeforeUnmount(() => {
   .btn-cancel {
     width: 100%;
     justify-content: center;
+    min-height: 48px;
   }
+
+  .option-item {
+    padding: 0.6rem 0.8rem;
+  }
+
+  .option-label { font-size: 0.85rem; }
+  .option-desc { font-size: 0.75rem; }
+
+  .page-header { flex-direction: column; align-items: flex-start; }
+  .back-button { min-height: 44px; }
+  .page-title { font-size: 1.1rem; }
+
+  .download-section, .error-section { padding: 1.25rem; }
+  .progress-section { padding: 1rem; }
 }
 </style>

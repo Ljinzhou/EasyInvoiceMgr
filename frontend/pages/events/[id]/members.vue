@@ -356,5 +356,7 @@ const formatDate = (dateStr) => {
   .members-table td { padding: 10px 12px; font-size: 12px; }
   .members-table-container { border-radius: 8px; }
   .avatar-sm { width: 30px; height: 30px; }
+  .remove-btn { min-width: 44px; min-height: 44px; }
+  .members-table .remove-btn { min-width: 36px; min-height: 36px; padding: 4px; }
 }
 </style>

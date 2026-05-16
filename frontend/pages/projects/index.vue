@@ -209,7 +209,7 @@
                           <div class="leader-dropdown__avatar">{{ (user.real_name || '?').charAt(0) }}</div>
                           <div class="leader-dropdown__info">
                             <span class="leader-dropdown__name">{{ user.real_name }}</span>
-                            <span class="leader-dropdown__role">{{ user.user_type === 'admin' ? '管理员' : '教师' }}</span>
+                            <span class="leader-dropdown__role">{{ getUserTypeText(user.user_type) }}</span>
                           </div>
                         </div>
                       </div>
@@ -487,7 +487,7 @@ onMounted(async () => {
 const canEditEvent = (event) => {
   if (!currentUser.value) return false
   const userType = currentUser.value.user_type
-  if (userType === 'admin' || userType === 'teacher') return true
+  if (['admin', 'teacher', 'student_admin'].includes(userType)) return true
   if (event.creator_id === currentUser.value.user_id) return true
   return false
 }
@@ -506,8 +506,22 @@ const goToCreate = () => {
   navigateTo('/events/create')
 }
 
-const editEvent = (event) => {
+const editEvent = async (event) => {
   editingEventId.value = event.event_id
+  // Pre-fill leader info: fetch event detail to get leader_name
+  const token = localStorage.getItem('token')
+  if (event.leader_id) {
+    try {
+      const resp = await $api.get(`/events/${event.event_id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (resp.data.code === 200 && resp.data.data.leader_name) {
+        leaderSearch.value = resp.data.data.leader_name
+      }
+    } catch { leaderSearch.value = '' }
+  } else {
+    leaderSearch.value = ''
+  }
   editForm.value = {
     event_name: event.event_name,
     description: event.description || '',
@@ -516,10 +530,9 @@ const editEvent = (event) => {
     upload_start_time: formatDateTimeLocal(event.upload_start_time),
     upload_end_time: formatDateTimeLocal(event.upload_end_time),
     total_budget: parseFloat(event.total_budget),
-    leader_id: event.leader_id,
+    leader_id: event.leader_id || null,
     need_invoice_review: event.need_invoice_review !== undefined ? event.need_invoice_review : true
   }
-  leaderSearch.value = ''
   showEditModal.value = true
 }
 

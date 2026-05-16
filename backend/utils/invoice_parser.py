@@ -7,12 +7,20 @@ from typing import Dict, Optional, Any
 logger = logging.getLogger(__name__)
 
 try:
-    from utils.glm_vision_service import glm_vision_service
-    GLM_AVAILABLE = glm_vision_service.is_available()
-    logger.info('GLM视觉模型服务加载成功')
+    from utils.glm_vision_service import glm_vision_service as _glm_svc
+    GLM_IMPORTED = True
+    logger.info('GLM视觉模型服务模块加载成功')
 except ImportError:
-    GLM_AVAILABLE = False
-    logger.warning('GLM视觉模型服务未加载')
+    _glm_svc = None
+    GLM_IMPORTED = False
+    logger.warning('GLM视觉模型服务模块未加载')
+
+
+def _glm_available() -> bool:
+    """Check GLM availability dynamically (not at import time)."""
+    if not GLM_IMPORTED or _glm_svc is None:
+        return False
+    return _glm_svc.is_available()
 
 try:
     from PyPDF2 import PdfReader
@@ -27,7 +35,7 @@ class InvoiceParser:
         pass
     
     def is_available(self) -> bool:
-        return PDF_AVAILABLE or GLM_AVAILABLE
+        return PDF_AVAILABLE or _glm_available()
     
     def parse_file(self, file_bytes: bytes, filename: str) -> Dict[str, Any]:
         if not self.is_available():
@@ -72,9 +80,9 @@ class InvoiceParser:
                 }
                 
             elif ext in ['.png', '.jpg', '.jpeg']:
-                if GLM_AVAILABLE:
-                    logger.info('使用GLM-4.6V-Flash视觉模型识别图片发票')
-                    result = glm_vision_service.extract_invoice_info(file_bytes, filename)
+                if _glm_available():
+                    logger.info('使用GLM-4V-Flash视觉模型识别图片发票')
+                    result = _glm_svc.extract_invoice_info(file_bytes, filename)
                     if result.get('success'):
                         return result
                     else:

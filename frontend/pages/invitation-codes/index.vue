@@ -774,7 +774,7 @@ const formatDateTime = (dateStr) => {
   .codes-table th, .codes-table td { padding: 10px 12px; font-size: 12px; }
   .codes-table-container { border-radius: 8px; }
   .btn-disable-sm, .btn-enable-sm, .btn-delete-sm {
-    min-width: 32px; min-height: 32px; padding: 4px 8px;
+    min-width: 44px; min-height: 44px; padding: 6px 10px; font-size: 13px;
   }
   .row-actions { gap: 6px; }
   .pagination { gap: 0.5rem; }

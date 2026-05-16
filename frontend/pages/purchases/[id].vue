@@ -39,10 +39,15 @@
     <!-- 过滤面板 -->
     <div class="filter-panel">
       <div class="filter-header">
-        <h3>筛选条件</h3>
+        <div class="filter-header-left">
+          <button @click="filterCollapsed = !filterCollapsed" class="collapse-btn" :title="filterCollapsed ? '展开筛选' : '收起筛选'">
+            <span class="collapse-icon">{{ filterCollapsed ? '▶' : '▼' }}</span>
+          </button>
+          <h3>筛选条件</h3>
+        </div>
         <button @click="resetFilters" class="reset-btn">重置</button>
       </div>
-      <div class="filter-grid">
+      <div v-show="!filterCollapsed" class="filter-grid">
         <div class="filter-group filter-group-span-2">
           <label>日期范围</label>
           <div class="date-range">
@@ -89,8 +94,28 @@
           </select>
         </div>
       </div>
-      <div class="filter-actions">
+      <div v-show="!filterCollapsed" class="filter-actions">
         <button @click="applyFilters" class="apply-btn">应用筛选</button>
+      </div>
+    </div>
+
+    <!-- 排序与操作栏 -->
+    <div class="records-toolbar">
+      <div class="sort-control">
+        <label>排序方式：</label>
+        <select v-model="sortBy" class="sort-select">
+          <option value="default">上传顺序</option>
+          <option value="purchase_date">购物时间</option>
+          <option value="item_name">名称（字典序）</option>
+          <option value="purchase_platform">平台</option>
+          <option value="amount">金额</option>
+        </select>
+        <button @click="sortAsc = !sortAsc" class="sort-order-btn" :title="sortAsc ? '升序' : '降序'">
+          {{ sortAsc ? '↑ 升序' : '↓ 降序' }}
+        </button>
+      </div>
+      <div class="toolbar-right">
+        <span class="record-count">共 {{ filteredRecords.length }} 条记录</span>
       </div>
     </div>
 
@@ -141,10 +166,10 @@
             <td>
               <div class="action-buttons">
                 <button @click="viewRecord(record)" class="btn-view-sm" title="查看详情">👁</button>
-                <button @click="editRecord(record)" class="btn-edit-sm" title="编辑">✏</button>
+                <button v-if="canModifyRecord(record)" @click="editRecord(record)" class="btn-edit-sm" title="编辑">✏</button>
                 <button v-if="record.has_invoice && !record.is_reimbursed && canReview" @click="reimburseRecord(record)" class="btn-reimburse-sm" title="报销">💰</button>
                 <button v-if="canReview && record.status === 'pending'" @click="approveRecord(record)" class="btn-approve-sm" title="通过">✓</button>
-                <button @click="deleteSingle(record)" class="btn-delete-sm" title="删除">X</button>
+                <button v-if="canModifyRecord(record)" @click="deleteSingle(record)" class="btn-delete-sm" title="删除">X</button>
               </div>
             </td>
           </tr>
@@ -788,9 +813,13 @@ const filters = ref({
   reimburseStatus: ''
 })
 
+const filterCollapsed = ref(false)
+const sortBy = ref('default')
+const sortAsc = ref(false)
+
 // 过滤后的记录
 const filteredRecords = computed(() => {
-  return records.value.filter(record => {
+  let result = records.value.filter(record => {
     // 日期过滤
     if (filters.value.startDate) {
       const recordDate = new Date(record.purchase_date)
@@ -803,7 +832,7 @@ const filteredRecords = computed(() => {
       endDate.setHours(23, 59, 59, 999)
       if (recordDate > endDate) return false
     }
-    
+
     // 金额过滤
     if (filters.value.minAmount !== null && filters.value.minAmount !== '') {
       if (parseFloat(record.amount) < filters.value.minAmount) return false
@@ -811,32 +840,57 @@ const filteredRecords = computed(() => {
     if (filters.value.maxAmount !== null && filters.value.maxAmount !== '') {
       if (parseFloat(record.amount) > filters.value.maxAmount) return false
     }
-    
+
     // 上传人过滤
     if (filters.value.uploader) {
       const uploaderName = record.uploader_name || ''
       if (!uploaderName.toLowerCase().includes(filters.value.uploader.toLowerCase())) return false
     }
-    
+
     // 发票状态过滤
     if (filters.value.invoiceStatus) {
       if (filters.value.invoiceStatus === 'has_invoice' && !record.has_invoice) return false
       if (filters.value.invoiceStatus === 'no_invoice' && record.has_invoice) return false
     }
-    
+
     // 审核状态过滤
     if (filters.value.reviewStatus && record.status) {
       if (record.status !== filters.value.reviewStatus) return false
     }
-    
+
     // 报销状态过滤
     if (filters.value.reimburseStatus) {
       if (filters.value.reimburseStatus === 'reimbursed' && !record.is_reimbursed) return false
       if (filters.value.reimburseStatus === 'not_reimbursed' && record.is_reimbursed) return false
     }
-    
+
     return true
   })
+
+  // 排序
+  result = [...result].sort((a, b) => {
+    let cmp = 0
+    switch (sortBy.value) {
+      case 'purchase_date':
+        cmp = new Date(a.purchase_date || 0) - new Date(b.purchase_date || 0)
+        break
+      case 'item_name':
+        cmp = (a.item_name || '').localeCompare(b.item_name || '', 'zh')
+        break
+      case 'purchase_platform':
+        cmp = (a.purchase_platform || '').localeCompare(b.purchase_platform || '', 'zh')
+        break
+      case 'amount':
+        cmp = parseFloat(a.amount || 0) - parseFloat(b.amount || 0)
+        break
+      default:
+        cmp = new Date(a.created_at || 0) - new Date(b.created_at || 0)
+        break
+    }
+    return sortAsc.value ? cmp : -cmp
+  })
+
+  return result
 })
 
 // 应用过滤
@@ -860,6 +914,12 @@ const resetFilters = () => {
 const canReview = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
 })
+
+const canModifyRecord = (record) => {
+  if (!currentUser.value) return false
+  if (['admin', 'teacher', 'student_admin'].includes(currentUser.value.user_type)) return true
+  return record.uploader_id === currentUser.value.user_id
+}
 
 const selectAll = computed({
   get: () => selectedRecords.value.length === records.value.length && records.value.length > 0,
@@ -958,7 +1018,7 @@ const loadRecords = async () => {
       })))
     }
     
-    records.value = allRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    records.value = allRecords
     
     // 每次加载记录时都更新统计数据
     stats.value = {
@@ -1737,6 +1797,51 @@ const formatMoney = (val) => {
 .stat-label { display: block; font-size: 12px; color: #7f8c8d; margin-bottom: 4px; }
 .stat-value { display: block; font-size: 20px; font-weight: 700; color: #2c3e50; }
 
+/* 排序与操作栏 */
+.records-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 14px;
+  color: #495057;
+}
+.sort-select {
+  padding: 0.45rem 0.75rem;
+  border: 1.5px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 13px;
+  background: white;
+  color: #2c3e50;
+  cursor: pointer;
+  outline: none;
+}
+.sort-select:focus { border-color: #667eea; }
+.sort-order-btn {
+  padding: 0.45rem 0.75rem;
+  border: 1.5px solid #dee2e6;
+  border-radius: 6px;
+  background: #f8f9fa;
+  cursor: pointer;
+  font-size: 13px;
+  color: #495057;
+  transition: all 0.2s;
+}
+.sort-order-btn:hover { background: #e9ecef; border-color: #ced4da; }
+.toolbar-right { display: flex; align-items: center; }
+.record-count { font-size: 13px; color: #7f8c8d; }
+
 .records-table-container {
   background: white;
   border-radius: 10px;
@@ -1852,11 +1957,40 @@ const formatMoney = (val) => {
   margin-bottom: 1.2rem;
 }
 
+.filter-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .filter-header h3 {
   margin: 0;
   font-size: 1.1rem;
   color: #2c3e50;
   font-weight: 600;
+}
+
+.collapse-btn {
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid #dee2e6;
+  border-radius: 6px;
+  background: #f8f9fa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+}
+.collapse-btn:hover {
+  background: #e9ecef;
+  border-color: #ced4da;
+}
+.collapse-icon {
+  font-size: 10px;
+  color: #6c757d;
+  transition: transform 0.2s;
 }
 
 .reset-btn {
@@ -1953,20 +2087,33 @@ const formatMoney = (val) => {
   .filter-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .filter-group-span-2 {
     grid-column: span 1;
   }
-  
+
   .date-range,
   .amount-range {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .range-separator {
     text-align: center;
     padding: 0.2rem 0;
+  }
+
+  .records-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .sort-control {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .toolbar-right {
+    justify-content: center;
   }
 }
 
@@ -2661,7 +2808,7 @@ const formatMoney = (val) => {
   .stat-value { font-size: 18px; }
   .filter-grid { gap: 0.5rem; }
   .filter-group input, .filter-group select { min-height: 44px; font-size: 16px; }
-  .filter-actions .filter-btn, .filter-actions .reset-btn { min-height: 44px; flex: 1; }
+  .filter-actions .apply-btn, .filter-actions .reset-btn { min-height: 44px; flex: 1; }
   .action-buttons { gap: 0.4rem; }
   .action-buttons .action-btn { min-height: 40px; font-size: 12px; flex: 1; min-width: calc(50% - 0.4rem); }
   .detail-item.full-width { grid-column: span 1; }
@@ -2683,5 +2830,13 @@ const formatMoney = (val) => {
   .ai-error-banner { font-size: 0.8rem; padding: 10px 12px; }
   .form-section { padding: 1rem; }
   .input-shell input, .input-shell select, .input-shell textarea { font-size: 16px; min-height: 44px; }
+  .records-toolbar { padding: 0.6rem 0.75rem; }
+  .sort-control { width: 100%; }
+  .sort-select { min-height: 44px; flex: 1; }
+  .sort-order-btn { min-height: 44px; }
+  .record-count { font-size: 12px; }
+  .btn-view-sm, .btn-edit-sm, .btn-reimburse-sm, .btn-approve-sm, .btn-delete-sm { min-width: 40px; min-height: 40px; font-size: 13px; }
+  .header-actions { flex-wrap: wrap; gap: 0.4rem; }
+  .header-actions .action-button { min-height: 44px; font-size: 13px; flex: 1; min-width: calc(50% - 0.4rem); }
 }
 </style>

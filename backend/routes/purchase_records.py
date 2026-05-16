@@ -218,25 +218,31 @@ def update_purchase_record(record_id):
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
         
         data = request.get_json()
-        
-        if 'item_name' in data:
+
+        # Only the uploader or admin/teacher/student_admin can modify
+        is_admin_or_teacher = user.user_type in ['admin', 'teacher', 'student_admin']
+        is_uploader = record.uploader_id == int(current_user_id)
+        if not (is_admin_or_teacher or is_uploader):
+            return jsonify({'code': 403, 'message': '只能修改自己的购买记录', 'data': None}), 403
+
+        if 'item_name' in data and data['item_name'] is not None:
             record.item_name = data['item_name']
-        if 'purchase_platform' in data:
+        if 'purchase_platform' in data and data['purchase_platform'] is not None:
             record.purchase_platform = data['purchase_platform']
-        if 'purchase_date' in data:
-            record.purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date']
-        if 'amount' in data:
-            record.amount = float(data['amount'])
-        if 'receipt_image_url' in data:
+        if 'purchase_date' in data and data['purchase_date']:
+            record.purchase_date = datetime.strptime(data['purchase_date'][:10], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date']
+        if 'amount' in data and data['amount'] is not None:
+            record.amount = float(data['amount']) if data['amount'] else 0.0
+        if 'receipt_image_url' in data and data['receipt_image_url'] is not None:
             record.receipt_image_url = data['receipt_image_url']
         if 'receipt_image_name' in data:
             record.receipt_image_name = data['receipt_image_name']
-        
+
         if 'invoice_file_key' in data:
             has_invoice = bool(data['invoice_file_key'])
             record.has_invoice = has_invoice
             record.invoice_file_key = data['invoice_file_key'] if has_invoice else None
-        
+
         if 'invoice_preview_key' in data:
             record.invoice_preview_key = data['invoice_preview_key']
         if 'invoice_original_filename' in data:
@@ -247,10 +253,10 @@ def update_purchase_record(record_id):
             record.invoice_type = data['invoice_type']
         if 'invoice_number' in data:
             record.invoice_number = data['invoice_number']
-        if 'total_amount' in data:
+        if 'total_amount' in data and data['total_amount'] is not None:
             record.total_amount = float(data['total_amount']) if data['total_amount'] else 0
-        if 'invoice_date' in data:
-            record.invoice_date = datetime.strptime(data['invoice_date'], '%Y-%m-%d').date() if isinstance(data['invoice_date'], str) else data['invoice_date']
+        if 'invoice_date' in data and data['invoice_date']:
+            record.invoice_date = datetime.strptime(data['invoice_date'][:10], '%Y-%m-%d').date() if isinstance(data['invoice_date'], str) else data['invoice_date']
         if 'remarks' in data:
             record.remarks = data['remarks']
         

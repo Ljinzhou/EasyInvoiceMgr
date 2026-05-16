@@ -212,11 +212,11 @@ def update_event(event_id):
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
         
-        if not user or user.user_type not in ['admin', 'teacher']:
+        if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+
         event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
-        
+
         if not event:
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
         
@@ -363,9 +363,9 @@ def delete_event(event_id):
             logger.warning(f'用户不存在: {current_user_id}')
             return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
         
-        if user.user_type not in ['admin', 'teacher']:
+        if user.user_type not in ['admin', 'teacher', 'student_admin']:
             logger.warning(f'权限不足: 用户类型={user.user_type}')
-            return jsonify({'code': 403, 'message': '权限不足，只有管理员或教师可以删除项目', 'data': None}), 403
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
         
         event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
         

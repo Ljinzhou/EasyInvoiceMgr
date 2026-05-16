@@ -50,7 +50,8 @@ class ExportService:
                 task.progress_message = '正在获取数据...'
                 db.session.commit()
 
-                records, snapshot_time = self._fetch_data(task.event_id)
+                uploader_id = task.requester_id if options.get('only_mine') else None
+                records, snapshot_time = self._fetch_data(task.event_id, uploader_id)
                 task.data_snapshot_time = snapshot_time
                 task.record_count = len(records)
                 task.progress_percent = 15
@@ -141,6 +142,7 @@ class ExportService:
             'mergedPdf': 'merged_pdf',
             'individualInvoices': 'individual_invoices',
             'receiptImages': 'receipt_images',
+            'onlyMine': 'only_mine',
         }
         result = {}
         for k, v in options.items():
@@ -148,11 +150,17 @@ class ExportService:
             result[key] = v
         return result
 
-    def _fetch_data(self, event_id):
+    def _fetch_data(self, event_id, uploader_id=None):
         from models import db, PurchaseRecord, Invoice, User
 
-        purchase_records = PurchaseRecord.query.filter_by(event_id=event_id, is_deleted=False).all()
-        invoices = Invoice.query.filter_by(event_id=event_id, is_deleted=False).all()
+        purchase_query = PurchaseRecord.query.filter_by(event_id=event_id, is_deleted=False)
+        invoice_query = Invoice.query.filter_by(event_id=event_id, is_deleted=False)
+        if uploader_id:
+            purchase_query = purchase_query.filter_by(uploader_id=uploader_id)
+            invoice_query = invoice_query.filter_by(uploader_id=uploader_id)
+
+        purchase_records = purchase_query.all()
+        invoices = invoice_query.all()
 
         logger.info(f'获取数据: event_id={event_id}, purchase_records={len(purchase_records)}, invoices={len(invoices)}')
 

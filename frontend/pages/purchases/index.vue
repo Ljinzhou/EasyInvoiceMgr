@@ -354,5 +354,8 @@ const formatMoney = (val) => {
   .quick-add-section h2 { font-size: 16px; }
   .quick-select { min-height: 44px; }
   .action-button.quick-add { min-height: 44px; }
+  .event-name { font-size: 14px; }
+  .event-status { font-size: 10px; padding: 2px 8px; }
+  .card-row { font-size: 12px; }
 }
 </style>

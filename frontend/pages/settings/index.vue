@@ -1588,4 +1588,24 @@ useHead({ title: '系统设置 - 财务管理系统' })
   .history-actions { align-self: flex-end; }
   .modal-content { padding: 1.5rem; }
 }
+@media (max-width: 480px) {
+  .page-header h1 { font-size: 1.15rem; }
+  .page-subtitle { font-size: 0.8rem; }
+  .config-card { padding: 0.9rem; border-radius: 8px; }
+  .card-header h2 { font-size: 1rem; }
+  .config-card input,
+  .config-card select,
+  .config-card textarea { font-size: 16px; min-height: 44px; }
+  .schedule-row select,
+  .schedule-row input { min-height: 44px; }
+  .form-actions-row { flex-direction: column; gap: 0.5rem; }
+  .form-actions-row button { width: 100%; min-height: 44px; justify-content: center; }
+  .backup-quick-row .quick-input { width: 100%; min-height: 44px; }
+  .history-item { padding: 0.75rem; }
+  .history-actions { align-self: stretch; display: flex; gap: 4px; }
+  .history-actions .action-btn { min-width: 44px; min-height: 44px; }
+  .modal-content { padding: 1rem; max-width: 95vw; }
+  .forbidden-card { padding: 2rem 1rem; }
+  .command-block code { font-size: 0.72rem; white-space: pre-wrap; word-break: break-all; }
+}
 </style>
