@@ -470,7 +470,6 @@ const selectedMember = ref(null)
 const addingMember = ref(false)
 
 onMounted(async () => {
-  console.log('=== 项目管理：页面加载 ===')
   const token = localStorage.getItem('token')
 
   if (!token) {
@@ -532,7 +531,6 @@ const formatDateTimeLocal = (dateStr) => {
 
 const updateEvent = async () => {
   updating.value = true
-  console.log('=== 项目管理：更新比赛 ===')
   try {
     const token = localStorage.getItem('token')
     const response = await $api.put(`/events/${editingEventId.value}`, editForm.value, {
@@ -540,7 +538,6 @@ const updateEvent = async () => {
     })
 
     if (response.data.code === 200) {
-      console.log('比赛更新成功')
       showEditModal.value = false
       const eventId = editingEventId.value
       if (eventId) {
@@ -549,7 +546,7 @@ const updateEvent = async () => {
       syncFromStore()
     }
   } catch (error) {
-    console.error('更新比赛失败:', error)
+    console.error('更新比赛失败:', error.message)
     alert('更新比赛失败，请稍后重试')
   } finally {
     updating.value = false
@@ -641,7 +638,7 @@ const addMember = async () => {
       syncFromStore()
     }
   } catch (error) {
-    console.error('添加成员失败:', error)
+    console.error('添加成员失败:', error.message)
     alert('添加成员失败，请稍后重试')
   } finally {
     addingMember.value = false
@@ -680,7 +677,6 @@ const deleteEvent = async () => {
   if (!deletingEvent.value) return
 
   deleting.value = true
-  console.log('=== 项目管理：删除项目 ===')
 
   try {
     const token = localStorage.getItem('token')
@@ -689,7 +685,6 @@ const deleteEvent = async () => {
     })
 
     if (response.data.code === 200) {
-      console.log('删除成功')
       showDeleteModal.value = false
       confirmName.value = ''
       const deletedId = deletingEvent.value?.event_id
@@ -701,7 +696,7 @@ const deleteEvent = async () => {
       alert(response.data.message || '删除失败，请稍后重试')
     }
   } catch (error) {
-    console.error('=== 项目管理：删除项目异常 ===')
+    console.error('删除项目失败:', error.message)
     const message = error.response?.data?.message || '删除失败，请稍后重试'
     alert(message)
   } finally {

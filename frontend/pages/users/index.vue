@@ -498,7 +498,7 @@ const loadUsers = async () => {
       users.value = response.data.data.data || response.data.data || []
     }
   } catch (error) {
-    console.error('加载用户列表失败:', error)
+    console.error('加载用户列表失败:', error.message)
   }
 }
 
@@ -518,7 +518,7 @@ const loadEvents = async () => {
       availableEvents.value = response.data.data.data || []
     }
   } catch (error) {
-    console.error('加载比赛列表失败:', error)
+    console.error('加载比赛列表失败:', error.message)
   }
 }
 
@@ -533,7 +533,7 @@ const getEventName = async (eventId) => {
       return response.data.data.event_name
     }
   } catch (error) {
-    console.error('获取比赛名称失败:', error)
+    console.error('获取比赛名称失败:', error.message)
   }
   return ''
 }
@@ -572,15 +572,11 @@ const addUser = async () => {
       student_or_staff_id: addForm.value.student_or_staff_id?.trim() || null,
       user_type: addForm.value.user_type
     }
-    
-    console.log('提交用户数据:', { ...payload, password: '***' })
-    
+
     const response = await $api.post('/auth/register', payload, {
       headers: { Authorization: `Bearer ${token}` }
     })
-    
-    console.log('注册响应:', response.data)
-    
+
     if (response.data.code === 200 || response.data.code === 201) {
       // 显示成功消息
       const newUser = response.data.data
@@ -599,7 +595,7 @@ const addUser = async () => {
             headers: { Authorization: `Bearer ${token}` }
           })
         } catch (memberErr) {
-          console.error('将用户添加到比赛失败:', memberErr)
+          console.error('将用户添加到比赛失败:', memberErr.message)
         }
       }
 
@@ -622,7 +618,7 @@ const addUser = async () => {
       addError.value = response.data.message || '添加失败，请稍后重试'
     }
   } catch (error) {
-    console.error('添加用户失败:', error)
+    console.error('添加用户失败:', error.message)
     if (error.response?.status === 401) {
       addError.value = '登录已过期，请重新登录后操作'
     } else if (error.response?.status === 403) {

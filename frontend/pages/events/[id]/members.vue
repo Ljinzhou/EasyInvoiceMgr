@@ -125,7 +125,7 @@ const loadEvent = async () => {
       event.value = response.data.data
     }
   } catch (e) {
-    console.error('加载比赛信息失败:', e)
+    console.error('加载比赛信息失败:', e.message)
   }
 }
 
@@ -150,7 +150,7 @@ const loadMembers = async () => {
       }
     }
   } catch (e) {
-    console.error('加载成员列表失败:', e)
+    console.error('加载成员列表失败:', e.message)
   }
 }
 

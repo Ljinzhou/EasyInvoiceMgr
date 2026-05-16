@@ -267,7 +267,7 @@ const loadCodes = async () => {
       totalPages.value = response.data.data.total_pages
     }
   } catch (error) {
-    console.error('加载邀请码失败:', error)
+    console.error('加载邀请码失败:', error.message)
   }
 }
 

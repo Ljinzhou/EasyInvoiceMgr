@@ -147,29 +147,29 @@ def create_invoice():
             logger.warning(f'比赛不存在: event_id={event_id}')
             return jsonify({'code': 2001, 'message': '比赛不存在', 'data': None}), 404
         
-        file_md5 = None
+        # Always compute MD5 and check for duplicates (BUG-04 fix)
+        file_content = file.read()
+        file_md5 = hashlib.md5(file_content).hexdigest()
+        file.seek(0)
+
+        existing_invoice = Invoice.query.filter_by(
+            event_id=int(event_id),
+            file_md5=file_md5,
+            is_deleted=False
+        ).first()
+
+        if existing_invoice:
+            logger.warning(f'检测到重复上传: MD5={file_md5}, 已存在发票ID={existing_invoice.invoice_id}')
+            return jsonify({
+                'code': 4001,
+                'message': '该发票文件已经上传过，请勿重复提交',
+                'data': {
+                    'existing_invoice_id': existing_invoice.invoice_id,
+                    'upload_time': existing_invoice.created_at.isoformat() if existing_invoice.created_at else None
+                }
+            }), 400
+
         if storage_manager.is_available():
-            file_content = file.read()
-            file_md5 = hashlib.md5(file_content).hexdigest()
-            file.seek(0)
-            
-            existing_invoice = Invoice.query.filter_by(
-                event_id=int(event_id),
-                file_md5=file_md5,
-                is_deleted=False
-            ).first()
-            
-            if existing_invoice:
-                logger.warning(f'检测到重复上传: MD5={file_md5}, 已存在发票ID={existing_invoice.invoice_id}')
-                return jsonify({
-                    'code': 4001,
-                    'message': '该发票文件已经上传过，请勿重复提交',
-                    'data': {
-                        'existing_invoice_id': existing_invoice.invoice_id,
-                        'upload_time': existing_invoice.created_at.isoformat() if existing_invoice.created_at else None
-                    }
-                }), 400
-            
             upload_result = storage_manager.upload_file(int(event_id), file, file.filename)
             image_url = upload_result['file_key']
             logger.info(f'文件上传成功: {image_url}')
