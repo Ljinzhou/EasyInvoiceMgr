@@ -651,16 +651,47 @@ def trigger_update():
 
     # Check if update is already running
     status_path = _update_status_path()
+    lock_path = _update_lock_path()
+    update_alive = False
     if os.path.exists(status_path):
         try:
             with open(status_path, 'r', encoding='utf-8') as f:
                 st = _json.load(f)
             if st.get('status') == 'running':
-                return jsonify({
-                    'code': 409,
-                    'message': '系统更新正在进行中，请勿重复操作',
-                    'data': st
-                }), 409
+                # Verify the update process is actually still alive via lock file
+                if os.path.exists(lock_path):
+                    try:
+                        with open(lock_path, 'r') as lf:
+                            pid = int(lf.read().strip())
+                        os.kill(pid, 0)  # Check if process exists
+                        update_alive = True
+                    except (ValueError, OSError, ProcessLookupError):
+                        logger.warning('更新锁文件存在但进程已不存在，清除残留状态')
+                        os.remove(lock_path)
+                if update_alive:
+                    return jsonify({
+                        'code': 409,
+                        'message': '系统更新正在进行中，请勿重复操作',
+                        'data': st
+                    }), 409
+                # Stale running status - clean it up
+                logger.warning('检测到残留的更新状态文件，已清除')
+                try:
+                    os.remove(status_path)
+                except OSError:
+                    pass
+            else:
+                # Previous update finished or was interrupted — clean up stale status
+                logger.info(f'清除旧的更新状态文件 (status={st.get("status")})')
+                try:
+                    os.remove(status_path)
+                except OSError:
+                    pass
+                if os.path.exists(lock_path):
+                    try:
+                        os.remove(lock_path)
+                    except OSError:
+                        pass
         except Exception:
             pass
 
@@ -734,3 +765,11 @@ def _update_status_path():
     if project_dir:
         return os.path.join(project_dir, 'update_status.json')
     return '/tmp/update_status.json'
+
+
+def _update_lock_path():
+    """Return the path to .update.lock on the host project directory."""
+    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
+    if project_dir:
+        return os.path.join(project_dir, '.update.lock')
+    return '/tmp/.update.lock'

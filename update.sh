@@ -254,12 +254,22 @@ restart_services() {
 
     cd "$PROJECT_DIR"
 
+    # 重启前先将状态标记为 restarting 并释放锁。
+    # 因为 docker compose up -d 会重启后端容器，导致本脚本进程被杀死，
+    # 如果保持 running 状态，后续更新请求会被 409 阻塞。
+    set_status "restarting" "服务正在重启，更新脚本即将退出..." 80
+    unlock
+
     if $DOCKER_COMPOSE -f "$PROJECT_DIR/docker-compose.yml" up -d 2>&1 | tee -a "$LOG_FILE"; then
-        log "✅ 服务已重启"
+        log "✅ 服务已重启（脚本进程可能在此处被终止）"
     else
+        # 重启失败时尝试重新加锁并报告失败
+        lock 2>/dev/null || true
         fail "Docker 服务启动失败" 80
     fi
 
+    # 如果脚本进程幸存（未使用 docker compose 或容器未被重启），继续健康检查
+    lock 2>/dev/null || true
     set_status "running" "服务已重启，等待健康检查..." 85
 }
 
@@ -330,9 +340,9 @@ post_cleanup() {
 # ---- 主流程 ----
 main() {
     log "========== 开始系统更新 $(date) =========="
-    set_status "running" "开始更新..." 2
 
     lock || exit 1
+    set_status "running" "开始更新..." 2
 
     preflight
     backup_database

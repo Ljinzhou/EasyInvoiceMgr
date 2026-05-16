@@ -536,24 +536,26 @@ async function triggerUpdate() {
       updateProgress.value = 5
       updateStatusMsg.value = data.message || '更新已启动'
       startUpdatePolling()
-    } else if (data.code === 409) {
-      // Already running
-      updateConfirmVisible.value = false
-      updateTriggered.value = true
-      updateProgress.value = data.data?.progress || 0
-      updateStatusMsg.value = data.message || '更新正在进行中'
-      startUpdatePolling()
     } else {
       alert(data.message || '启动更新失败')
     }
   } catch (e: any) {
-    // The request may fail because the backend restarts immediately
-    // This is expected - assume the update started
-    updateConfirmVisible.value = false
-    updateTriggered.value = true
-    updateProgress.value = 30
-    updateStatusMsg.value = '更新已触发，等待服务重启...'
-    startPostUpdatePolling()
+    const status = e.response?.status
+    if (status === 409) {
+      // 更新正在进行中
+      updateConfirmVisible.value = false
+      updateTriggered.value = true
+      updateProgress.value = e.response?.data?.data?.progress || 0
+      updateStatusMsg.value = e.response?.data?.message || '更新正在进行中'
+      startUpdatePolling()
+    } else {
+      // 其他错误（可能是后端因更新重启导致的网络错误）
+      updateConfirmVisible.value = false
+      updateTriggered.value = true
+      updateProgress.value = 30
+      updateStatusMsg.value = '更新已触发，等待服务重启...'
+      startPostUpdatePolling()
+    }
   } finally {
     updating.value = false
   }
