@@ -1,4 +1,5 @@
 ARG NUXT_PUBLIC_API_BASE=http://localhost:5000/api
+ARG USE_CHINA_MIRROR=false
 
 FROM node:20-slim AS build
 
@@ -8,7 +9,11 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-RUN pnpm install --frozen-lockfile
+ARG USE_CHINA_MIRROR
+RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
+        pnpm config set registry https://registry.npmmirror.com; \
+    fi \
+    && pnpm install --frozen-lockfile
 
 COPY . .
 

@@ -74,6 +74,7 @@ CORS_ORIGINS=http://1.2.3.4:3000              # 前端访问地址
 SECRET_KEY=$(openssl rand -hex 32)            # 生产环境务必修改
 JWT_SECRET_KEY=$(openssl rand -hex 32)        # 生产环境务必修改
 GLM_API_KEY=your-key              # 智谱AI（可选，用于发票OCR）
+USE_CHINA_MIRROR=true              # 国内服务器启用镜像加速
 ```
 
 全部可用变量及默认值见下表：
@@ -88,6 +89,7 @@ GLM_API_KEY=your-key              # 智谱AI（可选，用于发票OCR）
 | `NUXT_PUBLIC_API_BASE` | `http://localhost:5000/api` | 前端访问后端的地址 |
 | `GLM_API_KEY` | 空 | 智谱AI密钥 |
 | `GLM_MODEL` | `glm-4.6v-flash` | 智谱AI模型 |
+| `USE_CHINA_MIRROR` | `false` | 国内服务器设为 `true`，自动启用 apt/pip/pnpm 镜像 |
 
 > 修改 `.env` 后执行 `docker compose up -d --build` 重新构建即可生效。
 
@@ -101,7 +103,7 @@ docker compose up -d --build backend frontend
 
 ### 国内服务器
 
-国内服务器访问 Docker Hub 可能超时，需额外三步：
+国内服务器访问 Docker Hub 和默认软件源可能超时，需配置镜像加速：
 
 **1. 配置 Docker 镜像加速：**
 
@@ -112,20 +114,13 @@ EOF
 sudo systemctl restart docker
 ```
 
-**2. 编辑 `backend/Dockerfile`**，在 `RUN apt-get update` 前加一行，`pip install` 加镜像参数：
+**2. 在 `.env` 文件中启用国内镜像：**
 
-```dockerfile
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
-# ...
-RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com -r requirements.txt
+```bash
+USE_CHINA_MIRROR=true
 ```
 
-**3. 编辑 `frontend/Dockerfile`**，`pnpm install` 前加镜像：
-
-```dockerfile
-RUN pnpm config set registry https://registry.npmmirror.com && \
-    pnpm install --frozen-lockfile
-```
+此选项会自动将 apt、pip、pnpm 替换为阿里云/ npmmirror 镜像源，无需手动修改 Dockerfile。
 
 ### 生产环境（Nginx + HTTPS）
 
