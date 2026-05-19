@@ -87,6 +87,9 @@ def create_app():
             return response
 
     JWTManager(app)
+    # 支持从查询参数获取JWT令牌（用于浏览器直接下载文件等场景）
+    app.config['JWT_TOKEN_LOCATION'] = ['headers', 'query_string']
+    app.config['JWT_QUERY_STRING_NAME'] = 'token'
     db.init_app(app)
     from flask_migrate import Migrate
     migrate = Migrate(app, db)

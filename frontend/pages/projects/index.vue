@@ -509,10 +509,13 @@ const goToCreate = () => {
 const editEvent = (event) => {
   editingEventId.value = event.event_id
   // 直接从列表数据中获取负责人姓名，无需额外的API请求
+  console.log('[编辑项目] event.leader_id:', event.leader_id, 'event.leader_name:', event.leader_name)
   if (event.leader_id && event.leader_name) {
     leaderSearch.value = event.leader_name
+    console.log('[编辑项目] 已填充负责人姓名:', event.leader_name)
   } else {
     leaderSearch.value = ''
+    console.log('[编辑项目] 无负责人信息')
   }
   editForm.value = {
     event_name: event.event_name,

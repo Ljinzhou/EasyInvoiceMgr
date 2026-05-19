@@ -273,6 +273,10 @@ const loadEventData = async () => {
         leader_id: event.leader_id || null,
         need_invoice_review: event.need_invoice_review !== false // 默认为true
       }
+      // 自动填充负责人姓名到搜索框
+      leaderSearch.value = event.leader_name || ''
+      showDropdown.value = false
+      console.log('[编辑项目页面] leader_id:', event.leader_id, 'leader_name:', event.leader_name, '已填充:', leaderSearch.value)
       
     } else {
       error.value = '加载比赛数据失败'
