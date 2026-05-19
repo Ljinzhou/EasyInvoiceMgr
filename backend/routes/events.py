@@ -201,6 +201,7 @@ def get_events():
                 'purchase_record_count': purchase_count,
                 'voucher_count': invoice_count + purchase_count,
                 'creator_id': event.creator_id,
+                'leader_id': event.leader_id,
                 'leader_name': leader.real_name if leader else None,
                 'need_invoice_review': event.need_invoice_review
             })

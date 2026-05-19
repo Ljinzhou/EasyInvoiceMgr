@@ -870,36 +870,12 @@ async function downloadBackup(id: number) {
   const token = localStorage.getItem('token')
   if (!token) { alert('请先登录'); return }
 
-  // 构造直接访问后端的下载URL，避免前端代理超时
+  // 构造直接访问后端的下载URL（通过?token=参数传递JWT，支持浏览器原生下载）
   const downloadUrl = `${apiBase}/system/backup/${id}/download?token=${encodeURIComponent(token)}`
-  console.log('[备份下载] 直接URL:', downloadUrl)
+  console.log('[备份下载] 开始下载:', downloadUrl)
 
-  // 先用 HEAD 请求验证备份是否可用
-  try {
-    const checkResp = await $api.get(`/system/backup/${id}/download`, {
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 10000
-    })
-    console.log('[备份下载] 验证通过，开始下载...')
-  } catch (e: any) {
-    if (e.response?.status === 404) {
-      alert('备份文件不存在或已被删除')
-    } else if (e.response?.status === 400) {
-      alert('备份文件不可用: ' + (e.response?.data?.message || '未知错误'))
-    } else {
-      console.error('[备份下载] 验证失败:', e)
-    }
-    return
-  }
-
-  // 使用隐藏的 iframe 或 a 标签触发浏览器原生下载（无超时限制）
-  const a = document.createElement('a')
-  a.href = downloadUrl
-  a.download = ''
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  console.log('[备份下载] 浏览器下载已触发')
+  // 直接用浏览器原生下载，无超时限制，大文件也可以正常下载
+  window.open(downloadUrl, '_blank')
 }
 
 function confirmRestore(id: number) {
