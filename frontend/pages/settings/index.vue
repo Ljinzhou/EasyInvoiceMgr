@@ -148,6 +148,13 @@
                   </div>
                   <span class="progress-text" style="margin-top: .3rem;">{{ updateProgress }}%</span>
                   <p class="update-progress-hint">服务将在更新完成后自动重启，页面将自动刷新。</p>
+                  <button
+                    class="check-btn"
+                    style="margin-top: 0.5rem; width: 100%;"
+                    @click="fetchUpdateLog"
+                  >
+                    📋 查看更新日志（控制台输出）
+                  </button>
                 </div>
               </transition>
 
@@ -375,7 +382,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useUserStore } from '~/stores/userStore'
 
-const { $api } = useNuxtApp()
+const { $api, $config } = useNuxtApp()
+const apiBase = $config.public.apiBase as string
 const userStore = useUserStore()
 userStore.loadFromStorage()
 
@@ -523,37 +531,67 @@ async function copyCommands() {
 }
 
 function confirmUpdate() {
+  console.log('==================== 系统更新 ====================')
+  console.log('[更新] 用户点击"立即更新"按钮')
+  console.log('[更新] 当前版本:', currentVersion.value)
+  console.log('[更新] 目标版本:', latestVersion.value)
+  console.log(`[更新] API地址: ${apiBase}/system/update`)
+  console.log('[更新] 弹出确认弹窗')
   updateConfirmVisible.value = true
 }
 
 async function triggerUpdate() {
+  console.log('[更新] 用户确认更新，开始触发...')
+  console.log(`[更新] POST ${apiBase}/system/update`)
   updating.value = true
   try {
+    const startTime = Date.now()
     const { data } = await $api.post('/system/update')
+    const elapsed = Date.now() - startTime
+    console.log(`[更新] 请求响应时间: ${elapsed}ms`)
+    console.log('[更新] 响应数据:', JSON.stringify(data, null, 2))
     if (data.code === 200) {
+      console.log('[更新] ✅ 更新已成功启动')
+      console.log('[更新] 服务器消息:', data.message)
+      console.log('[更新] 状态:', data.data?.status)
       updateConfirmVisible.value = false
       updateTriggered.value = true
       updateProgress.value = 5
       updateStatusMsg.value = data.message || '更新已启动'
+      // 开始获取详细日志
+      fetchUpdateLog()
       startUpdatePolling()
     } else {
+      console.error('[更新] ❌ 启动失败, code:', data.code, 'message:', data.message)
       alert(data.message || '启动更新失败')
     }
   } catch (e: any) {
+    console.error('[更新] ❌ 请求异常')
+    console.error('[更新] 错误对象:', e)
     const status = e.response?.status
+    console.error('[更新] HTTP状态码:', status)
+    console.error('[更新] 响应数据:', e.response?.data)
     if (status === 409) {
-      // 更新正在进行中
+      console.log('[更新] ⚠️ 更新已在运行中 (409)')
+      console.log('[更新] 当前进度:', e.response?.data?.data?.progress)
       updateConfirmVisible.value = false
       updateTriggered.value = true
       updateProgress.value = e.response?.data?.data?.progress || 0
       updateStatusMsg.value = e.response?.data?.message || '更新正在进行中'
+      fetchUpdateLog()
       startUpdatePolling()
+    } else if (status === 503) {
+      console.error('[更新] ❌ 更新脚本未找到 (503)')
+      console.error('[更新] 请检查 HOST_PROJECT_DIR 环境变量和 Docker socket 挂载')
+      alert(e.response?.data?.message || '更新服务未就绪，请检查服务器配置')
     } else {
-      // 其他错误（可能是后端因更新重启导致的网络错误）
+      console.log('[更新] ⚠️ 请求失败但更新可能已触发（后端可能已重启）')
+      console.log('[更新] 切换到等待服务恢复模式...')
       updateConfirmVisible.value = false
       updateTriggered.value = true
       updateProgress.value = 30
       updateStatusMsg.value = '更新已触发，等待服务重启...'
+      fetchUpdateLog()
       startPostUpdatePolling()
     }
   } finally {
@@ -561,23 +599,57 @@ async function triggerUpdate() {
   }
 }
 
+async function fetchUpdateLog() {
+  try {
+    console.log('[更新日志] 正在获取服务器端更新日志...')
+    const { data } = await $api.get('/system/update/log', { params: { lines: 500 } })
+    if (data.code === 200 && data.data) {
+      console.log(`[更新日志] 文件: ${data.data.path}`)
+      console.log(`[更新日志] 大小: ${data.data.file_size} bytes`)
+      console.log(`[更新日志] 最后更新: ${data.data.updated_at}`)
+      console.log(`[更新日志] 行数: ${data.data.lines}`)
+      console.log('[更新日志] ========== 服务器更新日志内容 ==========')
+      console.log(data.data.log || '(日志为空)')
+      console.log('[更新日志] ========== 日志内容结束 ==========')
+    } else {
+      console.log('[更新日志] 暂无日志数据')
+    }
+  } catch (e: any) {
+    console.warn('[更新日志] 获取日志失败:', e.message || e)
+  }
+}
+
 function startUpdatePolling() {
+  console.log('[更新轮询] 开始轮询更新状态 (每2秒)')
+  let pollCount = 0
   if (updatePollTimer) clearInterval(updatePollTimer)
   updatePollTimer = setInterval(async () => {
+    pollCount++
     try {
       const { data } = await $api.get('/system/update/status')
+      console.log(`[更新轮询 #${pollCount}] 状态响应:`, JSON.stringify(data))
       if (data.code === 200 && data.data) {
+        console.log(`[更新轮询 #${pollCount}] status=${data.data.status}, progress=${data.data.progress}, message="${data.data.message}"`)
         updateStatusMsg.value = data.data.message || ''
         updateProgress.value = data.data.progress || 0
         if (data.data.status === 'completed') {
+          console.log('[更新轮询] 更新脚本已完成，切换到等待重启模式')
           clearInterval(updatePollTimer!)
           updatePollTimer = null
           updateStatusMsg.value = '更新完成，服务正在重启...'
+          fetchUpdateLog()
           startPostUpdatePolling()
+        } else if (data.data.status === 'failed') {
+          console.error('[更新轮询] ❌ 更新失败!')
+          console.error('[更新轮询] 错误信息:', data.data.message)
+          clearInterval(updatePollTimer!)
+          updatePollTimer = null
+          fetchUpdateLog()
+          alert('更新失败: ' + data.data.message + '\n请查看浏览器控制台获取详细信息')
         }
       }
-    } catch {
-      // Backend may have restarted, switch to post-update polling
+    } catch (e: any) {
+      console.warn(`[更新轮询 #${pollCount}] ⚠️ 请求失败，后端可能已重启:`, e.message)
       clearInterval(updatePollTimer!)
       updatePollTimer = null
       updateProgress.value = 90
@@ -588,51 +660,65 @@ function startUpdatePolling() {
 }
 
 function startPostUpdatePolling() {
+  console.log('[重启等待] 开始等待服务恢复 (每3秒)')
   if (updatePollTimer) clearInterval(updatePollTimer)
   let attempts = 0
   updatePollTimer = setInterval(async () => {
     attempts++
     updateProgress.value = Math.min(90 + attempts, 98)
     updateStatusMsg.value = `等待服务恢复... (${attempts})`
+    console.log(`[重启等待 #${attempts}] 尝试连接后端...`)
     try {
+      const startTime = Date.now()
       const { data } = await $api.get('/system/config')
-      if (data.code === 200) {
-        // Backend is back!
-        clearInterval(updatePollTimer!)
-        updatePollTimer = null
-        updateProgress.value = 100
-        updateStatusMsg.value = '更新完成！页面即将刷新...'
-        setTimeout(() => {
-          window.location.reload()
-        }, 1500)
-      }
-    } catch {
-      // Still waiting for backend to come back
+      const elapsed = Date.now() - startTime
+      console.log(`[重启等待 #${attempts}] ✅ 后端已恢复! 响应时间: ${elapsed}ms`)
+      console.log('[重启等待] 新版本信息:', data.data?._version)
+      clearInterval(updatePollTimer!)
+      updatePollTimer = null
+      updateProgress.value = 100
+      updateStatusMsg.value = '更新完成！页面即将刷新...'
+      console.log('[更新] ==================== 更新完成 ====================')
+      setTimeout(() => {
+        console.log('[更新] 刷新页面...')
+        window.location.reload()
+      }, 1500)
+    } catch (e: any) {
+      console.warn(`[重启等待 #${attempts}] 尚未恢复:`, e.message?.slice(0, 50))
     }
   }, 3000)
 }
 
 async function checkUpdate() {
+  console.log('[检查更新] 开始检查...')
+  console.log(`[检查更新] GET ${apiBase}/system/check-update`)
   checking.value = true
   updateState.value = 'checking'
   try {
     const { data } = await $api.get('/system/check-update')
+    console.log('[检查更新] 响应:', JSON.stringify(data, null, 2))
     if (data.code === 200) {
       if (data.data.has_update) {
+        console.log(`[检查更新] ✅ 发现新版本: ${data.data.update_info?.version}`)
+        console.log('[检查更新] 发布名称:', data.data.update_info?.release_name)
         updateState.value = 'has_update'
         latestVersion.value = data.data.update_info?.version || data.data.latest_version
         updateInfo.value = data.data.update_info?.release_notes || ''
         updateReleaseName.value = data.data.update_info?.release_name || ''
         updateDownloadUrl.value = data.data.update_info?.download_url || ''
         updateCommands.value = data.data.update_commands?.full || 'git pull && docker compose build && docker compose up -d'
+        console.log('[检查更新] 更新命令:', updateCommands.value)
       } else {
+        console.log('[检查更新] 已是最新版本')
         updateState.value = 'up_to_date'
       }
     } else {
+      console.error('[检查更新] ❌ 请求失败:', data.message)
       updateState.value = 'error'
       updateError.value = data.message || '检查失败'
     }
   } catch (e: any) {
+    console.error('[检查更新] ❌ 网络错误:', e.message)
     updateState.value = 'error'
     updateError.value = e.response?.data?.message || '网络错误'
   } finally {
@@ -780,8 +866,30 @@ async function startBackup() {
   }
 }
 
-function downloadBackup(id: number) {
-  window.open(`/api/system/backup/${id}/download`, '_blank')
+async function downloadBackup(id: number) {
+  try {
+    const token = localStorage.getItem('token')
+    const resp = await $api.get(`/system/backup/${id}/download`, {
+      responseType: 'blob',
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    // 从响应头或URL提取文件名
+    const disposition = resp.headers?.['content-disposition'] || ''
+    const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+    let filename = match ? match[1].replace(/['"]/g, '') : `backup_${id}.zip`
+    const blob = new Blob([resp.data])
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  } catch (e: any) {
+    console.error('下载备份失败:', e)
+    alert('下载备份失败: ' + (e.response?.data?.message || e.message || '未知错误'))
+  }
 }
 
 function confirmRestore(id: number) {

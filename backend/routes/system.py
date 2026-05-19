@@ -713,14 +713,28 @@ def trigger_update():
             pass
 
     try:
+        # 将脚本输出重定向到日志文件以捕获详细信息
+        import datetime as _dt
+        log_path = os.path.join(project_dir, 'update.log')
+        # 使用 os.open 获取不会被 Python GC 关闭的文件描述符
+        log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        os.write(log_fd, f'\n{"="*60}\n'.encode('utf-8'))
+        os.write(log_fd, f'[Python] 管理员 {get_jwt_identity()} 触发了系统更新\n'.encode('utf-8'))
+        os.write(log_fd, f'[Python] 脚本路径: {script_path}\n'.encode('utf-8'))
+        os.write(log_fd, f'[Python] 项目目录: {project_dir}\n'.encode('utf-8'))
+        os.write(log_fd, f'[Python] 时间: {_dt.datetime.now().isoformat()}\n'.encode('utf-8'))
+        os.write(log_fd, f'{"="*60}\n'.encode('utf-8'))
+
         proc = _subprocess.Popen(
             ['bash', script_path, '--force'],
             cwd=project_dir,
-            stdout=_subprocess.DEVNULL,
-            stderr=_subprocess.DEVNULL,
+            stdout=log_fd,
+            stderr=log_fd,
             stdin=_subprocess.DEVNULL,
             start_new_session=True,
+            pass_fds=(log_fd,),
         )
+        os.close(log_fd)  # 子进程已继承 fd，父进程可以关闭
         logger.info(f'管理员 {get_jwt_identity()} 触发了系统更新, PID={proc.pid}')
     except Exception as e:
         logger.error(f'启动更新脚本失败: {e}', exc_info=True)
@@ -757,6 +771,61 @@ def update_status():
             'code': 200,
             'data': {'status': 'idle', 'message': f'读取状态失败: {str(e)}'}
         })
+
+
+@system_bp.route('/system/update/log', methods=['GET'])
+@jwt_required()
+def update_log():
+    """获取最近更新的详细日志。仅管理员可用。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    lines_param = request.args.get('lines', 200, type=int)
+    lines_param = min(max(lines_param, 1), 2000)
+
+    log_path = _update_log_path()
+    if not os.path.exists(log_path):
+        return jsonify({
+            'code': 200,
+            'data': {'log': '', 'message': '暂无更新日志'}
+        })
+
+    try:
+        import subprocess as _sp
+        # 使用 tail 读取最后 N 行
+        result = _sp.run(
+            ['tail', '-n', str(lines_param), log_path],
+            capture_output=True, text=True, timeout=5
+        )
+        log_content = result.stdout
+        total_lines = len(log_content.strip().split('\n')) if log_content.strip() else 0
+        import datetime as _dt2
+        return jsonify({
+            'code': 200,
+            'data': {
+                'log': log_content,
+                'lines': total_lines,
+                'path': log_path,
+                'file_size': os.path.getsize(log_path),
+                'updated_at': _dt2.datetime.fromtimestamp(
+                    os.path.getmtime(log_path)
+                ).isoformat() if os.path.exists(log_path) else None
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'code': 500,
+            'message': f'读取日志失败: {str(e)}'
+        }), 500
+
+
+def _update_log_path():
+    """Return the path to update.log on the host project directory."""
+    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
+    if project_dir:
+        return os.path.join(project_dir, 'update.log')
+    return '/tmp/update.log'
 
 
 def _update_status_path():
