@@ -311,7 +311,7 @@
         <!-- Restore Confirm Modal -->
         <Teleport to="body">
           <transition name="modal-fade">
-            <div v-if="restoreConfirmVisible" class="modal-overlay" @click.self="restoreConfirmVisible = false">
+            <div v-if="restoreConfirmVisible" class="modal-overlay" @mousedown.self="restoreConfirmVisible = false">
               <div class="modal-content">
                 <div class="modal-icon">⚠️</div>
                 <h3 class="modal-title">确认数据恢复</h3>
@@ -340,7 +340,7 @@
         <!-- Update Confirm Modal -->
         <Teleport to="body">
           <transition name="modal-fade">
-            <div v-if="updateConfirmVisible" class="modal-overlay" @click.self="updateConfirmVisible = false">
+            <div v-if="updateConfirmVisible" class="modal-overlay" @mousedown.self="updateConfirmVisible = false">
               <div class="modal-content">
                 <div class="modal-icon">🔄</div>
                 <h3 class="modal-title">确认系统更新</h3>

@@ -157,17 +157,31 @@ def get_events():
             
             invoice_count = Invoice.query.filter_by(event_id=event.event_id, is_deleted=False).count()
             purchase_count = PurchaseRecord.query.filter_by(event_id=event.event_id, is_deleted=False).count()
-            
-            invoice_total = db.session.query(db.func.sum(Invoice.amount)).filter_by(
+
+            # 发票总额：来自Invoice表 + PurchaseRecord中有发票的记录
+            invoice_table_total = db.session.query(db.func.sum(Invoice.amount)).filter_by(
                 event_id=event.event_id, is_deleted=False
             ).scalar() or 0
-            
+            purchase_invoice_total = db.session.query(db.func.sum(PurchaseRecord.total_amount)).filter_by(
+                event_id=event.event_id, is_deleted=False, has_invoice=True
+            ).scalar() or 0
+            invoice_total = float(invoice_table_total) + float(purchase_invoice_total)
+
             purchase_total = db.session.query(db.func.sum(PurchaseRecord.amount)).filter_by(
                 event_id=event.event_id, is_deleted=False
             ).scalar() or 0
-            
-            total_spent = float(invoice_total) + float(purchase_total)
-            
+
+            total_spent = float(invoice_table_total) + float(purchase_total)
+
+            # 已报销金额：动态计算，确保数据准确
+            invoice_reimbursed = db.session.query(db.func.sum(Invoice.total_amount)).filter_by(
+                event_id=event.event_id, is_deleted=False, is_reimbursed=True
+            ).scalar() or 0
+            purchase_reimbursed = db.session.query(db.func.sum(PurchaseRecord.total_amount)).filter_by(
+                event_id=event.event_id, is_deleted=False, has_invoice=True, is_reimbursed=True
+            ).scalar() or 0
+            reimbursed_amount = float(invoice_reimbursed) + float(purchase_reimbursed)
+
             events_data.append({
                 'event_id': event.event_id,
                 'event_name': event.event_name,
@@ -178,10 +192,10 @@ def get_events():
                 'upload_start_time': event.upload_start_time.isoformat() if event.upload_start_time else None,
                 'upload_end_time': event.upload_end_time.isoformat() if event.upload_end_time else None,
                 'total_budget': float(event.total_budget),
-                'reimbursed_amount': float(event.reimbursed_amount),
-                'remaining_budget': float(event.remaining_budget),
+                'reimbursed_amount': reimbursed_amount,
+                'remaining_budget': float(event.total_budget) - reimbursed_amount,
                 'spent_amount': total_spent,
-                'invoice_total_amount': float(invoice_total),
+                'invoice_total_amount': invoice_total,
                 'purchase_total_amount': float(purchase_total),
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
@@ -307,17 +321,31 @@ def get_event(event_id):
         
         invoice_count = Invoice.query.filter_by(event_id=event_id, is_deleted=False).count()
         purchase_count = PurchaseRecord.query.filter_by(event_id=event_id, is_deleted=False).count()
-        
-        invoice_total = db.session.query(db.func.sum(Invoice.amount)).filter_by(
+
+        # 发票总额：来自Invoice表 + PurchaseRecord中有发票的记录
+        invoice_table_total = db.session.query(db.func.sum(Invoice.amount)).filter_by(
             event_id=event_id, is_deleted=False
         ).scalar() or 0
-        
+        purchase_invoice_total = db.session.query(db.func.sum(PurchaseRecord.total_amount)).filter_by(
+            event_id=event_id, is_deleted=False, has_invoice=True
+        ).scalar() or 0
+        invoice_total = float(invoice_table_total) + float(purchase_invoice_total)
+
         purchase_total = db.session.query(db.func.sum(PurchaseRecord.amount)).filter_by(
             event_id=event_id, is_deleted=False
         ).scalar() or 0
-        
-        total_spent = float(invoice_total) + float(purchase_total)
-        
+
+        total_spent = float(invoice_table_total) + float(purchase_total)
+
+        # 已报销金额：动态计算，确保数据准确
+        invoice_reimbursed = db.session.query(db.func.sum(Invoice.total_amount)).filter_by(
+            event_id=event_id, is_deleted=False, is_reimbursed=True
+        ).scalar() or 0
+        purchase_reimbursed = db.session.query(db.func.sum(PurchaseRecord.total_amount)).filter_by(
+            event_id=event_id, is_deleted=False, has_invoice=True, is_reimbursed=True
+        ).scalar() or 0
+        reimbursed_amount = float(invoice_reimbursed) + float(purchase_reimbursed)
+
         return jsonify({
             'code': 200,
             'message': 'success',
@@ -334,10 +362,10 @@ def get_event(event_id):
                 'leader_id': event.leader_id,
                 'leader_name': leader.real_name if leader else None,
                 'total_budget': float(event.total_budget),
-                'reimbursed_amount': float(event.reimbursed_amount),
-                'remaining_budget': float(event.remaining_budget),
+                'reimbursed_amount': reimbursed_amount,
+                'remaining_budget': float(event.total_budget) - reimbursed_amount,
                 'spent_amount': total_spent,
-                'invoice_total_amount': float(invoice_total),
+                'invoice_total_amount': invoice_total,
                 'purchase_total_amount': float(purchase_total),
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,

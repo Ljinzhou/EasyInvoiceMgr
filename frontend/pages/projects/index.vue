@@ -119,7 +119,7 @@
 
     <!-- 编辑弹窗 (Warm Editorial Design) -->
     <transition name="editorial-modal">
-      <div v-if="showEditModal" class="edit-modal-overlay" @click.self="showEditModal = false">
+      <div v-if="showEditModal" class="edit-modal-overlay" @mousedown.self="showEditModal = false">
         <div class="edit-modal">
           <!-- Header -->
           <div class="edit-modal__header">
@@ -252,7 +252,7 @@
 
     <!-- 删除确认弹窗 (Dramatic Dark Theme) -->
     <transition name="delete-modal">
-      <div v-if="showDeleteModal" class="delete-modal-overlay" @click.self="showDeleteModal = false">
+      <div v-if="showDeleteModal" class="delete-modal-overlay" @mousedown.self="showDeleteModal = false">
         <div class="delete-modal">
           <!-- Danger Header -->
           <div class="delete-modal__header">
@@ -322,7 +322,7 @@
 
     <!-- 添加人员弹窗 -->
     <transition name="modal-fade">
-      <div v-if="showAddMemberModal" class="member-modal-mask" @click.self="showAddMemberModal = false">
+      <div v-if="showAddMemberModal" class="member-modal-mask" @mousedown.self="showAddMemberModal = false">
         <div class="member-modal">
           <div class="member-modal__header">
             <div class="member-modal__title-row">
@@ -506,19 +506,11 @@ const goToCreate = () => {
   navigateTo('/events/create')
 }
 
-const editEvent = async (event) => {
+const editEvent = (event) => {
   editingEventId.value = event.event_id
-  // Pre-fill leader info: fetch event detail to get leader_name
-  const token = localStorage.getItem('token')
-  if (event.leader_id) {
-    try {
-      const resp = await $api.get(`/events/${event.event_id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (resp.data.code === 200 && resp.data.data.leader_name) {
-        leaderSearch.value = resp.data.data.leader_name
-      }
-    } catch { leaderSearch.value = '' }
+  // 直接从列表数据中获取负责人姓名，无需额外的API请求
+  if (event.leader_id && event.leader_name) {
+    leaderSearch.value = event.leader_name
   } else {
     leaderSearch.value = ''
   }

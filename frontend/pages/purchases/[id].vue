@@ -446,7 +446,7 @@
       </div>
 
     <!-- 详情弹窗 -->
-    <div v-if="showDetailModal" class="modal-overlay" @click.self="showDetailModal = false">
+    <div v-if="showDetailModal" class="modal-overlay" @mousedown.self="showDetailModal = false">
       <div class="modal-content large detail-modal">
         <div class="modal-header">
           <h2>购买记录详情</h2>

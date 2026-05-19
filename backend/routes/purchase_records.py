@@ -174,14 +174,12 @@ def create_purchase_record(event_id):
         db.session.add(record)
         db.session.flush()  # Get record_id before commit
 
-        # Update event statistics (BUG-01 fix)
+        # 更新赛事统计：记录数量和发票总额
         from decimal import Decimal
         event.purchase_record_count = (event.purchase_record_count or 0) + 1
         record_amount = Decimal(str(record.total_amount or 0))
-        event.invoice_total_amount = (event.invoice_total_amount or 0) + record_amount
-        if record.status == 'approved':
-            event.reimbursed_amount = (event.reimbursed_amount or 0) + record_amount
-            event.remaining_budget = event.total_budget - event.reimbursed_amount
+        if record.has_invoice:
+            event.invoice_total_amount = (event.invoice_total_amount or 0) + record_amount
 
         db.session.commit()
 
@@ -341,15 +339,6 @@ def approve_purchase_record(record_id):
         record.reviewer_id = int(current_user_id)
         record.review_time = datetime.now(timezone.utc)
         record.rejection_reason = rejection_reason if status == 'rejected' else None
-
-        # Update event statistics on approval (BUG-02 fix)
-        if status == 'approved':
-            from decimal import Decimal
-            event = Event.query.get(record.event_id)
-            if event:
-                record_amount = Decimal(str(record.total_amount or record.amount or 0))
-                event.reimbursed_amount = (event.reimbursed_amount or 0) + record_amount
-                event.remaining_budget = event.total_budget - event.reimbursed_amount
 
         db.session.commit()
 

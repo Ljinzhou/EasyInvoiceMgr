@@ -69,7 +69,7 @@
       <slot />
     </main>
 
-    <div v-if="showSettingsModal" class="modal-overlay" @click.self="showSettingsModal = false">
+    <div v-if="showSettingsModal" class="modal-overlay" @mousedown.self="showSettingsModal = false">
       <div class="settings-modal">
         <div class="modal-header">
           <h2>⚙️ 个人设置</h2>

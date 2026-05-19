@@ -113,7 +113,7 @@
       >下一页</button>
     </div>
 
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+    <div v-if="showCreateModal" class="modal-overlay" @mousedown.self="showCreateModal = false">
       <div class="modal-content">
         <div class="modal-header">
           <h2>🎫 生成邀请码</h2>
@@ -163,7 +163,7 @@
       </div>
     </div>
 
-    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+    <div v-if="showDeleteModal" class="modal-overlay" @mousedown.self="showDeleteModal = false">
       <div class="modal-content delete-modal">
         <div class="modal-header">
           <h2>确认删除</h2>

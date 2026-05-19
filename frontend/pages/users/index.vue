@@ -141,7 +141,7 @@
     </div>
 
     <!-- 添加用户弹窗 -->
-    <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
+    <div v-if="showAddModal" class="modal-overlay" @mousedown.self="showAddModal = false">
       <div class="modal-content add-modal">
         <div class="modal-header">
           <h2>添加人员功能{{ currentEventName ? ` - 比赛: ${currentEventName}` : '' }}</h2>
@@ -300,7 +300,7 @@
     </div>
 
     <!-- 编辑用户弹窗 -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
+    <div v-if="showEditModal" class="modal-overlay" @mousedown.self="showEditModal = false">
       <div class="modal-content">
         <div class="modal-header">
           <h2>编辑用户信息</h2>
@@ -347,7 +347,7 @@
     </div>
 
     <!-- 删除确认弹窗 -->
-    <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+    <div v-if="showDeleteModal" class="modal-overlay" @mousedown.self="showDeleteModal = false">
       <div class="modal-content delete-modal">
         <div class="modal-header">
           <h2>确认删除</h2>
