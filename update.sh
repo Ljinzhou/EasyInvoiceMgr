@@ -180,8 +180,29 @@ git_pull() {
 
     cd "$PROJECT_DIR"
 
+    # 如果强制模式且有本地更改，先 stash 保存
+    local stashed=false
+    if [ "$FORCE" = true ]; then
+        if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+            log "⚠️ 检测到本地更改，执行 git stash 保存..."
+            if git stash push -m "update.sh auto stash before pull" 2>>"$LOG_FILE"; then
+                stashed=true
+                log "✅ 本地更改已 stash"
+            else
+                log "⚠️ git stash 失败，尝试继续..."
+            fi
+        fi
+    fi
+
     # 获取远程分支信息
     if ! git fetch origin --prune 2>>"$LOG_FILE"; then
+        if [ "$FORCE" = true ]; then
+            log "⚠️ 无法连接到远程仓库，但 --force 模式继续（使用本地代码构建）"
+            set_status "running" "网络不可达，使用本地代码继续更新..." 30
+            if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
+            return 0
+        fi
+        if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
         fail "无法连接到远程仓库，请检查网络" 20
     fi
 
@@ -197,6 +218,7 @@ git_pull() {
     else
         # 检查是否是 merge conflict
         if echo "$pull_output" | grep -qi "conflict\|CONFLICT"; then
+            if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
             fail "代码合并冲突，请手动解决后重试" 25
         fi
 
@@ -208,7 +230,19 @@ git_pull() {
             # rebase 失败，回滚
             log "❌ rebase 失败，执行 git rebase --abort"
             git rebase --abort 2>/dev/null || true
+            if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
             fail "代码拉取失败: 无法合并。请手动 git pull 查看冲突" 25
+        fi
+    fi
+
+    # 恢复 stash
+    if [ "$stashed" = true ]; then
+        if git stash pop 2>>"$LOG_FILE"; then
+            log "✅ 已恢复本地更改"
+        else
+            log "⚠️ 恢复本地更改时发生冲突，可能需要手动处理"
+            git checkout --theirs . 2>/dev/null || true
+            git stash drop 2>/dev/null || true
         fi
     fi
 
