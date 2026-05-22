@@ -77,12 +77,16 @@
         </div>
         <div class="modal-body">
           <div class="settings-tabs">
-            <button 
-              :class="['tab-btn', { active: activeTab === 'profile' }]" 
+            <button
+              :class="['tab-btn', { active: activeTab === 'profile' }]"
               @click="activeTab = 'profile'"
             >基本信息</button>
-            <button 
-              :class="['tab-btn', { active: activeTab === 'permissions' }]" 
+            <button
+              :class="['tab-btn', { active: activeTab === 'password' }]"
+              @click="activeTab = 'password'"
+            >修改密码</button>
+            <button
+              :class="['tab-btn', { active: activeTab === 'permissions' }]"
               @click="activeTab = 'permissions'"
             >权限说明</button>
           </div>
@@ -130,6 +134,65 @@
             </form>
           </div>
 
+          <div v-if="activeTab === 'password'" class="tab-content">
+            <div class="password-header">
+              <div class="password-icon-ring">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+                  <circle cx="12" cy="16" r="1"/>
+                </svg>
+              </div>
+              <p class="password-subtitle">请设置一个安全强度高的密码</p>
+            </div>
+            <form @submit.prevent="changePassword" class="settings-form">
+              <div class="form-group">
+                <label>旧密码</label>
+                <div class="password-input-wrap">
+                  <input v-model="passwordForm.old_password" :type="showOldPassword ? 'text' : 'password'" required placeholder="请输入当前密码" />
+                  <button type="button" class="toggle-visibility" @click="showOldPassword = !showOldPassword" tabindex="-1">
+                    <svg v-if="!showOldPassword" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>新密码</label>
+                <div class="password-input-wrap">
+                  <input v-model="passwordForm.new_password" :type="showNewPassword ? 'text' : 'password'" required placeholder="请输入新密码（至少8位，含字母和数字）" @input="updatePasswordStrength" />
+                  <button type="button" class="toggle-visibility" @click="showNewPassword = !showNewPassword" tabindex="-1">
+                    <svg v-if="!showNewPassword" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+                <div v-if="passwordForm.new_password" class="strength-meter">
+                  <div class="strength-bar">
+                    <div class="strength-fill" :class="strengthClass" :style="{ width: strengthPercent + '%' }"></div>
+                  </div>
+                  <span class="strength-label" :class="strengthClass">{{ strengthLabel }}</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>确认新密码</label>
+                <div class="password-input-wrap">
+                  <input v-model="passwordForm.confirm_password" :type="showConfirmPassword ? 'text' : 'password'" required placeholder="请再次输入新密码" />
+                  <button type="button" class="toggle-visibility" @click="showConfirmPassword = !showConfirmPassword" tabindex="-1">
+                    <svg v-if="!showConfirmPassword" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+                <span v-if="passwordForm.confirm_password && passwordForm.new_password !== passwordForm.confirm_password" class="field-hint error">两次输入的密码不一致</span>
+                <span v-else-if="passwordForm.confirm_password && passwordForm.new_password === passwordForm.confirm_password" class="field-hint success">密码匹配</span>
+              </div>
+              <transition name="toast-fade">
+                <div v-if="passwordMsg" class="settings-msg" :class="passwordMsgType">{{ passwordMsg }}</div>
+              </transition>
+              <div class="form-actions">
+                <button type="button" @click="activeTab = 'profile'" class="cancel-btn">取消</button>
+                <button type="submit" class="save-btn" :disabled="passwordSaving">{{ passwordSaving ? '修改中...' : '修改密码' }}</button>
+              </div>
+            </form>
+          </div>
+
           <div v-if="activeTab === 'permissions'" class="tab-content">
             <div class="permissions-info">
               <h3>当前权限：{{ userRole }}</h3>
@@ -173,7 +236,7 @@
                     <td>创建/管理项目</td>
                     <td class="allowed">✓</td>
                     <td class="allowed">✓</td>
-                    <td class="denied">✗</td>
+                    <td class="allowed">✓</td>
                     <td class="denied">✗</td>
                   </tr>
                   <tr>
@@ -317,7 +380,7 @@ const permissionDescription = computed(() => {
   const descriptions: Record<string, string> = {
     admin: '拥有系统最高权限，可管理所有用户、项目和发票，可修改用户角色和系统设置。',
     teacher: '拥有完全管理权限，可审核发票、管理项目和人员，可管理邀请码。',
-    student_admin: '可审核发票、管理人员和邀请码，协助老师进行数据管理工作。',
+    student_admin: '可审核发票、创建和管理项目、管理人员和邀请码，协助老师进行数据管理工作。',
     student: '默认权限，仅可查看和上传发票。'
   }
   return descriptions[userStore.userType] || ''
@@ -353,6 +416,108 @@ const saveSettings = async () => {
     settingsMsgType.value = 'error'
   } finally {
     saving.value = false
+  }
+}
+
+const passwordForm = ref({
+  old_password: '',
+  new_password: '',
+  confirm_password: ''
+})
+const showOldPassword = ref(false)
+const showNewPassword = ref(false)
+const showConfirmPassword = ref(false)
+const passwordSaving = ref(false)
+const passwordMsg = ref('')
+const passwordMsgType = ref('success')
+const strengthPercent = ref(0)
+const strengthClass = ref('')
+const strengthLabel = ref('')
+
+function updatePasswordStrength() {
+  const pwd = passwordForm.value.new_password
+  if (!pwd) {
+    strengthPercent.value = 0
+    strengthClass.value = ''
+    strengthLabel.value = ''
+    return
+  }
+  let score = 0
+  if (pwd.length >= 8) score++
+  if (pwd.length >= 12) score++
+  if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++
+  else if (/[a-zA-Z]/.test(pwd)) score++
+  if (/\d/.test(pwd)) score++
+  if (/[^a-zA-Z\d]/.test(pwd)) score++
+
+  if (score <= 2) {
+    strengthPercent.value = 25
+    strengthClass.value = 'weak'
+    strengthLabel.value = '弱'
+  } else if (score <= 3) {
+    strengthPercent.value = 55
+    strengthClass.value = 'medium'
+    strengthLabel.value = '中'
+  } else {
+    strengthPercent.value = 100
+    strengthClass.value = 'strong'
+    strengthLabel.value = '强'
+  }
+}
+
+const changePassword = async () => {
+  if (passwordForm.value.new_password !== passwordForm.value.confirm_password) {
+    passwordMsg.value = '两次输入的新密码不一致'
+    passwordMsgType.value = 'error'
+    return
+  }
+  if (passwordForm.value.new_password.length < 8) {
+    passwordMsg.value = '新密码长度不能少于8位'
+    passwordMsgType.value = 'error'
+    return
+  }
+  if (!/[a-zA-Z]/.test(passwordForm.value.new_password)) {
+    passwordMsg.value = '新密码必须包含至少一个字母'
+    passwordMsgType.value = 'error'
+    return
+  }
+  if (!/\d/.test(passwordForm.value.new_password)) {
+    passwordMsg.value = '新密码必须包含至少一个数字'
+    passwordMsgType.value = 'error'
+    return
+  }
+  if (passwordForm.value.old_password === passwordForm.value.new_password) {
+    passwordMsg.value = '新密码不能与旧密码相同'
+    passwordMsgType.value = 'error'
+    return
+  }
+
+  passwordSaving.value = true
+  passwordMsg.value = ''
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.put(
+      `/auth/users/${userStore.userId}/password`,
+      { old_password: passwordForm.value.old_password, new_password: passwordForm.value.new_password },
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+
+    if (response.data.code === 200) {
+      passwordMsg.value = '密码修改成功'
+      passwordMsgType.value = 'success'
+      passwordForm.value = { old_password: '', new_password: '', confirm_password: '' }
+      strengthPercent.value = 0
+      strengthClass.value = ''
+      strengthLabel.value = ''
+    } else {
+      passwordMsg.value = response.data.message || '密码修改失败'
+      passwordMsgType.value = 'error'
+    }
+  } catch (error) {
+    passwordMsg.value = error.response?.data?.message || '密码修改失败，请稍后重试'
+    passwordMsgType.value = 'error'
+  } finally {
+    passwordSaving.value = false
   }
 }
 
@@ -754,6 +919,94 @@ const handleLogout = () => {
   background: #eee;
   margin: 0.8rem 0 1.2rem;
 }
+
+/* ---- 修改密码 ---- */
+.password-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  gap: 0.6rem;
+}
+.password-icon-ring {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #eef2ff 0%, #e8ecf8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #667eea;
+}
+.password-subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #888;
+}
+.password-input-wrap {
+  position: relative;
+}
+.password-input-wrap input {
+  width: 100%;
+  padding-right: 44px;
+}
+.toggle-visibility {
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+}
+.toggle-visibility:hover {
+  color: #667eea;
+}
+.strength-meter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.strength-bar {
+  flex: 1;
+  height: 4px;
+  background: #e8e8e8;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.strength-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+.strength-fill.weak { background: #e74c3c; }
+.strength-fill.medium { background: #f39c12; }
+.strength-fill.strong { background: #27ae60; }
+.strength-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 18px;
+  text-align: right;
+}
+.strength-label.weak { color: #e74c3c; }
+.strength-label.medium { color: #f39c12; }
+.strength-label.strong { color: #27ae60; }
+.field-hint {
+  display: block;
+  font-size: 0.78rem;
+  margin-top: 0.25rem;
+}
+.field-hint.error { color: #e74c3c; }
+.field-hint.success { color: #27ae60; }
 
 .permissions-info {
   background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);

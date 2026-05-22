@@ -583,3 +583,105 @@ def remove_event_member(event_id, user_id):
         logger.error(f'移除赛事成员异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+from sqlalchemy import func
+
+@events_bp.route('/events/stats/user-summary', methods=['GET'])
+@jwt_required()
+def get_user_summary():
+    logger.info('=== 获取用户消费汇总排名 ===')
+    try:
+        current_user_id = int(get_jwt_identity())
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        event_id = request.args.get('event_id', type=int)
+
+        # Build a list of event IDs the user can access
+        if event_id:
+            event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+            if not event:
+                return jsonify({'code': 404, 'message': '赛事不存在', 'data': None}), 404
+            if user.user_type not in ['admin', 'teacher']:
+                is_member = EventMember.query.filter_by(
+                    event_id=event_id, user_id=current_user_id, is_deleted=False
+                ).first()
+                if event.creator_id != current_user_id and not is_member:
+                    return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
+            event_ids = [event_id]
+        else:
+            if user.user_type in ['admin', 'teacher']:
+                events = Event.query.filter_by(is_deleted=False).all()
+                event_ids = [e.event_id for e in events]
+            else:
+                member_event_ids = db.session.query(EventMember.event_id).filter_by(
+                    user_id=current_user_id, is_deleted=False
+                ).all()
+                event_ids = [row[0] for row in member_event_ids]
+                created_events = Event.query.filter_by(creator_id=current_user_id, is_deleted=False).all()
+                for e in created_events:
+                    if e.event_id not in event_ids:
+                        event_ids.append(e.event_id)
+
+        if not event_ids:
+            return jsonify({'code': 200, 'message': 'success', 'data': {'rankings': []}}), 200
+
+        # Aggregate purchase records per uploader
+        pr_sq = db.session.query(
+            PurchaseRecord.uploader_id,
+            func.sum(PurchaseRecord.amount).label('pr_total'),
+            func.count(PurchaseRecord.record_id).label('pr_count')
+        ).filter(
+            PurchaseRecord.event_id.in_(event_ids),
+            PurchaseRecord.is_deleted == False
+        ).group_by(PurchaseRecord.uploader_id).subquery()
+
+        # Aggregate invoices per uploader
+        inv_sq = db.session.query(
+            Invoice.uploader_id,
+            func.sum(Invoice.amount).label('inv_total'),
+            func.count(Invoice.invoice_id).label('inv_count')
+        ).filter(
+            Invoice.event_id.in_(event_ids),
+            Invoice.is_deleted == False
+        ).group_by(Invoice.uploader_id).subquery()
+
+        # Combine with user info
+        results = db.session.query(
+            User.user_id,
+            User.real_name,
+            User.user_type,
+            func.coalesce(pr_sq.c.pr_total, 0).label('pr_total'),
+            func.coalesce(inv_sq.c.inv_total, 0).label('inv_total'),
+            func.coalesce(pr_sq.c.pr_count, 0).label('pr_count'),
+            func.coalesce(inv_sq.c.inv_count, 0).label('inv_count')
+        ).outerjoin(pr_sq, User.user_id == pr_sq.c.uploader_id
+        ).outerjoin(inv_sq, User.user_id == inv_sq.c.uploader_id
+        ).filter(
+            db.or_(pr_sq.c.uploader_id != None, inv_sq.c.uploader_id != None)
+        ).all()
+
+        rankings = []
+        for row in results:
+            total_amount = float(row.pr_total or 0) + float(row.inv_total or 0)
+            rankings.append({
+                'user_id': row.user_id,
+                'real_name': row.real_name,
+                'user_type': row.user_type,
+                'total_amount': round(total_amount, 2),
+                'record_count': (row.pr_count or 0) + (row.inv_count or 0)
+            })
+
+        rankings.sort(key=lambda x: x['total_amount'], reverse=True)
+
+        logger.info(f'用户消费汇总查询成功: {len(rankings)} 条记录')
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {'rankings': rankings}
+        }), 200
+
+    except Exception as e:
+        logger.error(f'获取用户消费汇总异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500

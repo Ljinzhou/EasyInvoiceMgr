@@ -54,9 +54,15 @@ def get_purchase_records(event_id):
                 return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
 
         records = PurchaseRecord.query.filter_by(
-            event_id=event_id, 
+            event_id=event_id,
             is_deleted=False
-        ).order_by(PurchaseRecord.created_at.desc()).all()
+        ).order_by(PurchaseRecord.created_at.desc())
+
+        uploader_id = request.args.get('uploader_id', type=int)
+        if uploader_id:
+            records = records.filter_by(uploader_id=uploader_id)
+
+        records = records.all()
         
         records_data = []
         for record in records:

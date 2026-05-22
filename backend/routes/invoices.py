@@ -40,10 +40,16 @@ def get_invoices():
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 20, type=int)
         
-        invoices = Invoice.query.filter_by(
+        invoices_query = Invoice.query.filter_by(
             event_id=event_id,
             is_deleted=False
-        ).order_by(Invoice.created_at.desc()).paginate(
+        ).order_by(Invoice.created_at.desc())
+
+        uploader_id = request.args.get('uploader_id', type=int)
+        if uploader_id:
+            invoices_query = invoices_query.filter_by(uploader_id=uploader_id)
+
+        invoices = invoices_query.paginate(
             page=page,
             per_page=page_size,
             error_out=False

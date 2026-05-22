@@ -114,7 +114,15 @@
           {{ sortAsc ? '↑ 升序' : '↓ 降序' }}
         </button>
       </div>
+      <div class="toolbar-center">
+        <input v-model="searchQuery" type="text" class="search-input" placeholder="搜索物品名称..." />
+      </div>
       <div class="toolbar-right">
+        <label class="personal-toggle">
+          <input type="checkbox" v-model="showPersonalOnly" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">仅看个人记录</span>
+        </label>
         <span class="record-count">共 {{ filteredRecords.length }} 条记录</span>
       </div>
     </div>
@@ -816,6 +824,8 @@ const filters = ref({
 const filterCollapsed = ref(false)
 const sortBy = ref('default')
 const sortAsc = ref(false)
+const showPersonalOnly = ref(false)
+const searchQuery = ref('')
 
 // 过滤后的记录
 const filteredRecords = computed(() => {
@@ -862,6 +872,12 @@ const filteredRecords = computed(() => {
     if (filters.value.reimburseStatus) {
       if (filters.value.reimburseStatus === 'reimbursed' && !record.is_reimbursed) return false
       if (filters.value.reimburseStatus === 'not_reimbursed' && record.is_reimbursed) return false
+    }
+
+    // 物品名称搜索
+    if (searchQuery.value) {
+      const q = searchQuery.value.toLowerCase()
+      if (!(record.item_name || '').toLowerCase().includes(q)) return false
     }
 
     return true
@@ -935,9 +951,13 @@ const selectAll = computed({
 onMounted(async () => {
   const userStr = localStorage.getItem('user')
   currentUser.value = userStr ? JSON.parse(userStr) : null
-  
+
   await loadEvent()
   await loadRecords()
+})
+
+watch(showPersonalOnly, () => {
+  loadRecords()
 })
 
 const goBack = () => {
@@ -972,13 +992,17 @@ const loadRecords = async () => {
   try {
     const token = localStorage.getItem('token')
     
+    const recordsParams = { headers: { Authorization: `Bearer ${token}` } }
+    const invoicesParams: any = { headers: { Authorization: `Bearer ${token}` }, params: { event_id: eventId.value } }
+    if (showPersonalOnly.value && currentUser.value?.user_id) {
+      const uid = currentUser.value.user_id
+      recordsParams['params'] = { uploader_id: uid }
+      invoicesParams.params.uploader_id = uid
+    }
+
     const [purchaseResponse, invoiceResponse] = await Promise.all([
-      $api.get(`/events/${eventId.value}/records`, {
-        headers: { Authorization: `Bearer ${token}` }
-      }).catch(() => ({ data: { code: 200, data: { records: [] } } })),
-      $api.get(`/invoices?event_id=${eventId.value}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      }).catch(() => ({ data: { code: 200, data: { invoices: [] } } }))
+      $api.get(`/events/${eventId.value}/records`, recordsParams).catch(() => ({ data: { code: 200, data: { records: [] } } })),
+      $api.get('/invoices', invoicesParams).catch(() => ({ data: { code: 200, data: { invoices: [] } } }))
     ])
     
     let allRecords = []
@@ -1839,8 +1863,56 @@ const formatMoney = (val) => {
   transition: all 0.2s;
 }
 .sort-order-btn:hover { background: #e9ecef; border-color: #ced4da; }
-.toolbar-right { display: flex; align-items: center; }
+.toolbar-center { flex: 1; max-width: 260px; }
+.search-input {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border: 1.5px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 13px;
+  background: white;
+  color: #2c3e50;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.search-input:focus { border-color: #667eea; }
+.search-input::placeholder { color: #adb5bd; }
+.toolbar-right { display: flex; align-items: center; gap: 1rem; }
 .record-count { font-size: 13px; color: #7f8c8d; }
+.personal-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 13px;
+  color: #495057;
+  white-space: nowrap;
+  user-select: none;
+}
+.personal-toggle input[type="checkbox"] { display: none; }
+.toggle-track {
+  width: 38px;
+  height: 20px;
+  border-radius: 10px;
+  background: #dee2e6;
+  position: relative;
+  transition: background 0.3s;
+  flex-shrink: 0;
+}
+.personal-toggle input:checked + .toggle-track { background: #667eea; }
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.3s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.personal-toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(18px); }
+.toggle-label { color: #495057; }
 
 .records-table-container {
   background: white;
@@ -2835,6 +2907,10 @@ const formatMoney = (val) => {
   .sort-select { min-height: 44px; flex: 1; }
   .sort-order-btn { min-height: 44px; }
   .record-count { font-size: 12px; }
+  .toolbar-center { max-width: none; width: 100%; order: 1; }
+  .toolbar-right { width: 100%; justify-content: space-between; }
+  .personal-toggle { font-size: 12px; }
+  .search-input { min-height: 44px; }
   .btn-view-sm, .btn-edit-sm, .btn-reimburse-sm, .btn-approve-sm, .btn-delete-sm { min-width: 40px; min-height: 40px; font-size: 13px; }
   .header-actions { flex-wrap: wrap; gap: 0.4rem; }
   .header-actions .action-button { min-height: 44px; font-size: 13px; flex: 1; min-width: calc(50% - 0.4rem); }

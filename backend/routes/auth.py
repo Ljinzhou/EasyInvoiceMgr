@@ -6,6 +6,7 @@ from models import db, User, InvitationCode
 from config import CORS_ORIGINS
 from datetime import datetime, timezone
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 auth_bp = Blueprint('auth', __name__)
@@ -295,7 +296,9 @@ def update_user(user_id):
             if 'student_or_staff_id' in data:
                 user.student_or_staff_id = data['student_or_staff_id']
             if 'user_type' in data:
+                old_type = user.user_type
                 user.user_type = data['user_type']
+                logger.info(f'[PERM_CHANGE] User {current_user_id} changed user {user_id} role: {old_type} -> {data["user_type"]}')
             if 'account_status' in data:
                 user.account_status = data['account_status']
         elif current_user_id == user_id:
@@ -330,6 +333,68 @@ def update_user(user_id):
         
     except Exception as e:
         logger.error(f'更新用户信息异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+@auth_bp.route('/users/<int:user_id>/password', methods=['PUT', 'OPTIONS'])
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
+@jwt_required()
+def change_password(user_id):
+    if request.method == 'OPTIONS':
+        response = make_response()
+        origin = request.headers.get('Origin', 'http://localhost:3001')
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'PUT,OPTIONS')
+        return response
+
+    logger.info(f'=== 修改密码请求: user_id={user_id} ===')
+    try:
+        current_user_id = int(get_jwt_identity())
+
+        if current_user_id != user_id:
+            logger.warning(f'用户{current_user_id}尝试修改用户{user_id}的密码')
+            return jsonify({'code': 403, 'message': '只能修改自己的密码', 'data': None}), 403
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'code': 1003, 'message': '用户不存在', 'data': None}), 404
+
+        data = request.get_json()
+        old_password = data.get('old_password', '')
+        new_password = data.get('new_password', '')
+
+        if not old_password or not new_password:
+            return jsonify({'code': 400, 'message': '请提供旧密码和新密码', 'data': None}), 400
+
+        if not check_password_hash(user.password_hash, old_password):
+            logger.warning(f'用户{user_id}旧密码验证失败')
+            return jsonify({'code': 403, 'message': '旧密码错误', 'data': None}), 403
+
+        if old_password == new_password:
+            return jsonify({'code': 400, 'message': '新密码不能与旧密码相同', 'data': None}), 400
+
+        if len(new_password) < 8:
+            return jsonify({'code': 400, 'message': '新密码长度不能少于8位', 'data': None}), 400
+
+        if not re.search(r'[a-zA-Z]', new_password):
+            return jsonify({'code': 400, 'message': '新密码必须包含至少一个字母', 'data': None}), 400
+
+        if not re.search(r'\d', new_password):
+            return jsonify({'code': 400, 'message': '新密码必须包含至少一个数字', 'data': None}), 400
+
+        user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        logger.info(f'用户{user_id}密码修改成功')
+
+        return jsonify({
+            'code': 200,
+            'message': '密码修改成功',
+            'data': None
+        }), 200
+
+    except Exception as e:
+        logger.error(f'修改密码异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 

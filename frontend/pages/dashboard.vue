@@ -10,12 +10,18 @@
         </span>
         <span v-if="isDataStale && hasData" class="stale-badge">数据已过期</span>
       </div>
-      <button class="refresh-btn" :class="{ spinning: loading }" @click="refreshData" :disabled="loading">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-        </svg>
-        <span>{{ loading ? '刷新中...' : '刷新' }}</span>
-      </button>
+      <div class="header-right">
+        <select v-if="hasData" v-model="selectedEventId" class="project-selector">
+          <option :value="null">全部项目汇总</option>
+          <option v-for="ev in eventStore.events" :key="ev.event_id" :value="ev.event_id">{{ ev.event_name }}</option>
+        </select>
+        <button class="refresh-btn" :class="{ spinning: loading }" @click="refreshData" :disabled="loading">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+          <span>{{ loading ? '刷新中...' : '刷新' }}</span>
+        </button>
+      </div>
     </header>
 
     <!-- SKELETON LOADING -->
@@ -107,6 +113,12 @@
           </div>
           <div class="chart-body" v-if="spendingChartData.length > 0">
             <svg class="bar-chart" :viewBox="`0 0 ${barChartWidth} 180`" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <linearGradient id="barGradSelected" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="#818cf8"/>
+                  <stop offset="100%" stop-color="#6366f1"/>
+                </linearGradient>
+              </defs>
               <!-- Grid lines -->
               <line v-for="i in 4" :key="'gl'+i" :x1="40" :y1="i*35" :x2="barChartWidth-10" :y2="i*35" stroke="#f1f5f9" stroke-width="1"/>
               <!-- Bars -->
@@ -117,16 +129,17 @@
                   :width="barWidth"
                   :height="barH(item.ratio)"
                   :rx="4"
-                  :fill="barColor(idx)"
+                  :fill="item.isSelected ? 'url(#barGradSelected)' : barColor(idx)"
                   class="bar-rect"
+                  :class="{ 'bar-highlighted': item.isSelected }"
                   style="transition: height 0.6s cubic-bezier(0.34,1.56,0.64,1), y 0.6s cubic-bezier(0.34,1.56,0.64,1)"
                 >
                   <title>{{ item.name }}: ¥{{ fmt(item.spent_amount) }}</title>
                 </rect>
-                <text :x="barX(idx) + barWidth/2" :y="barY(item.ratio) - 6" text-anchor="middle" font-size="11" fill="#64748b" font-weight="500">
+                <text :x="barX(idx) + barWidth/2" :y="barY(item.ratio) - 6" text-anchor="middle" :font-size="item.isSelected ? 12 : 11" :fill="item.isSelected ? '#6366f1' : '#64748b'" :font-weight="item.isSelected ? 700 : 500">
                   ¥{{ fmtK(item.spent_amount) }}
                 </text>
-                <text :x="barX(idx) + barWidth/2" :y="174" text-anchor="middle" font-size="10" fill="#94a3b8" class="bar-label">
+                <text :x="barX(idx) + barWidth/2" :y="174" text-anchor="middle" :font-size="item.isSelected ? 11 : 10" :fill="item.isSelected ? '#6366f1' : '#94a3b8'" :font-weight="item.isSelected ? 600 : 400">
                   {{ truncate(item.name, 4) }}
                 </text>
               </g>
@@ -180,6 +193,54 @@
                 <div class="gauge-label"><span class="gdot green"></span> 待报销</div>
                 <span class="gauge-val right">¥{{ fmt(stats.pendingReimburse) }}</span>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Per-Project Detail Cards -->
+      <div v-if="hasData" class="project-details-section">
+        <h3 class="section-title">各项目详细统计</h3>
+        <div class="project-details-grid">
+          <div
+            v-for="ev in eventStore.events"
+            :key="ev.event_id"
+            class="project-detail-card"
+            :class="{ 'is-selected': ev.event_id === selectedEventId }"
+            @click="selectedEventId = ev.event_id; navigateTo(`/purchases/${ev.event_id}`)"
+          >
+            <div class="pdc-header">
+              <div class="pdc-status" :class="ev.status"></div>
+              <h4 class="pdc-name">{{ ev.event_name }}</h4>
+              <span class="pdc-leader" v-if="ev.leader_name">{{ ev.leader_name }}</span>
+            </div>
+            <div class="pdc-stats">
+              <div class="pdc-stat">
+                <span class="pdc-label">预算</span>
+                <span class="pdc-value">¥{{ fmt(ev.total_budget) }}</span>
+              </div>
+              <div class="pdc-stat">
+                <span class="pdc-label">已用</span>
+                <span class="pdc-value spent">¥{{ fmt(ev.spent_amount) }}</span>
+              </div>
+              <div class="pdc-stat">
+                <span class="pdc-label">发票</span>
+                <span class="pdc-value">¥{{ fmt(ev.invoice_total_amount) }}</span>
+              </div>
+              <div class="pdc-stat">
+                <span class="pdc-label">剩余</span>
+                <span class="pdc-value" :class="remainingClass(ev)">¥{{ fmt(getEventRemaining(ev)) }}</span>
+              </div>
+            </div>
+            <div class="pdc-progress">
+              <div class="pdc-bar-track">
+                <div class="pdc-bar-fill" :class="progressClass(ev)" :style="{ width: Math.min(100, budgetUsagePercent(ev)) + '%' }"></div>
+              </div>
+              <span class="pdc-usage" :class="progressClass(ev)">{{ budgetUsagePercent(ev).toFixed(0) }}%</span>
+            </div>
+            <div class="pdc-meta">
+              <span>🧾 {{ ev.invoice_count || 0 }} 发票</span>
+              <span>🛒 {{ ev.purchase_record_count || 0 }} 购物</span>
             </div>
           </div>
         </div>
@@ -280,16 +341,64 @@
           <span>邀请码</span>
         </NuxtLink>
       </div>
+
+      <!-- User Ranking Section -->
+      <div v-if="hasData" ref="rankingSectionRef" class="ranking-section">
+        <div class="section-card">
+          <div class="section-header">
+            <h3>🏆 用户消费排名</h3>
+            <div class="ranking-controls">
+              <select v-model="rankingEventFilter" class="ranking-filter">
+                <option :value="null">所有项目合计</option>
+                <option v-for="ev in eventStore.events" :key="ev.event_id" :value="ev.event_id">{{ ev.event_name }}</option>
+              </select>
+              <button @click="exportRanking" class="export-btn" :disabled="rankingData.length === 0">📥 导出CSV</button>
+            </div>
+          </div>
+          <div v-if="rankingLoading" class="ranking-skeleton">
+            <div v-for="i in 5" :key="'rk'+i" class="ranking-sk-item">
+              <div class="sk-circle-sm"></div>
+              <div class="sk-line long"></div>
+              <div class="sk-line short"></div>
+            </div>
+          </div>
+          <div v-else-if="rankingData.length === 0" class="ranking-empty">
+            <p>暂无消费记录数据</p>
+          </div>
+          <div v-else class="ranking-list">
+            <div v-for="(item, idx) in rankingData" :key="item.user_id" class="ranking-item">
+              <span class="rank-number" :class="{ 'top1': idx === 0, 'top2': idx === 1, 'top3': idx === 2 }">
+                <template v-if="idx === 0">🥇</template>
+                <template v-else-if="idx === 1">🥈</template>
+                <template v-else-if="idx === 2">🥉</template>
+                <template v-else>{{ idx + 1 }}</template>
+              </span>
+              <div class="rank-avatar" :class="{ 'gold': idx === 0, 'silver': idx === 1, 'bronze': idx === 2 }">{{ (item.real_name || '?').charAt(0).toUpperCase() }}</div>
+              <div class="rank-info">
+                <span class="rank-name">{{ item.real_name }}</span>
+                <span class="rank-meta">{{ item.record_count }} 条记录</span>
+              </div>
+              <div class="rank-amount-col">
+                <span class="rank-amount">¥{{ formatMoney(item.total_amount) }}</span>
+                <div class="rank-bar-bg">
+                  <div class="rank-bar-fill" :style="{ width: maxAmount > 0 ? (item.total_amount / maxAmount * 100) + '%' : '0%' }"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({ layout: 'default' })
 
+const { $api } = useNuxtApp()
 const eventStore = useEventStore()
 const currentUser = ref<any>(null)
 const loading = computed(() => eventStore.loading)
@@ -301,6 +410,12 @@ const canManageUsers = computed(() =>
 )
 const canManageInvitationCodes = computed(() =>
   ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
+)
+
+// Project selector
+const selectedEventId = ref<number | null>(null)
+const selectedEvent = computed(() =>
+  selectedEventId.value ? eventStore.events.find(e => e.event_id === selectedEventId.value) || null : null
 )
 
 // Stats
@@ -319,28 +434,53 @@ const ongoingRatio = computed(() => {
   return Math.round((stats.value.ongoingEvents / stats.value.totalEvents) * 100)
 })
 
-// Stat cards config
+// Stat cards config - per-project or aggregate
 const statCards = computed(() => {
+  if (selectedEvent.value) {
+    const ev = selectedEvent.value
+    const s: any = {
+      totalEvents: 1,
+      ongoingEvents: ev.status === 'ongoing' ? 1 : 0,
+      totalRecords: (ev.invoice_count || 0) + (ev.purchase_record_count || 0),
+      invoiceCount: ev.invoice_count || 0,
+      purchaseCount: ev.purchase_record_count || 0,
+      totalAmount: Number(ev.spent_amount || 0),
+      totalBudget: Number(ev.total_budget || 0),
+      invoiceTotal: Number(ev.invoice_total_amount || 0),
+      reimbursedAmount: Number(ev.reimbursed_amount || 0),
+      budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '0.0',
+      reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(1) : '0.0',
+      pendingReimburse: Math.max(0, Number(ev.invoice_total_amount || 0) - Number(ev.reimbursed_amount || 0)),
+    }
+    return [
+      { key: 'events', variant: 'indigo', value: s.totalEvents, label: '选中项目', sub: `${ev.status === 'ongoing' ? '进行中' : ev.status === 'completed' ? '已完成' : '已归档'}`, subTrend: '', link: `/purchases/${ev.event_id}`, prefix: '', displayValue: ev.event_name.length > 10 ? ev.event_name.slice(0, 10) + '…' : ev.event_name },
+      { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: `/purchases/${ev.event_id}`, prefix: '', displayValue: String(s.totalRecords) },
+      { key: 'spending', variant: 'amber', value: s.totalAmount, label: '支出金额', sub: `预算使用率 ${s.budgetUsageRate}%`, subTrend: Number(s.budgetUsageRate) > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(s.totalAmount) },
+      { key: 'invoice', variant: 'sky', value: s.invoiceTotal, label: '发票总额', sub: `待报销 ¥${fmt(s.pendingReimburse)}`, subTrend: '', link: '', prefix: '¥', displayValue: fmt(s.invoiceTotal) },
+      { key: 'reimburse', variant: 'violet', value: s.reimbursedAmount, label: '已报销金额', sub: `报销率 ${s.reimburseRate}%`, subTrend: Number(s.reimburseRate) > 70 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(s.reimbursedAmount) },
+    ]
+  }
   const s = stats.value
   return [
     { key: 'events', variant: 'indigo', value: s.totalEvents, label: '项目总数', sub: `${s.ongoingEvents} 个进行中`, subTrend: '', link: '/projects', prefix: '', displayValue: String(s.totalEvents) },
     { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: '/purchases', prefix: '', displayValue: String(s.totalRecords) },
-    { key: 'spending', variant: 'amber', value: s.totalAmount, label: '总支出金额', sub: `预算使用率 ${s.budgetUsageRate}%`, subTrend: s.budgetUsageRate > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(s.totalAmount) },
+    { key: 'spending', variant: 'amber', value: s.totalAmount, label: '总支出金额', sub: `预算使用率 ${s.budgetUsageRate}%`, subTrend: Number(s.budgetUsageRate) > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(s.totalAmount) },
     { key: 'invoice', variant: 'sky', value: s.invoiceTotal, label: '发票总额', sub: `待报销 ¥${fmt(s.pendingReimburse)}`, subTrend: '', link: '', prefix: '¥', displayValue: fmt(s.invoiceTotal) },
-    { key: 'reimburse', variant: 'violet', value: s.reimbursedAmount, label: '已报销金额', sub: `报销率 ${s.reimburseRate}%`, subTrend: s.reimburseRate > 70 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(s.reimbursedAmount) },
+    { key: 'reimburse', variant: 'violet', value: s.reimbursedAmount, label: '已报销金额', sub: `报销率 ${s.reimburseRate}%`, subTrend: Number(s.reimburseRate) > 70 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(s.reimbursedAmount) },
   ]
 })
 
-// Spending bar chart data
+// Spending bar chart data (all projects, selected one highlighted)
 const spendingChartData = computed(() => {
   return eventStore.events
     .filter(e => (e.spent_amount || 0) > 0)
     .sort((a, b) => (b.spent_amount || 0) - (a.spent_amount || 0))
-    .slice(0, 8)
+    .slice(0, 10)
     .map(e => ({
       event_id: e.event_id,
       name: e.event_name,
       spent_amount: e.spent_amount || 0,
+      isSelected: e.event_id === selectedEventId.value,
       ratio: 0,
     }))
     .map((item, _, arr) => {
@@ -363,6 +503,9 @@ function barColor(idx: number) { return barColors[idx % barColors.length] }
 
 // Helpers
 function fmt(v: any): string {
+  return parseFloat(String(v || 0)).toFixed(2)
+}
+function formatMoney(v: any): string {
   return parseFloat(String(v || 0)).toFixed(2)
 }
 function fmtK(v: any): string {
@@ -397,6 +540,57 @@ function budgetUsagePercent(event: any): number {
   return Math.min(100, (spent / budget) * 100)
 }
 
+// Ranking
+const rankingEventFilter = ref<number | null>(null)
+const rankingData = ref<any[]>([])
+const rankingLoading = ref(false)
+const rankingVisible = ref(false)
+const rankingSectionRef = ref<HTMLElement | null>(null)
+
+const maxAmount = computed(() => {
+  if (rankingData.value.length === 0) return 1
+  return Math.max(...rankingData.value.map(r => r.total_amount || 0))
+})
+
+async function fetchRanking() {
+  rankingLoading.value = true
+  try {
+    const token = localStorage.getItem('token')
+    const params: any = {}
+    if (rankingEventFilter.value) params.event_id = rankingEventFilter.value
+    const resp = await $api.get('/events/stats/user-summary', {
+      params,
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (resp.data.code === 200) {
+      rankingData.value = resp.data.data.rankings || []
+    }
+  } catch (e) {
+    console.error('Failed to fetch ranking:', e)
+  } finally {
+    rankingLoading.value = false
+  }
+}
+
+function exportRanking() {
+  const header = '姓名,用户类型,总金额,记录数'
+  const rows = rankingData.value.map(r =>
+    `${r.real_name},${r.user_type},${r.total_amount},${r.record_count}`
+  )
+  const csv = '﻿' + [header, ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `消费排名_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+watch(rankingEventFilter, () => {
+  if (rankingVisible.value) fetchRanking()
+})
+
 async function refreshData() {
   await eventStore.invalidateAndRefresh({ pageSize: 100 })
 }
@@ -407,6 +601,16 @@ onMounted(async () => {
   const userStr = localStorage.getItem('user')
   currentUser.value = userStr ? JSON.parse(userStr) : null
   await eventStore.ensureLoaded()
+
+  // Lazy load ranking when visible
+  const observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      rankingVisible.value = true
+      fetchRanking()
+      observer.disconnect()
+    }
+  }, { rootMargin: '200px' })
+  if (rankingSectionRef.value) observer.observe(rankingSectionRef.value)
 })
 </script>
 
@@ -433,8 +637,25 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.75rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 .header-left { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.header-right { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.project-selector {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--text-1);
+  background: var(--card-bg);
+  cursor: pointer;
+  min-height: 44px;
+  max-width: 240px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.project-selector:focus { border-color: #6366f1; }
 .page-title {
   font-size: 1.65rem;
   font-weight: 700;
@@ -582,6 +803,7 @@ onMounted(async () => {
 
 .bar-chart { width: 100%; min-width: 280px; height: auto; }
 .bar-label { transition: opacity 0.3s; }
+.bar-highlighted { filter: drop-shadow(0 2px 4px rgba(99,102,241,0.35)); }
 
 /* Donut */
 .donut-body { display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
@@ -726,6 +948,277 @@ onMounted(async () => {
 .action-icon-ring.blue   { background: #eff6ff; color: #3b82f6; }
 .action-icon-ring.amber  { background: #fffbeb; color: #f59e0b; }
 
+/* ===== PROJECT DETAIL CARDS ===== */
+.project-details-section {
+  margin-bottom: 1.25rem;
+}
+.section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0 0 0.75rem;
+}
+.project-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+.project-detail-card {
+  background: var(--card-bg);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.1rem;
+  box-shadow: var(--shadow-card);
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+.project-detail-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+  border-color: #cbd5e1;
+}
+.project-detail-card.is-selected {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+}
+.pdc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.75rem;
+}
+.pdc-status {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pdc-status.ongoing { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.4); }
+.pdc-status.completed { background: #94a3b8; }
+.pdc-status.archived { background: #cbd5e1; }
+.pdc-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pdc-leader {
+  font-size: 0.72rem;
+  color: var(--text-3);
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.pdc-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.pdc-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pdc-label {
+  font-size: 0.68rem;
+  color: var(--text-3);
+  font-weight: 500;
+}
+.pdc-value {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.pdc-value.spent { color: #6366f1; }
+.pdc-value.ok { color: #059669; }
+.pdc-value.warn { color: #d97706; }
+.pdc-value.danger { color: #dc2626; }
+.pdc-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.5rem;
+}
+.pdc-bar-track {
+  flex: 1;
+  height: 4px;
+  background: #f1f5f9;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.pdc-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.34,1.56,0.64,1);
+}
+.pdc-bar-fill.ok { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+.pdc-bar-fill.warn { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.pdc-bar-fill.danger { background: linear-gradient(90deg, #ef4444, #f87171); }
+.pdc-usage {
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-width: 36px;
+  text-align: right;
+}
+.pdc-usage.ok { color: #059669; }
+.pdc-usage.warn { color: #d97706; }
+.pdc-usage.danger { color: #dc2626; }
+.pdc-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+
+/* ===== RANKING SECTION ===== */
+.ranking-section {
+  margin-bottom: 1.25rem;
+}
+.ranking-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ranking-filter {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--text-1);
+  background: var(--card-bg);
+  cursor: pointer;
+  min-height: 36px;
+  outline: none;
+}
+.ranking-filter:focus { border-color: #6366f1; }
+.export-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-2);
+  transition: all 0.2s;
+  min-height: 36px;
+  white-space: nowrap;
+}
+.export-btn:hover:not(:disabled) { background: #f1f5f9; border-color: #cbd5e1; }
+.export-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ranking-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+.ranking-sk-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.5rem;
+}
+.sk-circle-sm {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  flex-shrink: 0;
+}
+.ranking-empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-3);
+  font-size: 0.85rem;
+}
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+}
+.ranking-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.6rem;
+  border-bottom: 1px solid #f8fafc;
+  transition: background 0.2s;
+  border-radius: 8px;
+}
+.ranking-item:last-child { border-bottom: none; }
+.ranking-item:hover { background: #fafbfd; }
+.rank-number {
+  width: 28px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.rank-number.top1, .rank-number.top2, .rank-number.top3 {
+  font-size: 1.1rem;
+}
+.rank-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.rank-avatar.gold { background: linear-gradient(135deg, #fef3c7, #fde68a); color: #92400e; }
+.rank-avatar.silver { background: linear-gradient(135deg, #f1f5f9, #e2e8f0); color: #475569; }
+.rank-avatar.bronze { background: linear-gradient(135deg, #fef2f2, #fed7aa); color: #9a3412; }
+.rank-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rank-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.rank-meta {
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+.rank-amount-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 100px;
+}
+.rank-amount {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #6366f1;
+}
+.rank-bar-bg {
+  width: 80px;
+  height: 4px;
+  background: #f1f5f9;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.rank-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  transition: width 0.6s ease;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1024px) {
   .charts-row { grid-template-columns: 1fr; }
@@ -733,17 +1226,27 @@ onMounted(async () => {
 }
 @media (max-width: 768px) {
   .dash-header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+  .header-right { width: 100%; }
+  .project-selector { max-width: none; flex: 1; }
   .refresh-btn { align-self: stretch; justify-content: center; min-height: 44px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .stat-value { font-size: 1.3rem; }
   .donut-body { justify-content: center; }
+  .project-details-grid { grid-template-columns: 1fr; }
+  .pdc-stats { grid-template-columns: repeat(4, 1fr); gap: 0.35rem; }
+  .pdc-value { font-size: 0.78rem; }
   .quick-actions { gap: 0.5rem; }
   .action-card { flex: 1; min-width: calc(50% - 0.5rem); justify-content: center; min-height: 44px; }
+  .ranking-controls { flex-wrap: wrap; }
+  .rank-amount-col { min-width: 80px; }
+  .rank-bar-bg { width: 60px; }
 }
 @media (max-width: 480px) {
   .page-title { font-size: 1.3rem; }
   .stats-grid { grid-template-columns: 1fr; }
   .stat-card { padding: 1rem; }
+  .project-details-grid { grid-template-columns: 1fr; }
+  .pdc-stats { grid-template-columns: repeat(2, 1fr); }
   .project-row-top { flex-direction: column; gap: 0.5rem; }
   .project-remaining-badge { align-self: flex-start; flex-direction: row; gap: 6px; align-items: center; }
   .budget-three-cols { gap: 1rem; }
@@ -754,5 +1257,10 @@ onMounted(async () => {
   .donut-body { flex-direction: column; align-items: center; }
   .gauge-stack { width: 100%; }
   .gauge-val.right { min-width: 60px; }
+  .ranking-item { flex-wrap: wrap; gap: 0.5rem; }
+  .rank-amount-col { min-width: 100%; flex-direction: row; align-items: center; gap: 8px; }
+  .rank-bar-bg { flex: 1; }
+  .header-right { flex-direction: column; align-items: stretch; }
+  .project-selector { max-width: none; width: 100%; }
 }
 </style>
