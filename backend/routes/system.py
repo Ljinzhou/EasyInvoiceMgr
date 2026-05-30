@@ -725,10 +725,13 @@ def trigger_update():
         os.write(log_fd, f'[Python] 时间: {_dt.datetime.now().isoformat()}\n'.encode('utf-8'))
         os.write(log_fd, f'{"="*60}\n'.encode('utf-8'))
 
+        # stdout 设为 DEVNULL：update.sh 内部已通过 tee 自行写入日志文件，
+        # 避免 tee 的 stdout 输出和此处的 log_fd 重复写入同一文件。
+        # stderr 仍保留到 log_fd 以捕获脚本崩溃等意外错误输出。
         proc = _subprocess.Popen(
             ['bash', script_path, '--force'],
             cwd=project_dir,
-            stdout=log_fd,
+            stdout=_subprocess.DEVNULL,
             stderr=log_fd,
             stdin=_subprocess.DEVNULL,
             start_new_session=True,

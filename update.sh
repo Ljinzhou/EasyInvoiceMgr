@@ -194,16 +194,31 @@ git_pull() {
         fi
     fi
 
-    # 获取远程分支信息
-    if ! git fetch origin --prune 2>>"$LOG_FILE"; then
+    # 获取远程分支信息（带重试）
+    local fetch_ok=false
+    local fetch_attempts=3
+    local fetch_wait=5
+    for ((i=1; i<=fetch_attempts; i++)); do
+        if timeout "$GIT_TIMEOUT" git fetch origin --prune 2>>"$LOG_FILE"; then
+            fetch_ok=true
+            break
+        fi
+        if [ $i -lt $fetch_attempts ]; then
+            log "⚠️ git fetch 失败 (尝试 $i/$fetch_attempts)，${fetch_wait}秒后重试..."
+            sleep $fetch_wait
+        fi
+    done
+
+    if [ "$fetch_ok" != true ]; then
         if [ "$FORCE" = true ]; then
-            log "⚠️ 无法连接到远程仓库，但 --force 模式继续（使用本地代码构建）"
-            set_status "running" "网络不可达，使用本地代码继续更新..." 30
+            log "⚠️ 无法连接到远程仓库（已重试 $fetch_attempts 次），--force 模式使用本地代码继续"
+            log "⚠️ 注意: 如果远程有新版本，本次更新不会包含远程更改！"
+            set_status "running" "网络不可达(${fetch_attempts}次重试失败)，使用本地代码继续..." 30
             if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
             return 0
         fi
         if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
-        fail "无法连接到远程仓库，请检查网络" 20
+        fail "无法连接到远程仓库（已重试 $fetch_attempts 次），请检查网络" 20
     fi
 
     # 获取当前分支
@@ -230,8 +245,20 @@ git_pull() {
             # rebase 失败，回滚
             log "❌ rebase 失败，执行 git rebase --abort"
             git rebase --abort 2>/dev/null || true
-            if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
-            fail "代码拉取失败: 无法合并。请手动 git pull 查看冲突" 25
+
+            # force 模式下，使用 git reset --hard 强制同步到远程
+            if [ "$FORCE" = true ]; then
+                log "⚠️ --force 模式：执行 git reset --hard 强制同步到 origin/$branch ..."
+                if git reset --hard "origin/$branch" 2>>"$LOG_FILE"; then
+                    log "✅ 已强制同步到 origin/$branch"
+                else
+                    if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
+                    fail "强制同步失败，请手动 git reset --hard origin/$branch 后重试" 25
+                fi
+            else
+                if [ "$stashed" = true ]; then git stash pop 2>/dev/null || true; fi
+                fail "代码拉取失败: 无法合并。请手动 git pull 查看冲突" 25
+            fi
         fi
     fi
 
