@@ -82,6 +82,7 @@ def get_purchase_records(event_id):
                 'amount': float(record.amount),
                 'receipt_image_url': receipt_image_url,
                 'receipt_image_name': record.receipt_image_name,
+                'cannot_invoice': record.cannot_invoice,
                 'has_invoice': record.has_invoice,
                 'invoice_file_key': record.invoice_file_key,
                 'invoice_preview_key': record.invoice_preview_key,
@@ -147,8 +148,9 @@ def create_purchase_record(event_id):
         if 'receipt_image_url' not in data or not data['receipt_image_url']:
             return jsonify({'code': 400, 'message': '必须上传购物凭证图片', 'data': None}), 400
         
-        has_invoice = bool(data.get('invoice_file_key'))
-        
+        cannot_invoice = bool(data.get('cannot_invoice'))
+        has_invoice = bool(data.get('invoice_file_key')) if not cannot_invoice else False
+
         # 检查赛事是否需要发票审核
         need_review = event.need_invoice_review if event else True
         # 如果不需要审核，直接设置为已通过状态
@@ -164,6 +166,7 @@ def create_purchase_record(event_id):
             receipt_image_url=data['receipt_image_url'],
             receipt_image_name=data.get('receipt_image_name'),
             receipt_file_md5=data.get('receipt_file_md5'),
+            cannot_invoice=cannot_invoice,
             has_invoice=has_invoice,
             invoice_file_key=data.get('invoice_file_key'),
             invoice_preview_key=data.get('invoice_preview_key'),
@@ -242,7 +245,20 @@ def update_purchase_record(record_id):
         if 'receipt_image_name' in data:
             record.receipt_image_name = data['receipt_image_name']
 
-        if 'invoice_file_key' in data:
+        if 'cannot_invoice' in data:
+            record.cannot_invoice = bool(data['cannot_invoice'])
+            if record.cannot_invoice:
+                record.has_invoice = False
+                record.invoice_file_key = None
+                record.invoice_preview_key = None
+                record.invoice_original_filename = None
+                record.invoice_md5 = None
+                record.invoice_type = None
+                record.invoice_number = None
+                record.total_amount = 0
+                record.invoice_date = None
+
+        if 'invoice_file_key' in data and not record.cannot_invoice:
             has_invoice = bool(data['invoice_file_key'])
             record.has_invoice = has_invoice
             record.invoice_file_key = data['invoice_file_key'] if has_invoice else None

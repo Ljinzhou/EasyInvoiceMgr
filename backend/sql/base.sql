@@ -183,6 +183,7 @@ CREATE TABLE purchase_records (
     receipt_file_md5 VARCHAR(64),
 
     -- 发票信息
+    cannot_invoice BOOLEAN DEFAULT FALSE, -- 标记该记录无法开票
     has_invoice BOOLEAN DEFAULT FALSE,
     invoice_file_key TEXT,
     invoice_preview_key TEXT,
@@ -229,6 +230,25 @@ CREATE TABLE export_tasks (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP WITH TIME ZONE,
     expires_at TIMESTAMP WITH TIME ZONE
+);
+
+-- 2.11 备份记录表 (backup_records)
+-- 跟踪手动/定时/恢复备份任务状态
+CREATE TABLE backup_records (
+    id BIGSERIAL PRIMARY KEY,
+    backup_type VARCHAR(20) NOT NULL DEFAULT 'manual', -- manual / scheduled / restore
+    backup_scope VARCHAR(20) NOT NULL DEFAULT 'full', -- database / full
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- pending / running / completed / failed
+    progress INTEGER DEFAULT 0, -- 0-100
+    progress_message VARCHAR(200),
+    file_path TEXT,
+    file_size BIGINT,
+    file_count INTEGER,
+    error_message TEXT,
+    created_by BIGINT REFERENCES users(user_id), -- 定时备份时为 NULL
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 2.7 邀请码表 (invitation_codes)
@@ -321,6 +341,10 @@ CREATE INDEX idx_purchase_records_status ON purchase_records(status);
 CREATE INDEX idx_export_tasks_event ON export_tasks(event_id);
 CREATE INDEX idx_export_tasks_status ON export_tasks(status);
 
+-- 备份记录索引
+CREATE INDEX idx_backup_records_status ON backup_records(status);
+CREATE INDEX idx_backup_records_created_by ON backup_records(created_by);
+
 -- ============================================
 -- 4. 触发器设计 (自动维护 updated_at)
 -- ============================================
@@ -356,6 +380,9 @@ CREATE TRIGGER trigger_export_tasks_update BEFORE UPDATE ON export_tasks
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 CREATE TRIGGER trigger_system_configs_update BEFORE UPDATE ON system_configs
+FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER trigger_backup_records_update BEFORE UPDATE ON backup_records
 FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 -- ============================================

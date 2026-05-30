@@ -170,6 +170,7 @@ class PurchaseRecord(db.Model):
     receipt_image_name = db.Column(db.String(255))
     receipt_file_md5 = db.Column(db.String(64))
 
+    cannot_invoice = db.Column(db.Boolean, default=False)
     has_invoice = db.Column(db.Boolean, default=False)
     invoice_file_key = db.Column(db.Text)
     invoice_preview_key = db.Column(db.Text)

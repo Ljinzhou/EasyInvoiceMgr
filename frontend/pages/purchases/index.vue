@@ -217,7 +217,6 @@ const formatMoney = (val) => {
 .stat-card.invoice-stat { border-left-color: #f39c12; }
 .stat-card.pending-stat { border-left-color: #e74c3c; }
 .stat-card.count-stat { border-left-color: #3498db; }
-
 .stat-icon { font-size: 2rem; }
 
 .stat-info { display: flex; flex-direction: column; }

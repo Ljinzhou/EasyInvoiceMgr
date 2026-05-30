@@ -135,7 +135,7 @@
             <th class="checkbox-col"><input type="checkbox" v-model="selectAll" @change="toggleSelectAll" /></th>
             <th>物品名称</th>
             <th>平台</th>
-            <th>金额</th>
+            <th class="amount-header">金额 <span v-if="filteredAmountTotal !== null" class="amount-total">(￥{{ formatMoney(filteredAmountTotal) }}元)</span></th>
             <th>购物日期</th>
             <th>上传人</th>
             <th>发票状态</th>
@@ -159,7 +159,8 @@
             <td>{{ formatDate(record.purchase_date) }}</td>
             <td>{{ record.uploader_name || '未知' }}</td>
             <td>
-              <span class="invoice-badge" :class="record.has_invoice ? 'yes' : 'no'">
+              <span v-if="record.cannot_invoice" class="invoice-badge cannot-invoice">无法开票</span>
+              <span v-else class="invoice-badge" :class="record.has_invoice ? 'yes' : 'no'">
                 {{ record.has_invoice ? '有发票' : '无发票' }}
               </span>
             </td>
@@ -167,7 +168,8 @@
               <span class="status-badge" :class="record.status">{{ getStatusText(record.status) }}</span>
             </td>
             <td>
-              <span class="reimburse-badge" :class="{ 'is-reimbursed': record.is_reimbursed }">
+              <span v-if="record.cannot_invoice" class="reimburse-badge cannot-invoice">无法开票</span>
+              <span v-else class="reimburse-badge" :class="{ 'is-reimbursed': record.is_reimbursed }">
                 {{ record.is_reimbursed ? '已报销' : '未报销' }}
               </span>
             </td>
@@ -307,14 +309,21 @@
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z"/></svg>
                   </div>
                   <h3 class="section-title">发票信息</h3>
-                  <label class="toggle-switch">
-                    <input type="checkbox" v-model="form.has_invoice" />
-                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                    <span class="toggle-label">{{ form.has_invoice ? '有发票' : '无发票' }}</span>
-                  </label>
+                  <div class="toggle-group">
+                    <label class="toggle-switch cannot-invoice-toggle" :class="{ 'active-red': form.cannot_invoice }">
+                      <input type="checkbox" v-model="form.cannot_invoice" @change="onCannotInvoiceChange" />
+                      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                      <span class="toggle-label">{{ form.cannot_invoice ? '无法开票' : '可开票' }}</span>
+                    </label>
+                    <label class="toggle-switch" v-show="!form.cannot_invoice">
+                      <input type="checkbox" v-model="form.has_invoice" />
+                      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                      <span class="toggle-label">{{ form.has_invoice ? '有发票' : '无发票' }}</span>
+                    </label>
+                  </div>
                 </div>
 
-                  <div v-if="form.has_invoice" class="invoice-form">
+                  <div v-if="!form.cannot_invoice && form.has_invoice" class="invoice-form">
                     <!-- AI解析状态提示 -->
                     <div v-if="aiParseError" class="ai-error-banner">
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -779,6 +788,7 @@ const form = ref({
   receipt_image_url: '',
   receipt_image_name: '',
   receipt_file_md5: '',
+  cannot_invoice: false,
   has_invoice: false,
   invoice_file_key: '',
   invoice_preview_key: '',
@@ -909,6 +919,11 @@ const filteredRecords = computed(() => {
   return result
 })
 
+// 筛选后金额总计
+const filteredAmountTotal = computed(() => {
+  return filteredRecords.value.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0)
+})
+
 // 应用过滤
 const applyFilters = () => {
 }
@@ -993,7 +1008,7 @@ const loadRecords = async () => {
     const token = localStorage.getItem('token')
     
     const recordsParams = { headers: { Authorization: `Bearer ${token}` } }
-    const invoicesParams: any = { headers: { Authorization: `Bearer ${token}` }, params: { event_id: eventId.value } }
+    const invoicesParams = { headers: { Authorization: `Bearer ${token}` }, params: { event_id: eventId.value } }
     if (showPersonalOnly.value && currentUser.value?.user_id) {
       const uid = currentUser.value.user_id
       recordsParams['params'] = { uploader_id: uid }
@@ -1084,6 +1099,7 @@ const editRecord = (record) => {
     receipt_image_url: record.receipt_image_url,
     receipt_image_name: record.receipt_image_name,
     receipt_file_md5: record.receipt_file_md5 || '',
+    cannot_invoice: record.cannot_invoice || false,
     has_invoice: record.has_invoice,
     invoice_file_key: record.invoice_file_key || '',
     invoice_preview_key: record.invoice_preview_key || '',
@@ -1121,6 +1137,7 @@ const resetForm = () => {
     receipt_image_url: '',
     receipt_image_name: '',
     receipt_file_md5: '',
+    cannot_invoice: false,
     has_invoice: false,
     invoice_file_key: '',
     invoice_preview_key: '',
@@ -1350,6 +1367,13 @@ const removeInvoice = () => {
   invoiceParseResult.value = null
   parseApplied.value = false
   aiParseError.value = ''
+}
+
+const onCannotInvoiceChange = () => {
+  if (form.value.cannot_invoice) {
+    form.value.has_invoice = false
+    removeInvoice()
+  }
 }
 
 const showImageModal = (imageUrl) => {
@@ -1967,6 +1991,19 @@ const formatMoney = (val) => {
 .record-type-tag.purchase { background: #e8f5e9; color: #2e7d32; }
 .record-type-tag.invoice { background: #e3f2fd; color: #1565c0; }
 .amount { font-weight: 600; color: #e74c3c; }
+.amount-header { white-space: nowrap; }
+.amount-total {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1a1a2e;
+  background: linear-gradient(135deg, #e8eaf6, #c5cae9);
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-left: 4px;
+  letter-spacing: -0.01em;
+  border: 1px solid #9fa8da;
+}
 
 .invoice-badge {
   padding: 3px 10px;
@@ -2424,6 +2461,19 @@ const formatMoney = (val) => {
 .toggle-switch input:checked + .toggle-track .toggle-thumb { transform: translateX(18px); }
 .toggle-label { font-size: 0.8rem; color: #64748b; font-weight: 500; }
 
+.toggle-group {
+  display: flex; align-items: center; gap: 12px; margin-left: auto;
+}
+.cannot-invoice-toggle .toggle-track { background: #e2e8f0; }
+.cannot-invoice-toggle.active-red .toggle-track { background: #ef4444; }
+.cannot-invoice-toggle.active-red .toggle-label { color: #dc2626; font-weight: 600; }
+
+.invoice-badge.cannot-invoice,
+.reimburse-badge.cannot-invoice {
+  background: #fef2f2; color: #dc2626; font-weight: 600;
+  border: 1px solid #fecaca;
+}
+
 /* ========== INVOICE FORM ========== */
 .invoice-form { margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem; }
 .invoice-upload { border-color: #fde68a; }
@@ -2861,6 +2911,8 @@ const formatMoney = (val) => {
 @media (max-width: 768px) {
   .form-row, .detail-grid, .detail-images, .invoice-fields-grid { grid-template-columns: 1fr; }
   .page-header { flex-direction: column; align-items: flex-start; }
+  .toggle-group { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .amount-total { font-size: 10px; padding: 1px 5px; }
   .stats-panel { grid-template-columns: repeat(2, 1fr); }
   .action-buttons { flex-wrap: wrap; }
   .modal-content { width: 96%; max-height: 88vh; border-radius: 14px; }
