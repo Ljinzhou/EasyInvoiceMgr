@@ -3,6 +3,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Invoice, Event, User, EventMember
 from utils.storage import storage_manager
 from datetime import datetime
+from routes.events import ensure_event_membership
 import logging
 import hashlib
 import io
@@ -175,6 +176,9 @@ def create_invoice():
                 }
             }), 400
 
+        # 自动检查并添加赛事成员
+        ensure_event_membership(int(event_id), int(current_user_id))
+
         if storage_manager.is_available():
             upload_result = storage_manager.upload_file(int(event_id), file, file.filename)
             image_url = upload_result['file_key']
@@ -251,7 +255,11 @@ def delete_invoice(invoice_id):
         if user.user_type not in ['admin', 'teacher'] and invoice.uploader_id != int(current_user_id):
             logger.warning(f'权限不足: 用户{current_user_id}无权删除发票{invoice_id}')
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+
+        # 自动检查并添加赛事成员（特权用户）
+        if user.user_type in ['admin', 'teacher']:
+            ensure_event_membership(invoice.event_id, int(current_user_id))
+
         event = Event.query.get(invoice.event_id)
         
         invoice.is_deleted = True
@@ -295,11 +303,14 @@ def approve_invoice(invoice_id):
             return jsonify({'code': 403, 'message': '权限不足，只有管理员、教师或学生管理员可以审核发票', 'data': None}), 403
         
         invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
-        
+
         if not invoice:
             logger.warning(f'发票不存在: invoice_id={invoice_id}')
             return jsonify({'code': 3001, 'message': '发票不存在', 'data': None}), 404
-        
+
+        # 自动检查并添加赛事成员
+        ensure_event_membership(invoice.event_id, int(current_user_id))
+
         data = request.get_json()
         status = data.get('status')
         rejection_reason = data.get('rejection_reason')
@@ -609,11 +620,14 @@ def reimburse_invoice(invoice_id):
         user = User.query.get(current_user_id)
         if not user or user.user_type not in ['admin', 'teacher']:
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+
         invoice = Invoice.query.filter_by(invoice_id=invoice_id, is_deleted=False).first()
         if not invoice:
             return jsonify({'code': 3001, 'message': '发票不存在', 'data': None}), 404
-        
+
+        # 自动检查并添加赛事成员
+        ensure_event_membership(invoice.event_id, int(current_user_id))
+
         if invoice.status != 'approved':
             return jsonify({'code': 400, 'message': '只能报销已审核通过的发票', 'data': None}), 400
         

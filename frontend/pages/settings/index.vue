@@ -113,50 +113,38 @@
               </div>
               <p v-if="updateInfo" class="update-notes">{{ updateInfo }}</p>
 
-              <div class="update-commands">
-                <p class="commands-label">在服务器上执行以下命令完成更新：</p>
-                <div class="command-block">
-                  <code>{{ updateCommands }}</code>
-                  <button class="copy-btn" @click="copyCommands" :title="copied ? '已复制' : '复制'">
-                    <svg v-if="!copied" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                  </button>
-                </div>
-                <p class="commands-hint">数据库将在更新时自动备份并迁移</p>
-              </div>
-
-              <div v-if="updateState === 'has_update'" class="update-action">
-                <button
-                  class="update-now-btn"
-                  :disabled="updating || updateTriggered"
-                  @click="confirmUpdate"
-                >
-                  <span v-if="updating" class="btn-spinner"></span>
-                  <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                  {{ updating ? '启动中...' : updateTriggered ? '更新已启动' : '立即更新' }}
-                </button>
-              </div>
-
-              <transition name="msg-fade">
-                <div v-if="updateTriggered" class="update-progress-notice">
-                  <div class="update-progress-header">
-                    <span class="mini-spinner"></span>
-                    <span>{{ updateStatusMsg }}</span>
+              <!-- 手动更新步骤 -->
+              <div v-if="manualSteps" class="manual-update-steps">
+                <p class="commands-label">{{ manualSteps.title }}</p>
+                <p class="manual-desc">{{ manualSteps.description }}</p>
+                <div class="steps-list">
+                  <div v-for="s in manualSteps.steps" :key="s.step" class="step-item">
+                    <span class="step-number">{{ s.step }}</span>
+                    <div class="step-content">
+                      <span class="step-title">{{ s.title }}</span>
+                      <span class="step-desc">{{ s.description }}</span>
+                      <div class="command-block">
+                        <code>{{ s.command }}</code>
+                        <button class="copy-btn" @click="copyCommand(s.command)" :title="copiedStep === s.step ? '已复制' : '复制'">
+                          <svg v-if="copiedStep !== s.step" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                          <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div class="progress-bar-track" style="margin-top: .5rem;">
-                    <div class="progress-bar-fill" :style="{ width: updateProgress + '%' }"></div>
-                  </div>
-                  <span class="progress-text" style="margin-top: .3rem;">{{ updateProgress }}%</span>
-                  <p class="update-progress-hint">服务将在更新完成后自动重启，页面将自动刷新。</p>
-                  <button
-                    class="check-btn"
-                    style="margin-top: 0.5rem; width: 100%;"
-                    @click="fetchUpdateLog"
-                  >
-                    📋 查看更新日志（控制台输出）
-                  </button>
                 </div>
-              </transition>
+                <div class="one-liner-block">
+                  <p class="one-liner-label">一键命令（复制后在服务器执行）：</p>
+                  <div class="command-block">
+                    <code>{{ manualSteps.one_liner }}</code>
+                    <button class="copy-btn" @click="copyCommand(manualSteps.one_liner)" :title="copiedOneLiner ? '已复制' : '复制'">
+                      <svg v-if="!copiedOneLiner" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="step-note">{{ manualSteps.note }}</p>
+              </div>
 
               <a v-if="updateDownloadUrl" :href="updateDownloadUrl" target="_blank" class="github-link">
                 查看 GitHub 发布页面
@@ -344,34 +332,6 @@
           </transition>
         </Teleport>
 
-        <!-- Update Confirm Modal -->
-        <Teleport to="body">
-          <transition name="modal-fade">
-            <div v-if="updateConfirmVisible" class="modal-overlay" @mousedown.self="updateConfirmVisible = false">
-              <div class="modal-content">
-                <div class="modal-icon">🔄</div>
-                <h3 class="modal-title">确认系统更新</h3>
-                <p class="modal-desc">
-                  将更新到 <strong>v{{ latestVersion }}</strong><br/>
-                  系统将自动执行以下操作：<br/>
-                  1. 备份数据库<br/>
-                  2. 拉取最新代码<br/>
-                  3. 构建 Docker 镜像<br/>
-                  4. 重启服务<br/>
-                  <strong>更新期间系统将短暂不可用（约 2-5 分钟）。</strong>
-                </p>
-                <div class="modal-actions">
-                  <button class="modal-btn cancel" @click="updateConfirmVisible = false">取消</button>
-                  <button class="modal-btn confirm" @click="triggerUpdate">
-                    <span v-if="updating" class="btn-spinner"></span>
-                    {{ updating ? '启动中...' : '确认更新' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </transition>
-        </Teleport>
-
       </div>
     </template>
   </div>
@@ -489,20 +449,13 @@ const latestVersion = ref('')
 const updateInfo = ref('')
 const updateReleaseName = ref('')
 const updateDownloadUrl = ref('')
-const updateCommands = ref('')
+const manualSteps = ref<any>(null)
 const updateState = ref<'idle' | 'checking' | 'has_update' | 'up_to_date' | 'error'>('idle')
 const updateError = ref('')
 const checking = ref(false)
-const copied = ref(false)
+const copiedStep = ref<number | null>(null)
+const copiedOneLiner = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
-
-// One-click update
-const updateConfirmVisible = ref(false)
-const updating = ref(false)
-const updateTriggered = ref(false)
-const updateProgress = ref(0)
-const updateStatusMsg = ref('')
-let updatePollTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadCurrentVersion() {
   try {
@@ -513,212 +466,50 @@ async function loadCurrentVersion() {
   } catch { /* silent */ }
 }
 
-async function copyCommands() {
+async function copyCommand(cmd: string, stepNum?: number) {
   try {
-    await navigator.clipboard.writeText(updateCommands.value)
-    copied.value = true
+    await navigator.clipboard.writeText(cmd)
   } catch {
     const ta = document.createElement('textarea')
-    ta.value = updateCommands.value
+    ta.value = cmd
     document.body.appendChild(ta)
     ta.select()
     document.execCommand('copy')
     document.body.removeChild(ta)
-    copied.value = true
+  }
+  if (typeof stepNum === 'number') {
+    copiedStep.value = stepNum
+  } else {
+    copiedOneLiner.value = true
   }
   if (copyTimer) clearTimeout(copyTimer)
-  copyTimer = setTimeout(() => { copied.value = false }, 2000)
-}
-
-function confirmUpdate() {
-  console.log('==================== 系统更新 ====================')
-  console.log('[更新] 用户点击"立即更新"按钮')
-  console.log('[更新] 当前版本:', currentVersion.value)
-  console.log('[更新] 目标版本:', latestVersion.value)
-  console.log(`[更新] API地址: ${apiBase}/system/update`)
-  console.log('[更新] 弹出确认弹窗')
-  updateConfirmVisible.value = true
-}
-
-async function triggerUpdate() {
-  console.log('[更新] 用户确认更新，开始触发...')
-  console.log(`[更新] POST ${apiBase}/system/update`)
-  updating.value = true
-  try {
-    const startTime = Date.now()
-    const { data } = await $api.post('/system/update')
-    const elapsed = Date.now() - startTime
-    console.log(`[更新] 请求响应时间: ${elapsed}ms`)
-    console.log('[更新] 响应数据:', JSON.stringify(data, null, 2))
-    if (data.code === 200) {
-      console.log('[更新] ✅ 更新已成功启动')
-      console.log('[更新] 服务器消息:', data.message)
-      console.log('[更新] 状态:', data.data?.status)
-      updateConfirmVisible.value = false
-      updateTriggered.value = true
-      updateProgress.value = 5
-      updateStatusMsg.value = data.message || '更新已启动'
-      // 开始获取详细日志
-      fetchUpdateLog()
-      startUpdatePolling()
-    } else {
-      console.error('[更新] ❌ 启动失败, code:', data.code, 'message:', data.message)
-      alert(data.message || '启动更新失败')
-    }
-  } catch (e: any) {
-    console.error('[更新] ❌ 请求异常')
-    console.error('[更新] 错误对象:', e)
-    const status = e.response?.status
-    console.error('[更新] HTTP状态码:', status)
-    console.error('[更新] 响应数据:', e.response?.data)
-    if (status === 409) {
-      console.log('[更新] ⚠️ 更新已在运行中 (409)')
-      console.log('[更新] 当前进度:', e.response?.data?.data?.progress)
-      updateConfirmVisible.value = false
-      updateTriggered.value = true
-      updateProgress.value = e.response?.data?.data?.progress || 0
-      updateStatusMsg.value = e.response?.data?.message || '更新正在进行中'
-      fetchUpdateLog()
-      startUpdatePolling()
-    } else if (status === 503) {
-      console.error('[更新] ❌ 更新脚本未找到 (503)')
-      console.error('[更新] 请检查 HOST_PROJECT_DIR 环境变量和 Docker socket 挂载')
-      alert(e.response?.data?.message || '更新服务未就绪，请检查服务器配置')
-    } else {
-      console.log('[更新] ⚠️ 请求失败但更新可能已触发（后端可能已重启）')
-      console.log('[更新] 切换到等待服务恢复模式...')
-      updateConfirmVisible.value = false
-      updateTriggered.value = true
-      updateProgress.value = 30
-      updateStatusMsg.value = '更新已触发，等待服务重启...'
-      fetchUpdateLog()
-      startPostUpdatePolling()
-    }
-  } finally {
-    updating.value = false
-  }
-}
-
-async function fetchUpdateLog() {
-  try {
-    console.log('[更新日志] 正在获取服务器端更新日志...')
-    const { data } = await $api.get('/system/update/log', { params: { lines: 500 } })
-    if (data.code === 200 && data.data) {
-      console.log(`[更新日志] 文件: ${data.data.path}`)
-      console.log(`[更新日志] 大小: ${data.data.file_size} bytes`)
-      console.log(`[更新日志] 最后更新: ${data.data.updated_at}`)
-      console.log(`[更新日志] 行数: ${data.data.lines}`)
-      console.log('[更新日志] ========== 服务器更新日志内容 ==========')
-      console.log(data.data.log || '(日志为空)')
-      console.log('[更新日志] ========== 日志内容结束 ==========')
-    } else {
-      console.log('[更新日志] 暂无日志数据')
-    }
-  } catch (e: any) {
-    console.warn('[更新日志] 获取日志失败:', e.message || e)
-  }
-}
-
-function startUpdatePolling() {
-  console.log('[更新轮询] 开始轮询更新状态 (每2秒)')
-  let pollCount = 0
-  if (updatePollTimer) clearInterval(updatePollTimer)
-  updatePollTimer = setInterval(async () => {
-    pollCount++
-    try {
-      const { data } = await $api.get('/system/update/status')
-      console.log(`[更新轮询 #${pollCount}] 状态响应:`, JSON.stringify(data))
-      if (data.code === 200 && data.data) {
-        console.log(`[更新轮询 #${pollCount}] status=${data.data.status}, progress=${data.data.progress}, message="${data.data.message}"`)
-        updateStatusMsg.value = data.data.message || ''
-        updateProgress.value = data.data.progress || 0
-        if (data.data.status === 'completed') {
-          console.log('[更新轮询] 更新脚本已完成，切换到等待重启模式')
-          clearInterval(updatePollTimer!)
-          updatePollTimer = null
-          updateStatusMsg.value = '更新完成，服务正在重启...'
-          fetchUpdateLog()
-          startPostUpdatePolling()
-        } else if (data.data.status === 'failed') {
-          console.error('[更新轮询] ❌ 更新失败!')
-          console.error('[更新轮询] 错误信息:', data.data.message)
-          clearInterval(updatePollTimer!)
-          updatePollTimer = null
-          fetchUpdateLog()
-          alert('更新失败: ' + data.data.message + '\n请查看浏览器控制台获取详细信息')
-        }
-      }
-    } catch (e: any) {
-      console.warn(`[更新轮询 #${pollCount}] ⚠️ 请求失败，后端可能已重启:`, e.message)
-      clearInterval(updatePollTimer!)
-      updatePollTimer = null
-      updateProgress.value = 90
-      updateStatusMsg.value = '服务重启中，等待恢复...'
-      startPostUpdatePolling()
-    }
+  copyTimer = setTimeout(() => {
+    copiedStep.value = null
+    copiedOneLiner.value = false
   }, 2000)
 }
 
-function startPostUpdatePolling() {
-  console.log('[重启等待] 开始等待服务恢复 (每3秒)')
-  if (updatePollTimer) clearInterval(updatePollTimer)
-  let attempts = 0
-  updatePollTimer = setInterval(async () => {
-    attempts++
-    updateProgress.value = Math.min(90 + attempts, 98)
-    updateStatusMsg.value = `等待服务恢复... (${attempts})`
-    console.log(`[重启等待 #${attempts}] 尝试连接后端...`)
-    try {
-      const startTime = Date.now()
-      const { data } = await $api.get('/system/config')
-      const elapsed = Date.now() - startTime
-      console.log(`[重启等待 #${attempts}] ✅ 后端已恢复! 响应时间: ${elapsed}ms`)
-      console.log('[重启等待] 新版本信息:', data.data?._version)
-      clearInterval(updatePollTimer!)
-      updatePollTimer = null
-      updateProgress.value = 100
-      updateStatusMsg.value = '更新完成！页面即将刷新...'
-      console.log('[更新] ==================== 更新完成 ====================')
-      setTimeout(() => {
-        console.log('[更新] 刷新页面...')
-        window.location.reload()
-      }, 1500)
-    } catch (e: any) {
-      console.warn(`[重启等待 #${attempts}] 尚未恢复:`, e.message?.slice(0, 50))
-    }
-  }, 3000)
-}
-
 async function checkUpdate() {
-  console.log('[检查更新] 开始检查...')
-  console.log(`[检查更新] GET ${apiBase}/system/check-update`)
   checking.value = true
   updateState.value = 'checking'
   try {
     const { data } = await $api.get('/system/check-update')
-    console.log('[检查更新] 响应:', JSON.stringify(data, null, 2))
     if (data.code === 200) {
       if (data.data.has_update) {
-        console.log(`[检查更新] ✅ 发现新版本: ${data.data.update_info?.version}`)
-        console.log('[检查更新] 发布名称:', data.data.update_info?.release_name)
         updateState.value = 'has_update'
         latestVersion.value = data.data.update_info?.version || data.data.latest_version
         updateInfo.value = data.data.update_info?.release_notes || ''
         updateReleaseName.value = data.data.update_info?.release_name || ''
         updateDownloadUrl.value = data.data.update_info?.download_url || ''
-        updateCommands.value = data.data.update_commands?.full || 'git pull && docker compose build && docker compose up -d'
-        console.log('[检查更新] 更新命令:', updateCommands.value)
+        manualSteps.value = data.data.manual_steps || null
       } else {
-        console.log('[检查更新] 已是最新版本')
         updateState.value = 'up_to_date'
       }
     } else {
-      console.error('[检查更新] ❌ 请求失败:', data.message)
       updateState.value = 'error'
       updateError.value = data.message || '检查失败'
     }
   } catch (e: any) {
-    console.error('[检查更新] ❌ 网络错误:', e.message)
     updateState.value = 'error'
     updateError.value = e.response?.data?.message || '网络错误'
   } finally {
@@ -1358,6 +1149,93 @@ useHead({ title: '系统设置 - 财务管理系统' })
 }
 .github-link:hover {
   text-decoration: underline;
+}
+
+/* ---- Manual Update Steps ---- */
+.manual-update-steps {
+  margin-top: .75rem;
+}
+.manual-desc {
+  font-size: .82rem;
+  color: #64748b;
+  margin-bottom: .75rem;
+}
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  margin-bottom: .75rem;
+}
+.step-item {
+  display: flex;
+  gap: .75rem;
+  padding: .7rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  align-items: flex-start;
+}
+.step-number {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  background: #667eea;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .75rem;
+  font-weight: 700;
+  margin-top: .1rem;
+}
+.step-content {
+  flex: 1;
+  min-width: 0;
+}
+.step-title {
+  display: block;
+  font-size: .85rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: .15rem;
+}
+.step-desc {
+  display: block;
+  font-size: .78rem;
+  color: #64748b;
+  margin-bottom: .4rem;
+}
+.step-content .command-block {
+  margin-top: .25rem;
+}
+.step-content .command-block code {
+  font-size: .75rem;
+}
+.one-liner-block {
+  margin-top: .75rem;
+  padding: .75rem;
+  background: linear-gradient(135deg, #fefce8, #fffbeb);
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+}
+.one-liner-label {
+  font-size: .82rem;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: .4rem;
+}
+.step-note {
+  font-size: .76rem;
+  color: #94a3b8;
+  margin-top: .6rem;
+  font-style: italic;
+}
+/* Hide old update action and progress */
+.update-action,
+.update-progress-notice,
+.commands-hint {
+  display: none;
 }
 
 /* ---- Backup Quick ---- */

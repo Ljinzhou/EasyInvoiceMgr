@@ -262,6 +262,37 @@
                     <textarea v-model="form.remarks" rows="2" placeholder="可选，填写其他说明"></textarea>
                   </div>
                 </div>
+                <!-- 修改上传人（编辑模式 + 管理员/教师/学生管理员可见） -->
+                <div v-if="editingRecord && canReview" class="form-group">
+                  <label>上传人</label>
+                  <div class="uploader-search-wrapper">
+                    <div class="input-shell">
+                      <input
+                        v-model="uploaderSearchText"
+                        type="text"
+                        :placeholder="selectedUploaderName || '搜索用户...'"
+                        @input="onUploaderSearchInput"
+                        @focus="showUploaderDropdown = true"
+                        @blur="onUploaderSearchBlur"
+                        autocomplete="off"
+                      />
+                    </div>
+                    <div v-if="showUploaderDropdown && uploaderSearchResults.length > 0" class="uploader-dropdown">
+                      <div
+                        v-for="u in uploaderSearchResults"
+                        :key="u.user_id"
+                        class="uploader-dropdown-item"
+                        @mousedown.prevent="selectUploader(u)"
+                      >
+                        <span class="uploader-name">{{ u.real_name || u.username }}</span>
+                        <span class="uploader-type">{{ u.user_type }}</span>
+                      </div>
+                    </div>
+                    <div v-if="showUploaderDropdown && uploaderSearchText && uploaderSearchResults.length === 0" class="uploader-dropdown empty">
+                      <span>未找到匹配用户</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <!-- 购物凭证 -->
@@ -273,19 +304,29 @@
                   <h3 class="section-title">购物凭证</h3>
                   <span class="required-tag">必填</span>
                 </div>
-                <div class="upload-area" :class="{ 'has-file': receiptPreviewSrc }" @click="$refs.receiptInput.click()">
+                <div
+                  class="upload-area"
+                  :class="{ 'has-file': receiptPreviewSrc, 'drag-over': receiptDragOver }"
+                  @click="$refs.receiptInput.click()"
+                  @dragover="onReceiptDragOver"
+                  @dragleave="onReceiptDragLeave"
+                  @drop="onReceiptDrop"
+                >
                   <input ref="receiptInput" type="file" accept="image/*" @change="handleReceiptUpload" hidden />
                   <div v-if="!receiptPreviewSrc" class="upload-placeholder">
                     <div class="upload-icon-circle">
                       <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     </div>
-                    <p class="upload-main-text">点击上传购物凭证图片</p>
+                    <p class="upload-main-text">点击或拖拽上传购物凭证图片</p>
                     <p class="upload-hint">支持 JPG、PNG 格式</p>
+                    <div v-if="receiptUploadProgress > 0" class="upload-progress-bar">
+                      <div class="upload-progress-fill" :style="{ width: receiptUploadProgress + '%' }"></div>
+                    </div>
                   </div>
                   <div v-else class="file-preview">
                     <div class="receipt-preview-container">
                       <div class="fixed-preview-box receipt-fixed">
-                        <img :src="receiptPreviewSrc" class="preview-img" @click.stop="showImageModal(receiptPreviewSrc)" />
+                        <img :src="receiptPreviewSrc" class="preview-img" loading="lazy" decoding="async" @click.stop="showImageModal(receiptPreviewSrc)" />
                         <button type="button" @click.stop="$refs.receiptInput.click()" class="reupload-overlay-btn" title="重新上传">
                           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                         </button>
@@ -332,14 +373,24 @@
                     </div>
 
                     <!-- 上传发票 -->
-                    <div class="invoice-upload-zone" :class="{ 'has-file': form.invoice_file_key || invoiceLocalFile }" @click="$refs.invoiceInput.click()">
-                      <input ref="invoiceInput" type="file" accept=".pdf,image/*" @change="handleInvoiceUpload" hidden />
+                    <div
+                      class="invoice-upload-zone"
+                      :class="{ 'has-file': form.invoice_file_key || invoiceLocalFile, 'drag-over': invoiceDragOver }"
+                      @click="$refs.invoiceInput.click()"
+                      @dragover="onInvoiceDragOver"
+                      @dragleave="onInvoiceDragLeave"
+                      @drop="onInvoiceDrop"
+                    >
+                      <input ref="invoiceInput" type="file" accept=".pdf,image/*,.jpg,.jpeg,.png" @change="handleInvoiceUpload" hidden />
                       <div v-if="!form.invoice_file_key && !invoiceLocalFile" class="upload-placeholder">
                         <div class="upload-icon-circle amber">
                           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                         </div>
-                        <p class="upload-main-text">点击上传发票文件</p>
-                        <p class="upload-hint">支持 PDF、JPG、PNG 格式</p>
+                        <p class="upload-main-text">点击或拖拽上传发票文件</p>
+                        <p class="upload-hint">支持 PDF、JPG、PNG 格式（移动端请从相册或文件管理器选择）</p>
+                        <div v-if="invoiceUploadProgress > 0" class="upload-progress-bar">
+                          <div class="upload-progress-fill" :style="{ width: invoiceUploadProgress + '%' }"></div>
+                        </div>
                       </div>
                       <div v-else class="invoice-file-bar">
                         <div class="invoice-file-icon">
@@ -393,6 +444,8 @@
                             v-else-if="!imageLoadingError && invoiceFilePreviewSrc"
                             :src="invoiceFilePreviewSrc"
                             class="invoice-thumbnail"
+                            loading="lazy"
+                            decoding="async"
                             @load="onInvoiceImageLoad"
                             @error="onInvoiceImageError"
                             title="点击查看大图"
@@ -539,6 +592,8 @@
                   <img
                     :src="getFullImageUrl(currentRecord.receipt_image_url)"
                     class="detail-preview-img"
+                    loading="lazy"
+                    decoding="async"
                     @error="(e) => e.target.style.display='none'"
                   />
                   <div class="detail-image-hint">点击放大查看</div>
@@ -551,6 +606,8 @@
                     v-if="invoiceDetailPreviewUrl"
                     :src="invoiceDetailPreviewUrl"
                     class="detail-preview-img"
+                    loading="lazy"
+                    decoding="async"
                     @error="(e) => { e.target.style.display='none'; invoiceDetailPreviewError = true }"
                   />
                   <div v-if="!invoiceDetailPreviewUrl || invoiceDetailPreviewError" class="detail-image-empty">
@@ -637,6 +694,50 @@ const imageLoadingError = ref(false)
 const invoiceImageLoading = ref(false)
 const aiParseError = ref('')
 
+// 上传人搜索
+const uploaderSearchText = ref('')
+const uploaderSearchResults = ref<any[]>([])
+const selectedUploaderId = ref<number | null>(null)
+const selectedUploaderName = ref('')
+const showUploaderDropdown = ref(false)
+let uploaderSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+function onUploaderSearchInput() {
+  if (uploaderSearchTimer) clearTimeout(uploaderSearchTimer)
+  const q = uploaderSearchText.value.trim()
+  if (!q) {
+    uploaderSearchResults.value = []
+    return
+  }
+  uploaderSearchTimer = setTimeout(async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await $api.get('/auth/users', {
+        params: { search: q },
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (response.data.code === 200) {
+        const users = response.data.data.data || response.data.data || []
+        uploaderSearchResults.value = Array.isArray(users) ? users.slice(0, 10) : []
+      }
+    } catch (e) {
+      uploaderSearchResults.value = []
+    }
+  }, 300)
+}
+
+function onUploaderSearchBlur() {
+  setTimeout(() => { showUploaderDropdown.value = false }, 200)
+}
+
+function selectUploader(user: any) {
+  selectedUploaderId.value = user.user_id
+  selectedUploaderName.value = user.real_name || user.username
+  uploaderSearchText.value = ''
+  uploaderSearchResults.value = []
+  showUploaderDropdown.value = false
+}
+
 // 拖拽/缩放状态
 const zoomScale = ref(1)
 const zoomPanX = ref(0)
@@ -653,6 +754,18 @@ const zoomImageRef = ref(null)
 // 本地文件存储（延迟上传）
 const receiptLocalFile = ref(null)
 const invoiceLocalFile = ref(null)
+
+// 拖拽上传状态
+const receiptDragOver = ref(false)
+const invoiceDragOver = ref(false)
+const receiptUploadProgress = ref(0)
+const invoiceUploadProgress = ref(0)
+const receiptUploading = ref(false)
+const invoiceUploading = ref(false)
+
+// 图片懒加载
+const imageLoadedMap = ref<Record<string, boolean>>({})
+const imageErrorMap = ref<Record<string, boolean>>({})
 const _receipt_blob_url = ref('')
 const _invoice_blob_url = ref('')
 const _invoice_preview_blob = ref(null) // PDF转图片的Blob，用于上传到服务器
@@ -799,7 +912,8 @@ const form = ref({
   item_name_from_invoice: '',
   invoice_number: '',
   total_amount: null,
-  invoice_date: ''
+  invoice_date: '',
+  uploader_id: null
 })
 
 const currentUser = ref(null)
@@ -1110,8 +1224,16 @@ const editRecord = (record) => {
     item_name_from_invoice: record.item_name_from_invoice || record.invoice_type || '',
     invoice_number: record.invoice_number || '',
     total_amount: record.total_amount || null,
-    invoice_date: record.invoice_date || ''
+    invoice_date: record.invoice_date || '',
+    uploader_id: record.uploader_id || null
   }
+
+  // 初始化上传人搜索状态
+  selectedUploaderId.value = record.uploader_id || null
+  selectedUploaderName.value = record.uploader_name || ''
+  uploaderSearchText.value = ''
+  uploaderSearchResults.value = []
+
   showAddModal.value = true
 }
 
@@ -1148,31 +1270,197 @@ const resetForm = () => {
     item_name_from_invoice: '',
     invoice_number: '',
     total_amount: null,
-    invoice_date: ''
+    invoice_date: '',
+    uploader_id: null
   }
+  // 重置上传人搜索状态
+  selectedUploaderId.value = null
+  selectedUploaderName.value = ''
+  uploaderSearchText.value = ''
+  uploaderSearchResults.value = []
   invoiceParseResult.value = null
   parseApplied.value = false
   aiParseError.value = ''
 }
 
+// ============ 拖拽上传处理 ============
+function onReceiptDragOver(e: DragEvent) {
+  e.preventDefault()
+  receiptDragOver.value = true
+}
+function onReceiptDragLeave() {
+  receiptDragOver.value = false
+}
+function onReceiptDrop(e: DragEvent) {
+  e.preventDefault()
+  receiptDragOver.value = false
+  const files = e.dataTransfer?.files
+  if (files && files.length > 0) {
+    processReceiptFile(files[0])
+  }
+}
+function onInvoiceDragOver(e: DragEvent) {
+  e.preventDefault()
+  invoiceDragOver.value = true
+}
+function onInvoiceDragLeave() {
+  invoiceDragOver.value = false
+}
+function onInvoiceDrop(e: DragEvent) {
+  e.preventDefault()
+  invoiceDragOver.value = false
+  const files = e.dataTransfer?.files
+  if (files && files.length > 0) {
+    processInvoiceFile(files[0])
+  }
+}
+
+// 图片压缩（用于预览优化）
+function compressImageForPreview(file: File, maxWidth = 800, quality = 0.85): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      if (img.width <= maxWidth) {
+        resolve(file)
+        return
+      }
+      const ratio = maxWidth / img.width
+      const canvas = document.createElement('canvas')
+      canvas.width = maxWidth
+      canvas.height = Math.round(img.height * ratio)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { resolve(file); return }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob)
+        else resolve(file)
+      }, 'image/jpeg', quality)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(file)
+    }
+    img.src = url
+  })
+}
+
+async function processReceiptFile(file: File) {
+  if (!file.type.startsWith('image/')) {
+    showToast('请上传图片格式的购物凭证', 'error')
+    return
+  }
+  receiptUploading.value = true
+  receiptUploadProgress.value = 0
+  try {
+    // 释放旧blob URL
+    if (_receipt_blob_url.value) URL.revokeObjectURL(_receipt_blob_url.value)
+
+    // 压缩预览图
+    receiptUploadProgress.value = 30
+    const compressed = await compressImageForPreview(file)
+    receiptUploadProgress.value = 60
+
+    receiptLocalFile.value = file
+    _receipt_blob_url.value = URL.createObjectURL(compressed)
+    form.value.receipt_image_name = file.name
+    form.value.receipt_image_url = ''
+    receiptUploadProgress.value = 80
+
+    // 异步计算MD5用于提交时去重
+    try {
+      form.value.receipt_file_md5 = await calculateFileMD5(file)
+    } catch (_) {}
+    receiptUploadProgress.value = 100
+    showToast('凭证已选择，点击提交后上传', 'success')
+  } catch (err) {
+    showToast('文件处理失败，请重试', 'error')
+  } finally {
+    setTimeout(() => { receiptUploadProgress.value = 0 }, 1500)
+    receiptUploading.value = false
+  }
+}
+
+async function processInvoiceFile(file: File) {
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (!['pdf', 'png', 'jpg', 'jpeg'].includes(ext || '')) {
+    showToast('请上传 PDF、JPG 或 PNG 格式的发票文件', 'error')
+    return
+  }
+  invoiceUploading.value = true
+  invoiceUploadProgress.value = 0
+  try {
+    // 释放旧blob URL
+    if (_invoice_blob_url.value) URL.revokeObjectURL(_invoice_blob_url.value)
+    _invoice_preview_blob.value = null
+
+    invoiceLocalFile.value = file
+    const isPdf = file.name.toLowerCase().endsWith('.pdf')
+    invoiceUploadProgress.value = 20
+
+    if (!isPdf) {
+      // 图片：压缩后作为预览
+      const compressed = await compressImageForPreview(file)
+      invoiceUploadProgress.value = 50
+      _invoice_blob_url.value = URL.createObjectURL(compressed)
+    } else {
+      // PDF文件：转换为图片预览
+      try {
+        invoiceImageLoading.value = true
+        invoiceUploadProgress.value = 30
+        const imageBlob = await convertPdfToImage(file)
+        invoiceUploadProgress.value = 60
+        _invoice_preview_blob.value = imageBlob
+        _invoice_blob_url.value = URL.createObjectURL(imageBlob)
+      } catch (err) {
+        console.error('PDF转图片失败:', err.message)
+        _invoice_blob_url.value = ''
+        _invoice_preview_blob.value = null
+      } finally {
+        invoiceImageLoading.value = false
+      }
+    }
+
+    invoiceUploadProgress.value = 80
+    form.value.invoice_original_filename = file.name
+    form.value._is_pdf = isPdf
+    form.value.invoice_file_key = ''
+    form.value.has_invoice = true
+
+    try {
+      form.value.invoice_md5 = await calculateFileMD5(file)
+    } catch (_) {}
+    invoiceUploadProgress.value = 100
+
+    imageLoadingError.value = false
+    invoiceParseResult.value = null
+    parseApplied.value = false
+    aiParseError.value = ''
+
+    // 自动触发AI解析
+    await autoParseLocalInvoice()
+  } catch (err) {
+    showToast('文件处理失败，请重试', 'error')
+  } finally {
+    setTimeout(() => { invoiceUploadProgress.value = 0 }, 1500)
+    invoiceUploading.value = false
+  }
+}
+
+// 图片懒加载回调
+function onImageLazyLoad(url: string) {
+  imageLoadedMap.value[url] = true
+}
+function onImageLazyError(url: string) {
+  imageErrorMap.value[url] = true
+}
+
 const handleReceiptUpload = async (e) => {
   const file = e.target.files[0]
   if (!file) return
-
-  // 释放旧blob URL
-  if (_receipt_blob_url.value) URL.revokeObjectURL(_receipt_blob_url.value)
-
-  receiptLocalFile.value = file
-  _receipt_blob_url.value = URL.createObjectURL(file)
-  form.value.receipt_image_name = file.name
-  form.value.receipt_image_url = '' // 清除旧服务器URL
-
-  // 异步计算MD5用于提交时去重
-  try {
-    form.value.receipt_file_md5 = await calculateFileMD5(file)
-  } catch (_) {}
-
   e.target.value = ''
+  await processReceiptFile(file)
 }
 
 const calculateFileMD5 = (file) => {
@@ -1297,50 +1585,8 @@ async function convertPdfToImage(file) {
 const handleInvoiceUpload = async (e) => {
   const file = e.target.files[0]
   if (!file) return
-
-  // 释放旧blob URL
-  if (_invoice_blob_url.value) URL.revokeObjectURL(_invoice_blob_url.value)
-  _invoice_preview_blob.value = null
-
-  invoiceLocalFile.value = file
-  const isPdf = file.name.toLowerCase().endsWith('.pdf')
-
-  if (!isPdf) {
-    _invoice_blob_url.value = URL.createObjectURL(file)
-  } else {
-    // PDF文件：转换为图片预览
-    try {
-      invoiceImageLoading.value = true
-      const imageBlob = await convertPdfToImage(file)
-      _invoice_preview_blob.value = imageBlob
-      _invoice_blob_url.value = URL.createObjectURL(imageBlob)
-    } catch (err) {
-      console.error('PDF转图片失败:', err.message)
-      _invoice_blob_url.value = ''
-      _invoice_preview_blob.value = null
-    } finally {
-      invoiceImageLoading.value = false
-    }
-  }
-
-  form.value.invoice_original_filename = file.name
-  form.value._is_pdf = isPdf
-  form.value.invoice_file_key = ''
-  form.value.has_invoice = true
-
-  try {
-    form.value.invoice_md5 = await calculateFileMD5(file)
-  } catch (_) {}
-
-  imageLoadingError.value = false
-  invoiceParseResult.value = null
-  parseApplied.value = false
-  aiParseError.value = ''
-
   e.target.value = ''
-
-  // 自动触发AI解析
-  await autoParseLocalInvoice()
+  await processInvoiceFile(file)
 }
 
 const removeReceipt = () => {
@@ -1557,6 +1803,11 @@ const saveRecord = async () => {
   try {
     const token = localStorage.getItem('token')
     const payload = { ...form.value }
+
+    // 编辑模式下，如果选择了新的上传人，包含uploader_id
+    if (editingRecord.value && canReview.value && selectedUploaderId.value) {
+      payload.uploader_id = selectedUploaderId.value
+    }
 
     // === 步骤1: 上传购物凭证（如有新文件） ===
     if (receiptLocalFile.value) {
@@ -2382,6 +2633,54 @@ const formatMoney = (val) => {
 }
 .input-shell input.has-prefix { padding-left: 1.6rem; }
 
+/* ========== UPLOADER SEARCH ========== */
+.uploader-search-wrapper {
+  position: relative;
+}
+.uploader-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.1);
+  z-index: 100;
+  margin-top: 2px;
+}
+.uploader-dropdown.empty {
+  padding: .75rem;
+  text-align: center;
+  color: #94a3b8;
+  font-size: .82rem;
+}
+.uploader-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .6rem .85rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.uploader-dropdown-item:hover {
+  background: #f1f5f9;
+}
+.uploader-name {
+  font-size: .85rem;
+  color: #1e293b;
+  font-weight: 500;
+}
+.uploader-type {
+  font-size: .72rem;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: .1rem .4rem;
+  border-radius: 4px;
+}
+
 /* ========== UPLOAD AREA ========== */
 .upload-area {
   border: 2px dashed #d1d5db;
@@ -2397,6 +2696,36 @@ const formatMoney = (val) => {
 }
 .upload-area:hover { border-color: #667eea; background: #f8faff; }
 .upload-area.has-file { border-style: solid; border-color: #10b981; background: #f0fdf4; }
+.upload-area.drag-over {
+  border-color: #667eea;
+  background: #eef2ff;
+  border-style: solid;
+  box-shadow: 0 0 0 3px rgba(102,126,234,.15);
+}
+
+/* Upload progress bar */
+.upload-progress-bar {
+  width: 100%;
+  max-width: 200px;
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.upload-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 2px;
+  transition: width .3s ease;
+}
+
+.invoice-upload-zone.drag-over {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  border-style: solid;
+  box-shadow: 0 0 0 3px rgba(245,158,11,.15);
+}
 
 .upload-placeholder { color: #94a3b8; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .upload-icon-circle {
@@ -2578,8 +2907,10 @@ const formatMoney = (val) => {
   border-radius: 8px; object-fit: contain;
   border: 1px solid #e5e7eb;
   box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.3s ease;
+  opacity: 0;
 }
+.invoice-thumbnail[src] { opacity: 1; }
 .invoice-thumbnail:hover {
   transform: scale(1.02);
   box-shadow: 0 8px 24px rgba(0,0,0,0.1);

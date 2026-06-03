@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
 from utils.glm_vision_service import glm_vision_service
+from routes.events import ensure_event_membership
 import logging
 import os
 
@@ -147,7 +148,10 @@ def create_purchase_record(event_id):
         
         if 'receipt_image_url' not in data or not data['receipt_image_url']:
             return jsonify({'code': 400, 'message': '必须上传购物凭证图片', 'data': None}), 400
-        
+
+        # 自动检查并添加赛事成员
+        ensure_event_membership(event_id, int(current_user_id))
+
         cannot_invoice = bool(data.get('cannot_invoice'))
         has_invoice = bool(data.get('invoice_file_key')) if not cannot_invoice else False
 
@@ -232,6 +236,10 @@ def update_purchase_record(record_id):
         if not (is_admin_or_teacher or is_uploader):
             return jsonify({'code': 403, 'message': '只能修改自己的购买记录', 'data': None}), 403
 
+        # 自动检查并添加赛事成员
+        if is_admin_or_teacher:
+            ensure_event_membership(record.event_id, int(current_user_id))
+
         if 'item_name' in data and data['item_name'] is not None:
             record.item_name = data['item_name']
         if 'purchase_platform' in data and data['purchase_platform'] is not None:
@@ -279,7 +287,15 @@ def update_purchase_record(record_id):
             record.invoice_date = datetime.strptime(data['invoice_date'][:10], '%Y-%m-%d').date() if isinstance(data['invoice_date'], str) else data['invoice_date']
         if 'remarks' in data:
             record.remarks = data['remarks']
-        
+
+        # 允许管理员/教师/学生管理员修改上传人
+        if 'uploader_id' in data and data['uploader_id'] is not None and is_admin_or_teacher:
+            new_uploader_id = int(data['uploader_id'])
+            new_uploader = User.query.get(new_uploader_id)
+            if not new_uploader or new_uploader.is_deleted:
+                return jsonify({'code': 400, 'message': '目标上传用户不存在', 'data': None}), 400
+            record.uploader_id = new_uploader_id
+
         db.session.commit()
         
         logger.info(f'购买记录更新成功: record_id={record_id}')
@@ -315,7 +331,11 @@ def delete_purchase_record(record_id):
         
         if not (is_admin_or_teacher or is_uploader):
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+
+        # 自动检查并添加赛事成员
+        if is_admin_or_teacher:
+            ensure_event_membership(record.event_id, int(current_user_id))
+
         record.is_deleted = True
         db.session.commit()
         
@@ -342,11 +362,14 @@ def approve_purchase_record(record_id):
         user = User.query.get(current_user_id)
         if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+
         record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
-        
+
+        # 自动检查并添加赛事成员
+        ensure_event_membership(record.event_id, int(current_user_id))
+
         data = request.get_json()
         status = data.get('status')
         rejection_reason = data.get('rejection_reason')
@@ -385,11 +408,14 @@ def reimburse_purchase_record(record_id):
         user = User.query.get(current_user_id)
         if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+
         record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
-        
+
+        # 自动检查并添加赛事成员
+        ensure_event_membership(record.event_id, int(current_user_id))
+
         if not record.has_invoice:
             return jsonify({'code': 400, 'message': '该记录没有发票，无法报销', 'data': None}), 400
         

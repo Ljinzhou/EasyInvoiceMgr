@@ -222,6 +222,50 @@ def check_update():
             'build': 'docker compose build',
             'restart': 'docker compose up -d',
             'full': 'git pull && docker compose build && docker compose up -d',
+        },
+        'manual_steps': {
+            'title': '手动更新步骤',
+            'description': '请在服务器上依次执行以下命令完成更新：',
+            'steps': [
+                {
+                    'step': 1,
+                    'title': '拉取最新代码',
+                    'command': 'cd /path/to/EasyInvoiceMgr && git pull',
+                    'description': '从GitHub拉取最新版本代码'
+                },
+                {
+                    'step': 2,
+                    'title': '备份数据库（推荐）',
+                    'command': 'docker compose exec backend python -c "from utils.backup_service import get_backup_service; get_backup_service().run_backup()"',
+                    'description': '在更新前备份数据库，以防万一'
+                },
+                {
+                    'step': 3,
+                    'title': '构建Docker镜像',
+                    'command': 'docker compose build',
+                    'description': '重新构建后端和前端Docker镜像'
+                },
+                {
+                    'step': 4,
+                    'title': '重启服务',
+                    'command': 'docker compose up -d',
+                    'description': '使用新镜像启动所有服务'
+                },
+                {
+                    'step': 5,
+                    'title': '检查服务状态',
+                    'command': 'docker compose ps',
+                    'description': '确认所有服务正常运行'
+                },
+                {
+                    'step': 6,
+                    'title': '清理旧镜像（可选）',
+                    'command': 'docker image prune -f',
+                    'description': '删除不再使用的Docker镜像以释放磁盘空间'
+                },
+            ],
+            'one_liner': 'cd /path/to/EasyInvoiceMgr && git pull && docker compose build && docker compose up -d && docker image prune -f',
+            'note': '更新期间系统将短暂不可用（约2-5分钟）。建议在低流量时段执行更新。如使用非Docker部署，请根据实际部署方式调整命令。'
         }
     }
 
@@ -247,10 +291,6 @@ def check_update():
                         'download_url': release.get('html_url', ''),
                         'published_at': release.get('published_at', '')
                     }
-                    result['update_commands']['full_with_prune'] = (
-                        'git pull && docker compose build --no-cache && '
-                        'docker compose up -d && docker image prune -f'
-                    )
         elif resp.status_code == 404:
             result['check_error'] = '暂无发布版本'
         else:
@@ -632,216 +672,3 @@ def _compare_versions(a: str, b: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# One-click Update
-# ---------------------------------------------------------------------------
-
-import json as _json
-import subprocess as _subprocess
-
-_UPDATE_SCRIPT = 'update.sh'
-
-
-@system_bp.route('/system/update', methods=['POST'])
-@jwt_required()
-def trigger_update():
-    """Trigger one-click system update. Admin only. Runs update.sh as a detached background process."""
-    err = _admin_required()
-    if err:
-        return err
-
-    # Check if update is already running
-    status_path = _update_status_path()
-    lock_path = _update_lock_path()
-    update_alive = False
-    if os.path.exists(status_path):
-        try:
-            with open(status_path, 'r', encoding='utf-8') as f:
-                st = _json.load(f)
-            if st.get('status') == 'running':
-                # Verify the update process is actually still alive via lock file
-                if os.path.exists(lock_path):
-                    try:
-                        with open(lock_path, 'r') as lf:
-                            pid = int(lf.read().strip())
-                        os.kill(pid, 0)  # Check if process exists
-                        update_alive = True
-                    except (ValueError, OSError, ProcessLookupError):
-                        logger.warning('更新锁文件存在但进程已不存在，清除残留状态')
-                        os.remove(lock_path)
-                if update_alive:
-                    return jsonify({
-                        'code': 409,
-                        'message': '系统更新正在进行中，请勿重复操作',
-                        'data': st
-                    }), 409
-                # Stale running status - clean it up
-                logger.warning('检测到残留的更新状态文件，已清除')
-                try:
-                    os.remove(status_path)
-                except OSError:
-                    pass
-            else:
-                # Previous update finished or was interrupted — clean up stale status
-                logger.info(f'清除旧的更新状态文件 (status={st.get("status")})')
-                try:
-                    os.remove(status_path)
-                except OSError:
-                    pass
-                if os.path.exists(lock_path):
-                    try:
-                        os.remove(lock_path)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
-
-    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
-    script_path = os.path.join(project_dir, _UPDATE_SCRIPT) if project_dir else ''
-
-    if not script_path or not os.path.exists(script_path):
-        logger.error(f'Update script not found: {script_path}')
-        return jsonify({
-            'code': 503,
-            'message': '更新脚本未找到，请检查 HOST_PROJECT_DIR 配置。'
-            '更新功能需要将项目目录挂载到容器内相同路径，并挂载 Docker socket。'
-        }), 503
-
-    if not os.access(script_path, os.X_OK):
-        try:
-            os.chmod(script_path, 0o755)
-        except Exception:
-            pass
-
-    try:
-        # 将脚本输出重定向到日志文件以捕获详细信息
-        import datetime as _dt
-        log_path = os.path.join(project_dir, 'update.log')
-        # 使用 os.open 获取不会被 Python GC 关闭的文件描述符
-        log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-        os.write(log_fd, f'\n{"="*60}\n'.encode('utf-8'))
-        os.write(log_fd, f'[Python] 管理员 {get_jwt_identity()} 触发了系统更新\n'.encode('utf-8'))
-        os.write(log_fd, f'[Python] 脚本路径: {script_path}\n'.encode('utf-8'))
-        os.write(log_fd, f'[Python] 项目目录: {project_dir}\n'.encode('utf-8'))
-        os.write(log_fd, f'[Python] 时间: {_dt.datetime.now().isoformat()}\n'.encode('utf-8'))
-        os.write(log_fd, f'{"="*60}\n'.encode('utf-8'))
-
-        # stdout 设为 DEVNULL：update.sh 内部已通过 tee 自行写入日志文件，
-        # 避免 tee 的 stdout 输出和此处的 log_fd 重复写入同一文件。
-        # stderr 仍保留到 log_fd 以捕获脚本崩溃等意外错误输出。
-        proc = _subprocess.Popen(
-            ['bash', script_path, '--force'],
-            cwd=project_dir,
-            stdout=_subprocess.DEVNULL,
-            stderr=log_fd,
-            stdin=_subprocess.DEVNULL,
-            start_new_session=True,
-            pass_fds=(log_fd,),
-        )
-        os.close(log_fd)  # 子进程已继承 fd，父进程可以关闭
-        logger.info(f'管理员 {get_jwt_identity()} 触发了系统更新, PID={proc.pid}')
-    except Exception as e:
-        logger.error(f'启动更新脚本失败: {e}', exc_info=True)
-        return jsonify({'code': 500, 'message': f'启动更新失败: {str(e)}'}), 500
-
-    return jsonify({
-        'code': 200,
-        'message': '系统更新已启动。服务将在更新完成后自动重启，期间系统将短暂不可用。',
-        'data': {'status': 'running', 'message': '更新已启动'}
-    })
-
-
-@system_bp.route('/system/update/status', methods=['GET'])
-@jwt_required()
-def update_status():
-    """Get current update progress. Reads from update_status.json on the host project directory."""
-    err = _admin_required()
-    if err:
-        return err
-
-    status_path = _update_status_path()
-    if not os.path.exists(status_path):
-        return jsonify({
-            'code': 200,
-            'data': {'status': 'idle', 'message': '没有正在进行的更新'}
-        })
-
-    try:
-        with open(status_path, 'r', encoding='utf-8') as f:
-            st = _json.load(f)
-        return jsonify({'code': 200, 'data': st})
-    except Exception as e:
-        return jsonify({
-            'code': 200,
-            'data': {'status': 'idle', 'message': f'读取状态失败: {str(e)}'}
-        })
-
-
-@system_bp.route('/system/update/log', methods=['GET'])
-@jwt_required()
-def update_log():
-    """获取最近更新的详细日志。仅管理员可用。"""
-    err = _admin_required()
-    if err:
-        return err
-
-    lines_param = request.args.get('lines', 200, type=int)
-    lines_param = min(max(lines_param, 1), 2000)
-
-    log_path = _update_log_path()
-    if not os.path.exists(log_path):
-        return jsonify({
-            'code': 200,
-            'data': {'log': '', 'message': '暂无更新日志'}
-        })
-
-    try:
-        import subprocess as _sp
-        # 使用 tail 读取最后 N 行
-        result = _sp.run(
-            ['tail', '-n', str(lines_param), log_path],
-            capture_output=True, text=True, timeout=5
-        )
-        log_content = result.stdout
-        total_lines = len(log_content.strip().split('\n')) if log_content.strip() else 0
-        import datetime as _dt2
-        return jsonify({
-            'code': 200,
-            'data': {
-                'log': log_content,
-                'lines': total_lines,
-                'path': log_path,
-                'file_size': os.path.getsize(log_path),
-                'updated_at': _dt2.datetime.fromtimestamp(
-                    os.path.getmtime(log_path)
-                ).isoformat() if os.path.exists(log_path) else None
-            }
-        })
-    except Exception as e:
-        return jsonify({
-            'code': 500,
-            'message': f'读取日志失败: {str(e)}'
-        }), 500
-
-
-def _update_log_path():
-    """Return the path to update.log on the host project directory."""
-    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
-    if project_dir:
-        return os.path.join(project_dir, 'update.log')
-    return '/tmp/update.log'
-
-
-def _update_status_path():
-    """Return the path to update_status.json on the host project directory."""
-    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
-    if project_dir:
-        return os.path.join(project_dir, 'update_status.json')
-    return '/tmp/update_status.json'
-
-
-def _update_lock_path():
-    """Return the path to .update.lock on the host project directory."""
-    project_dir = os.environ.get('HOST_PROJECT_DIR', '')
-    if project_dir:
-        return os.path.join(project_dir, '.update.lock')
-    return '/tmp/.update.lock'

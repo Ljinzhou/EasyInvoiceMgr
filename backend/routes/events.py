@@ -234,7 +234,10 @@ def update_event(event_id):
 
         if not event:
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
-        
+
+        # 自动检查并添加赛事成员
+        ensure_event_membership(event_id, int(current_user_id))
+
         data = request.get_json()
         
         if 'event_name' in data:
@@ -395,13 +398,16 @@ def delete_event(event_id):
         if user.user_type not in ['admin', 'teacher', 'student_admin']:
             logger.warning(f'权限不足: 用户类型={user.user_type}')
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-        
+
         event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
-        
+
         if not event:
             logger.warning(f'赛事不存在: event_id={event_id}')
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
-        
+
+        # 自动检查并添加赛事成员
+        ensure_event_membership(event_id, int(current_user_id))
+
         invoice_count = Invoice.query.filter_by(event_id=event_id, is_deleted=False).count()
         logger.info(f'关联发票数量: {invoice_count}')
         
@@ -685,3 +691,42 @@ def get_user_summary():
     except Exception as e:
         logger.error(f'获取用户消费汇总异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+def ensure_event_membership(event_id: int, user_id: int) -> bool:
+    """
+    检查用户是否在赛事成员列表中，若不在则自动添加。
+    仅对 admin/teacher/student_admin 用户执行此检查。
+
+    返回 True 表示已是成员或已成功添加，False 表示添加失败。
+    """
+    try:
+        from models import User, EventMember, Event
+
+        user = db.session.get(User, user_id)
+        if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
+            return True  # 非特权用户，无需检查
+
+        event = db.session.get(Event, event_id)
+        if not event:
+            return False
+
+        existing = EventMember.query.filter_by(
+            event_id=event_id, user_id=user_id, is_deleted=False
+        ).first()
+        if existing:
+            return True  # 已在名单中
+
+        # 自动添加为赛事成员
+        role = user.user_type if user.user_type in ['teacher', 'student_admin'] else 'teacher'
+        member = EventMember(
+            event_id=event_id,
+            user_id=user_id,
+            role_in_event=role
+        )
+        db.session.add(member)
+        logger.info(f'自动添加赛事成员: event_id={event_id}, user_id={user_id}, role={role}')
+        return True
+    except Exception as e:
+        logger.error(f'自动添加赛事成员失败: {e}', exc_info=True)
+        return False
