@@ -1128,7 +1128,7 @@ const loadEvent = async () => {
         total_amount: response.data.data.spent_amount || 0,
         invoice_total: response.data.data.invoice_total_amount || 0,
         pending_reimburse: (parseFloat(response.data.data.invoice_total_amount || 0) - parseFloat(response.data.data.reimbursed_amount || 0)),
-        remaining_budget: response.data.data.remaining_budget || 0,
+        remaining_budget: Math.max(0, parseFloat(response.data.data.total_budget || 0) - parseFloat(response.data.data.spent_amount || 0)),
         total_count: (response.data.data.invoice_count || 0) + (response.data.data.purchase_record_count || 0)
       }
     }
@@ -1194,12 +1194,12 @@ const loadRecords = async () => {
     records.value = allRecords
     
     // 每次加载记录时都更新统计数据
-    const prevRemaining = stats.value?.remaining_budget
+    const totalAmount = allRecords.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0)
     stats.value = {
-      total_amount: allRecords.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0),
+      total_amount: totalAmount,
       invoice_total: allRecords.filter(r => r.has_invoice).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
       pending_reimburse: allRecords.filter(r => r.has_invoice && !r.is_reimbursed).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
-      remaining_budget: prevRemaining || (event.value ? (parseFloat(event.value.total_budget || 0) - parseFloat(event.value.spent_amount || 0)) : 0),
+      remaining_budget: Math.max(0, parseFloat(event.value?.total_budget || 0) - totalAmount),
       total_count: allRecords.length
     }
   } catch (e) {
