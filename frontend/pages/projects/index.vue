@@ -13,8 +13,9 @@
             <span class="project-status" :class="event.status">
               {{ event.status === 'ongoing' ? '进行中' : '已结束' }}
             </span>
+            <span v-if="!isEventMember(event)" class="not-member-badge">您未加入该比赛</span>
           </div>
-          <div class="action-buttons">
+          <div class="action-buttons" v-if="isEventMember(event)">
             <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 发票</button>
             <button @click="toggleEventStatus(event)" v-if="event.status === 'ongoing'" class="action-btn end-btn">⏹ 结束</button>
             <button @click="openAddMemberModal(event)" class="action-btn member-btn">👥 添加人员</button>
@@ -27,6 +28,9 @@
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
               删除
             </button>
+          </div>
+          <div class="action-buttons" v-else>
+            <button @click="$router.push(`/purchases/${event.event_id}`)" class="action-btn preview-btn">👁 预览</button>
           </div>
         </div>
         
@@ -492,6 +496,18 @@ const canEditEvent = (event) => {
   return false
 }
 
+const isEventMember = (event) => {
+  if (!currentUser.value) return false
+  const userType = currentUser.value.user_type
+  // admin/teacher/student_admin can always operate
+  if (['admin', 'teacher', 'student_admin'].includes(userType)) return true
+  // Use the is_member flag from the API response
+  if (event.is_member !== undefined) return event.is_member
+  // Fallback: check if user is creator
+  if (event.creator_id === currentUser.value.user_id) return true
+  return false
+}
+
 // Keep local events in sync with store (reactive binding)
 const syncFromStore = () => {
   events.value = [...eventStore.events]
@@ -798,6 +814,22 @@ const deleteEvent = async () => {
 
 .project-status.finished {
   background: #e74c3c;
+}
+
+.not-member-badge {
+  padding: 0.2rem 0.6rem;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.preview-btn {
+  background: rgba(255,255,255,0.15) !important;
+  border: 1px solid rgba(255,255,255,0.25) !important;
+  color: white !important;
 }
 
 .edit-button {
@@ -1758,6 +1790,8 @@ const deleteEvent = async () => {
   .budget-item { padding: 8px 6px; }
   .b-value { font-size: 14px; }
   .action-btn { min-width: 100%; }
+  .not-member-badge { font-size: 0.7rem; padding: 0.15rem 0.45rem; }
+  .project-title-section { flex-wrap: wrap; gap: 6px; }
 
   .edit-modal__body { padding: 1rem; }
   .edit-modal__header { padding: 1rem; }

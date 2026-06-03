@@ -9,6 +9,22 @@ from routes.events import ensure_event_membership
 import logging
 import os
 
+
+def _check_student_event_access(event_id: int, user) -> bool:
+    """Check if a student user can access (modify) an event. Admin/teacher/student_admin always pass."""
+    if user.user_type in ['admin', 'teacher', 'student_admin']:
+        return True
+    # Student: must be creator or member
+    if user.user_type == 'student':
+        is_member = EventMember.query.filter_by(
+            event_id=event_id, user_id=user.user_id, is_deleted=False
+        ).first()
+        event = Event.query.get(event_id)
+        if event and event.creator_id == user.user_id:
+            return True
+        return is_member is not None
+    return False
+
 logger = logging.getLogger(__name__)
 purchase_records_bp = Blueprint('purchase_records', __name__)
 
@@ -45,14 +61,6 @@ def get_purchase_records(event_id):
         event = Event.query.get(event_id)
         if not event:
             return jsonify({'code': 404, 'message': '赛事不存在', 'data': None}), 404
-
-        # Non-admin/teacher users can only access events they created or are members of
-        if user.user_type not in ['admin', 'teacher']:
-            is_member = EventMember.query.filter_by(
-                event_id=event_id, user_id=current_user_id, is_deleted=False
-            ).first()
-            if event.creator_id != current_user_id and not is_member:
-                return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
 
         records = PurchaseRecord.query.filter_by(
             event_id=event_id,
@@ -149,6 +157,10 @@ def create_purchase_record(event_id):
         if 'receipt_image_url' not in data or not data['receipt_image_url']:
             return jsonify({'code': 400, 'message': '必须上传购物凭证图片', 'data': None}), 400
 
+        # 检查学生是否有权限访问该项目
+        if not _check_student_event_access(event_id, user):
+            return jsonify({'code': 403, 'message': '您未加入该项目，无法上传记录', 'data': None}), 403
+
         # 自动检查并添加赛事成员
         ensure_event_membership(event_id, int(current_user_id))
 
@@ -235,6 +247,10 @@ def update_purchase_record(record_id):
         is_uploader = record.uploader_id == int(current_user_id)
         if not (is_admin_or_teacher or is_uploader):
             return jsonify({'code': 403, 'message': '只能修改自己的购买记录', 'data': None}), 403
+
+        # 学生权限检查：必须是项目成员
+        if not _check_student_event_access(record.event_id, user):
+            return jsonify({'code': 403, 'message': '您未加入该项目，无法修改记录', 'data': None}), 403
 
         # 自动检查并添加赛事成员
         if is_admin_or_teacher:
@@ -331,6 +347,10 @@ def delete_purchase_record(record_id):
         
         if not (is_admin_or_teacher or is_uploader):
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+        # 学生权限检查：必须是项目成员
+        if not _check_student_event_access(record.event_id, user):
+            return jsonify({'code': 403, 'message': '您未加入该项目，无法删除记录', 'data': None}), 403
 
         # 自动检查并添加赛事成员
         if is_admin_or_teacher:

@@ -193,7 +193,7 @@ definePageMeta({
         const userStr = localStorage.getItem('user')
         if (userStr) {
           const user = JSON.parse(userStr)
-          if (!['admin', 'teacher', 'student_admin'].includes(user.user_type)) {
+          if (user.user_type !== 'admin') {
             return navigateTo('/dashboard')
           }
         } else {

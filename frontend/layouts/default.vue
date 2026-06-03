@@ -371,7 +371,7 @@ const canManageUsers = computed(() => {
 })
 
 const canManageInvitationCodes = computed(() => {
-  return ['admin', 'teacher', 'student_admin'].includes(userStore.userType)
+  return userStore.userType === 'admin'
 })
 
 const isAdmin = computed(() => userStore.userType === 'admin')

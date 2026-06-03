@@ -3,7 +3,7 @@
     <div class="page-header">
       <button @click="goBack" class="back-button">← 返回</button>
       <h1 class="page-title">{{ event?.event_name || '购买记录' }}</h1>
-      <div class="header-actions">
+      <div class="header-actions" v-if="isEventMember">
         <button @click="showAddModal = true" class="action-button primary">+ 添加记录</button>
         <button @click="viewMembers" class="action-button members">👥 查看人员</button>
         <button @click="exportData" class="action-button export">📤 导出数据</button>
@@ -14,6 +14,15 @@
           删除 ({{ selectedRecords.length }})
         </button>
       </div>
+      <div class="header-actions" v-else>
+        <button @click="viewMembers" class="action-button members">👥 查看人员</button>
+      </div>
+    </div>
+
+    <!-- 非成员提示 -->
+    <div v-if="currentUser && !isEventMember && event" class="not-member-notice">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span>您未加入该比赛，仅可查看数据，无法执行上传或修改操作</span>
     </div>
 
     <!-- 统计面板 -->
@@ -1079,6 +1088,18 @@ const canReview = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
 })
 
+const isEventMember = computed(() => {
+  if (!currentUser.value) return false
+  const userType = currentUser.value.user_type
+  if (['admin', 'teacher', 'student_admin'].includes(userType)) return true
+  // Use is_member from event data, fallback to creator check
+  if (event.value) {
+    if (event.value.is_member !== undefined) return event.value.is_member
+    if (event.value.creator_id === currentUser.value.user_id) return true
+  }
+  return false
+})
+
 const canModifyRecord = (record) => {
   if (!currentUser.value) return false
   if (['admin', 'teacher', 'student_admin'].includes(currentUser.value.user_type)) return true
@@ -2118,6 +2139,22 @@ const formatMoney = (val) => {
 
 .stat-label { display: block; font-size: 12px; color: #7f8c8d; margin-bottom: 4px; }
 .stat-value { display: block; font-size: 20px; font-weight: 700; color: #2c3e50; }
+
+/* 非成员提示 */
+.not-member-notice {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .75rem 1rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #dc2626;
+  font-size: .85rem;
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+.not-member-notice svg { flex-shrink: 0; }
 
 /* 排序与操作栏 */
 .records-toolbar {
@@ -3326,6 +3363,7 @@ const formatMoney = (val) => {
   .btn-view-sm, .btn-edit-sm, .btn-reimburse-sm, .btn-approve-sm, .btn-delete-sm { min-width: 40px; min-height: 40px; font-size: 13px; }
   .header-actions { flex-wrap: wrap; gap: 0.4rem; }
   .header-actions .action-button { min-height: 44px; font-size: 13px; flex: 1; min-width: calc(50% - 0.4rem); }
+  .not-member-notice { font-size: .78rem; padding: .6rem .8rem; }
   .uploader-dropdown { max-height: 160px; }
   .uploader-dropdown-item { padding: .7rem; }
   .uploader-name { font-size: .82rem; }

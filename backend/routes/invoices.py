@@ -4,7 +4,23 @@ from models import db, Invoice, Event, User, EventMember
 from utils.storage import storage_manager
 from datetime import datetime
 from routes.events import ensure_event_membership
+from models import EventMember, Event
 import logging
+
+
+def _check_student_event_access(event_id: int, user) -> bool:
+    """Check if a student user can access (modify) an event. Admin/teacher/student_admin always pass."""
+    if user.user_type in ['admin', 'teacher', 'student_admin']:
+        return True
+    if user.user_type == 'student':
+        is_member = EventMember.query.filter_by(
+            event_id=event_id, user_id=user.user_id, is_deleted=False
+        ).first()
+        event = Event.query.get(event_id)
+        if event and event.creator_id == user.user_id:
+            return True
+        return is_member is not None
+    return False
 import hashlib
 import io
 import os
@@ -26,17 +42,6 @@ def get_invoices():
         if not event_id:
             logger.warning('缺少event_id参数')
             return jsonify({'code': 400, 'message': '缺少event_id参数', 'data': None}), 400
-
-        # Check event membership for non-admin/teacher users
-        user = User.query.get(current_user_id)
-        if user and user.user_type not in ['admin', 'teacher']:
-            event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
-            if event:
-                is_member = EventMember.query.filter_by(
-                    event_id=event_id, user_id=current_user_id, is_deleted=False
-                ).first()
-                if event.creator_id != current_user_id and not is_member:
-                    return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
 
         page = request.args.get('page', 1, type=int)
         page_size = request.args.get('page_size', 20, type=int)
@@ -176,6 +181,10 @@ def create_invoice():
                 }
             }), 400
 
+        # 检查学生是否有权限访问该项目
+        if not _check_student_event_access(int(event_id), user):
+            return jsonify({'code': 403, 'message': '您未加入该项目，无法上传发票', 'data': None}), 403
+
         # 自动检查并添加赛事成员
         ensure_event_membership(int(event_id), int(current_user_id))
 
@@ -255,6 +264,10 @@ def delete_invoice(invoice_id):
         if user.user_type not in ['admin', 'teacher'] and invoice.uploader_id != int(current_user_id):
             logger.warning(f'权限不足: 用户{current_user_id}无权删除发票{invoice_id}')
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+        # 学生权限检查：必须是项目成员
+        if not _check_student_event_access(invoice.event_id, user):
+            return jsonify({'code': 403, 'message': '您未加入该项目，无法删除发票', 'data': None}), 403
 
         # 自动检查并添加赛事成员（特权用户）
         if user.user_type in ['admin', 'teacher']:

@@ -133,27 +133,28 @@ def get_events():
 
         query = Event.query.filter_by(is_deleted=False)
 
-        # Non-admin/teacher users can only see events they created or are members of
-        if user and user.user_type not in ['admin', 'teacher']:
-            member_event_ids = db.session.query(EventMember.event_id).filter_by(
-                user_id=current_user_id, is_deleted=False
-            ).subquery()
-            query = query.filter(
-                db.or_(
-                    Event.creator_id == current_user_id,
-                    Event.event_id.in_(member_event_ids)
-                )
-            )
-
         if status:
             query = query.filter_by(status=status)
         
         total = query.count()
         events = query.order_by(Event.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
         
+        # Build set of event IDs where current user is a member (for is_member flag)
+        member_event_ids = set()
+        if user and user.user_type not in ['admin', 'teacher', 'student_admin']:
+            member_rows = db.session.query(EventMember.event_id).filter_by(
+                user_id=current_user_id, is_deleted=False
+            ).all()
+            member_event_ids = {row[0] for row in member_rows}
+
         events_data = []
         for event in events.items:
             leader = User.query.get(event.leader_id) if event.leader_id else None
+
+            # Compute is_member: can the current user operate on this event?
+            is_member = True
+            if user and user.user_type not in ['admin', 'teacher', 'student_admin']:
+                is_member = (event.creator_id == current_user_id) or (event.event_id in member_event_ids)
             
             invoice_count = Invoice.query.filter_by(event_id=event.event_id, is_deleted=False).count()
             purchase_count = PurchaseRecord.query.filter_by(event_id=event.event_id, is_deleted=False).count()
@@ -203,7 +204,8 @@ def get_events():
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
                 'leader_name': leader.real_name if leader else None,
-                'need_invoice_review': event.need_invoice_review
+                'need_invoice_review': event.need_invoice_review,
+                'is_member': is_member
             })
         
         return jsonify({
@@ -313,13 +315,13 @@ def get_event(event_id):
         if not event:
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
 
-        # Non-admin/teacher users can only view events they created or are members of
-        if user and user.user_type not in ['admin', 'teacher']:
-            is_member = EventMember.query.filter_by(
+        # Compute is_member: can the current user operate on this event?
+        event_is_member = True
+        if user and user.user_type not in ['admin', 'teacher', 'student_admin']:
+            member_check = EventMember.query.filter_by(
                 event_id=event_id, user_id=current_user_id, is_deleted=False
             ).first()
-            if event.creator_id != current_user_id and not is_member:
-                return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
+            event_is_member = (event.creator_id == current_user_id) or (member_check is not None)
 
         leader = User.query.get(event.leader_id) if event.leader_id else None
         
@@ -374,10 +376,11 @@ def get_event(event_id):
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
                 'voucher_count': invoice_count + purchase_count,
-                'need_invoice_review': event.need_invoice_review
+                'need_invoice_review': event.need_invoice_review,
+                'is_member': event_is_member
             }
         }), 200
-        
+
     except Exception as e:
         logger.error(f'获取赛事详情异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
