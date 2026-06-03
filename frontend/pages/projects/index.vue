@@ -5,17 +5,19 @@
       <button @click="goToCreate" class="create-button">创建比赛</button>
     </div>
 
-    <div class="projects-list">
-      <div v-for="event in events" :key="event.event_id" class="project-card">
+    <!-- 已加入的比赛 -->
+    <div v-if="joinedEvents.length > 0" class="projects-section">
+      <h2 class="section-label joined-label">✅ 已加入的比赛 ({{ joinedEvents.length }})</h2>
+      <div class="projects-list">
+      <div v-for="event in joinedEvents" :key="event.event_id" class="project-card">
         <div class="project-header">
           <div class="project-title-section">
             <h3 class="project-title">{{ event.event_name }}</h3>
             <span class="project-status" :class="event.status">
               {{ event.status === 'ongoing' ? '进行中' : '已结束' }}
             </span>
-            <span v-if="!isEventMember(event)" class="not-member-badge">您未加入该比赛</span>
           </div>
-          <div class="action-buttons" v-if="isEventMember(event)">
+          <div class="action-buttons">
             <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 发票</button>
             <button @click="toggleEventStatus(event)" v-if="event.status === 'ongoing'" class="action-btn end-btn">⏹ 结束</button>
             <button @click="openAddMemberModal(event)" class="action-btn member-btn">👥 添加人员</button>
@@ -29,11 +31,8 @@
               删除
             </button>
           </div>
-          <div class="action-buttons" v-else>
-            <button @click="$router.push(`/purchases/${event.event_id}`)" class="action-btn preview-btn">👁 预览</button>
-          </div>
         </div>
-        
+
         <div class="project-body">
           <!-- 预算信息面板 -->
           <div class="budget-overview">
@@ -114,12 +113,56 @@
         </div>
       </div>
 
-      <div v-if="events.length === 0" class="empty-state">
+      </div>
+    </div>
+
+    <!-- 未加入的比赛 -->
+    <div v-if="notJoinedEvents.length > 0" class="projects-section">
+      <h2 class="section-label not-joined-label">🔒 未加入的比赛 ({{ notJoinedEvents.length }})</h2>
+      <div class="projects-list">
+      <div v-for="event in notJoinedEvents" :key="event.event_id" class="project-card not-joined-project">
+        <div class="project-header not-joined-project-header">
+          <div class="project-title-section">
+            <h3 class="project-title">{{ event.event_name }}</h3>
+            <span class="project-status" :class="event.status">
+              {{ event.status === 'ongoing' ? '进行中' : '已结束' }}
+            </span>
+            <span class="not-member-badge">您未加入该比赛</span>
+          </div>
+          <div class="action-buttons">
+            <button @click="$router.push(`/purchases/${event.event_id}`)" class="action-btn preview-btn">👁 预览</button>
+          </div>
+        </div>
+
+        <div class="project-body">
+          <div class="budget-overview">
+            <div class="budget-item total">
+              <span class="b-label">总预算</span>
+              <span class="b-value">¥ {{ formatMoney(event.total_budget) }}</span>
+            </div>
+            <div class="budget-item spent">
+              <span class="b-label">已用金额</span>
+              <span class="b-value">¥ {{ formatMoney(event.spent_amount) }}</span>
+            </div>
+            <div class="budget-item remaining">
+              <span class="b-label">剩余预算</span>
+              <span class="b-value">¥ {{ formatMoney(getRemainingBudget(event)) }}</span>
+            </div>
+            <div class="budget-item count">
+              <span class="b-label">记录数</span>
+              <span class="b-value">{{ event.voucher_count || 0 }} 条</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <div v-if="events.length === 0" class="empty-state">
         <div class="empty-icon">📭</div>
         <div class="empty-text">暂无比赛数据</div>
         <button @click="goToCreate" class="create-button">创建第一个比赛</button>
       </div>
-    </div>
 
     <!-- 编辑弹窗 (Warm Editorial Design) -->
     <transition name="editorial-modal">
@@ -488,6 +531,9 @@ onMounted(async () => {
   syncFromStore()
 })
 
+const joinedEvents = computed(() => events.value.filter(e => isEventMember(e)))
+const notJoinedEvents = computed(() => events.value.filter(e => !isEventMember(e)))
+
 const canEditEvent = (event) => {
   if (!currentUser.value) return false
   const userType = currentUser.value.user_type
@@ -831,6 +877,25 @@ const deleteEvent = async () => {
   border: 1px solid rgba(255,255,255,0.25) !important;
   color: white !important;
 }
+
+/* Section labels */
+.projects-section {
+  margin-bottom: 2rem;
+}
+.section-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+.section-label.joined-label { color: #16a34a; border-bottom-color: #bbf7d0; }
+.section-label.not-joined-label { color: #94a3b8; border-bottom-color: #e2e8f0; }
+
+/* Not-joined project card */
+.project-card.not-joined-project { opacity: 0.7; }
+.project-card.not-joined-project:hover { opacity: 0.85; }
+.not-joined-project-header { background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%) !important; }
 
 .edit-button {
   padding: 0.45rem 0.9rem;

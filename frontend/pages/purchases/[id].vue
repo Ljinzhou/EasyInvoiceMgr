@@ -241,13 +241,12 @@
                       <select v-model="form.purchase_platform" required>
                         <option value="">请选择平台</option>
                         <option value="淘宝">淘宝</option>
-                        <option value="京东">京东</option>
                         <option value="拼多多">拼多多</option>
+                        <option value="京东">京东</option>
                         <option value="闲鱼">闲鱼</option>
-                        <option value="天猫">天猫</option>
-                        <option value="当当">当当</option>
-                        <option value="美团">美团</option>
-                        <option value="饿了么">饿了么</option>
+                        <option value="铨洲智造">铨洲智造</option>
+                        <option value="嘉立创">嘉立创</option>
+                        <option value="微信">微信</option>
                         <option value="线下实体店">线下实体店</option>
                         <option value="其他">其他</option>
                       </select>

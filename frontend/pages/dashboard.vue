@@ -110,6 +110,7 @@
             <div class="dc-header">
               <div class="dc-status-dot" :class="ev.status"></div>
               <h4 class="dc-name">{{ ev.event_name }}</h4>
+              <span class="dc-member-tag" :class="ev.is_member !== false ? 'joined' : 'not-joined'">{{ ev.is_member !== false ? '已加入' : '未加入' }}</span>
               <span class="dc-leader" v-if="ev.leader_name">{{ ev.leader_name }}</span>
             </div>
             <div class="dc-body">
@@ -726,6 +727,16 @@ onMounted(async () => {
   border-radius: 4px;
   flex-shrink: 0;
 }
+.dc-member-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.dc-member-tag.joined { background: #dcfce7; color: #16a34a; }
+.dc-member-tag.not-joined { background: #fef2f2; color: #dc2626; }
 
 /* Card body */
 .dc-body {

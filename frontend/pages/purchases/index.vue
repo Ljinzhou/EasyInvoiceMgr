@@ -50,48 +50,88 @@
       </div>
     </div>
 
-    <!-- 项目列表 -->
-    <div class="events-grid">
-      <div 
-        v-for="ev in filteredEvents" 
-        :key="ev.event_id" 
-        class="event-card"
-        @click="$router.push(`/purchases/${ev.event_id}`)"
-      >
-        <div class="card-header">
-          <h3 class="event-name">{{ ev.event_name || '未命名项目' }}</h3>
-          <span class="event-status" :class="ev.status">{{ getStatusText(ev.status) }}</span>
-        </div>
-        
-        <div class="card-body">
-          <div class="card-row">
-            <span class="label">负责人：</span>
-            <span class="value">{{ ev.leader_name || '-' }}</span>
+    <!-- 已加入的比赛 -->
+    <div v-if="joinedEvents.length > 0" class="events-section">
+      <h2 class="section-label joined-label">✅ 已加入的比赛 ({{ joinedEvents.length }})</h2>
+      <div class="events-grid">
+        <div
+          v-for="ev in joinedEvents"
+          :key="ev.event_id"
+          class="event-card"
+          @click="$router.push(`/purchases/${ev.event_id}`)"
+        >
+          <div class="card-header">
+            <h3 class="event-name">{{ ev.event_name || '未命名项目' }}</h3>
+            <span class="event-status" :class="ev.status">{{ getStatusText(ev.status) }}</span>
           </div>
-          <div class="card-row">
-            <span class="label">预算：</span>
-            <span class="value">¥{{ formatMoney(ev.total_budget) }}</span>
+          <div class="card-body">
+            <div class="card-row">
+              <span class="label">负责人：</span>
+              <span class="value">{{ ev.leader_name || '-' }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">预算：</span>
+              <span class="value">¥{{ formatMoney(ev.total_budget) }}</span>
+            </div>
+            <div class="card-row highlight">
+              <span class="label">已花费：</span>
+              <span class="value amount">¥{{ formatMoney(ev.spent_amount || 0) }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">记录数：</span>
+              <span class="value">{{ ev.voucher_count || 0 }} 条</span>
+            </div>
           </div>
-          <div class="card-row highlight">
-            <span class="label">已花费：</span>
-            <span class="value amount">¥{{ formatMoney(ev.spent_amount || 0) }}</span>
+          <div class="card-footer">
+            <button class="view-btn">查看详情 →</button>
           </div>
-          <div class="card-row">
-            <span class="label">记录数：</span>
-            <span class="value">{{ ev.voucher_count || 0 }} 条</span>
-          </div>
-        </div>
-
-        <div class="card-footer">
-          <button class="view-btn">查看详情 →</button>
         </div>
       </div>
+    </div>
 
-      <div v-if="filteredEvents.length === 0" class="empty-state">
-        <span class="empty-icon">🛒</span>
-        <p>暂无项目数据</p>
-        <NuxtLink to="/events/create" class="create-link">创建第一个项目</NuxtLink>
+    <!-- 未加入的比赛 -->
+    <div v-if="notJoinedEvents.length > 0" class="events-section">
+      <h2 class="section-label not-joined-label">🔒 未加入的比赛 ({{ notJoinedEvents.length }})</h2>
+      <div class="events-grid">
+        <div
+          v-for="ev in notJoinedEvents"
+          :key="ev.event_id"
+          class="event-card not-joined-card"
+          @click="$router.push(`/purchases/${ev.event_id}`)"
+        >
+          <div class="card-header not-joined-header">
+            <h3 class="event-name">{{ ev.event_name || '未命名项目' }}</h3>
+            <span class="event-status" :class="ev.status">{{ getStatusText(ev.status) }}</span>
+          </div>
+          <div class="card-body">
+            <div class="card-row">
+              <span class="label">负责人：</span>
+              <span class="value">{{ ev.leader_name || '-' }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">预算：</span>
+              <span class="value">¥{{ formatMoney(ev.total_budget) }}</span>
+            </div>
+            <div class="card-row highlight">
+              <span class="label">已花费：</span>
+              <span class="value amount">¥{{ formatMoney(ev.spent_amount || 0) }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">记录数：</span>
+              <span class="value">{{ ev.voucher_count || 0 }} 条</span>
+            </div>
+          </div>
+          <div class="card-footer">
+            <button class="view-btn">仅查看 →</button>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <div v-if="events.length === 0" class="empty-state">
+      <span class="empty-icon">🛒</span>
+      <p>暂无项目数据</p>
+      <NuxtLink to="/events/create" class="create-link">创建第一个项目</NuxtLink>
     </div>
 
     <!-- 快速添加记录入口 -->
@@ -122,11 +162,25 @@ const router = useRouter()
 const filterEvent = ref('')
 const quickAddEventId = ref('')
 
+const currentUser = ref(null)
+
 // All statistics from the unified store (reactive)
 const totalStats = computed(() => eventStore.totalStats)
 
 // Events from the unified store
 const events = computed(() => eventStore.events)
+
+function isEventMember(ev) {
+  if (!currentUser.value) return true
+  const userType = currentUser.value.user_type
+  if (['admin', 'teacher', 'student_admin'].includes(userType)) return true
+  if (ev.is_member !== undefined) return ev.is_member
+  if (ev.creator_id === currentUser.value.user_id) return true
+  return false
+}
+
+const joinedEvents = computed(() => events.value.filter(e => isEventMember(e)))
+const notJoinedEvents = computed(() => events.value.filter(e => !isEventMember(e)))
 
 const filteredEvents = computed(() => {
   if (!filterEvent.value) return events.value
@@ -134,6 +188,8 @@ const filteredEvents = computed(() => {
 })
 
 onMounted(async () => {
+  const userStr = localStorage.getItem('user')
+  currentUser.value = userStr ? JSON.parse(userStr) : null
   await eventStore.ensureLoaded()
 })
 
@@ -231,12 +287,31 @@ const formatMoney = (val) => {
 .stat-value { font-size: 22px; font-weight: 700; color: #2c3e50; }
 .stat-label { font-size: 13px; color: #7f8c8d; }
 
+/* Section labels */
+.events-section {
+  margin-bottom: 2rem;
+}
+.section-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+.section-label.joined-label { color: #16a34a; border-bottom-color: #bbf7d0; }
+.section-label.not-joined-label { color: #94a3b8; border-bottom-color: #e2e8f0; }
+
 .events-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 20px;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
 }
+
+/* Not-joined card styling */
+.event-card.not-joined-card { opacity: 0.75; }
+.event-card.not-joined-card:hover { opacity: 0.9; }
+.not-joined-header { background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%) !important; }
 
 .event-card {
   background: white;
