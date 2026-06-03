@@ -696,11 +696,11 @@ const aiParseError = ref('')
 
 // 上传人搜索
 const uploaderSearchText = ref('')
-const uploaderSearchResults = ref<any[]>([])
-const selectedUploaderId = ref<number | null>(null)
+const uploaderSearchResults = ref([])
+const selectedUploaderId = ref(null)
 const selectedUploaderName = ref('')
 const showUploaderDropdown = ref(false)
-let uploaderSearchTimer: ReturnType<typeof setTimeout> | null = null
+let uploaderSearchTimer = null
 
 function onUploaderSearchInput() {
   if (uploaderSearchTimer) clearTimeout(uploaderSearchTimer)
@@ -730,7 +730,7 @@ function onUploaderSearchBlur() {
   setTimeout(() => { showUploaderDropdown.value = false }, 200)
 }
 
-function selectUploader(user: any) {
+function selectUploader(user) {
   selectedUploaderId.value = user.user_id
   selectedUploaderName.value = user.real_name || user.username
   uploaderSearchText.value = ''
@@ -764,8 +764,8 @@ const receiptUploading = ref(false)
 const invoiceUploading = ref(false)
 
 // 图片懒加载
-const imageLoadedMap = ref<Record<string, boolean>>({})
-const imageErrorMap = ref<Record<string, boolean>>({})
+const imageLoadedMap = ref({})
+const imageErrorMap = ref({})
 const _receipt_blob_url = ref('')
 const _invoice_blob_url = ref('')
 const _invoice_preview_blob = ref(null) // PDF转图片的Blob，用于上传到服务器
@@ -1284,14 +1284,14 @@ const resetForm = () => {
 }
 
 // ============ 拖拽上传处理 ============
-function onReceiptDragOver(e: DragEvent) {
+function onReceiptDragOver(e) {
   e.preventDefault()
   receiptDragOver.value = true
 }
 function onReceiptDragLeave() {
   receiptDragOver.value = false
 }
-function onReceiptDrop(e: DragEvent) {
+function onReceiptDrop(e) {
   e.preventDefault()
   receiptDragOver.value = false
   const files = e.dataTransfer?.files
@@ -1299,14 +1299,14 @@ function onReceiptDrop(e: DragEvent) {
     processReceiptFile(files[0])
   }
 }
-function onInvoiceDragOver(e: DragEvent) {
+function onInvoiceDragOver(e) {
   e.preventDefault()
   invoiceDragOver.value = true
 }
 function onInvoiceDragLeave() {
   invoiceDragOver.value = false
 }
-function onInvoiceDrop(e: DragEvent) {
+function onInvoiceDrop(e) {
   e.preventDefault()
   invoiceDragOver.value = false
   const files = e.dataTransfer?.files
@@ -1316,7 +1316,7 @@ function onInvoiceDrop(e: DragEvent) {
 }
 
 // 图片压缩（用于预览优化）
-function compressImageForPreview(file: File, maxWidth = 800, quality = 0.85): Promise<Blob> {
+function compressImageForPreview(file, maxWidth = 800, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const img = new Image()
     const url = URL.createObjectURL(file)
@@ -1346,7 +1346,7 @@ function compressImageForPreview(file: File, maxWidth = 800, quality = 0.85): Pr
   })
 }
 
-async function processReceiptFile(file: File) {
+async function processReceiptFile(file) {
   if (!file.type.startsWith('image/')) {
     showToast('请上传图片格式的购物凭证', 'error')
     return
@@ -1382,7 +1382,7 @@ async function processReceiptFile(file: File) {
   }
 }
 
-async function processInvoiceFile(file: File) {
+async function processInvoiceFile(file) {
   const ext = file.name.split('.').pop()?.toLowerCase()
   if (!['pdf', 'png', 'jpg', 'jpeg'].includes(ext || '')) {
     showToast('请上传 PDF、JPG 或 PNG 格式的发票文件', 'error')
@@ -1449,10 +1449,10 @@ async function processInvoiceFile(file: File) {
 }
 
 // 图片懒加载回调
-function onImageLazyLoad(url: string) {
+function onImageLazyLoad(url) {
   imageLoadedMap.value[url] = true
 }
-function onImageLazyError(url: string) {
+function onImageLazyError(url) {
   imageErrorMap.value[url] = true
 }
 
