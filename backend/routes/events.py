@@ -612,26 +612,11 @@ def get_user_summary():
             event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
             if not event:
                 return jsonify({'code': 404, 'message': '赛事不存在', 'data': None}), 404
-            if user.user_type not in ['admin', 'teacher']:
-                is_member = EventMember.query.filter_by(
-                    event_id=event_id, user_id=current_user_id, is_deleted=False
-                ).first()
-                if event.creator_id != current_user_id and not is_member:
-                    return jsonify({'code': 403, 'message': '无权访问该项目', 'data': None}), 403
             event_ids = [event_id]
         else:
-            if user.user_type in ['admin', 'teacher']:
-                events = Event.query.filter_by(is_deleted=False).all()
-                event_ids = [e.event_id for e in events]
-            else:
-                member_event_ids = db.session.query(EventMember.event_id).filter_by(
-                    user_id=current_user_id, is_deleted=False
-                ).all()
-                event_ids = [row[0] for row in member_event_ids]
-                created_events = Event.query.filter_by(creator_id=current_user_id, is_deleted=False).all()
-                for e in created_events:
-                    if e.event_id not in event_ids:
-                        event_ids.append(e.event_id)
+            # 所有用户均可查看全部比赛的消费排名
+            events = Event.query.filter_by(is_deleted=False).all()
+            event_ids = [e.event_id for e in events]
 
         if not event_ids:
             return jsonify({'code': 200, 'message': 'success', 'data': {'rankings': []}}), 200
