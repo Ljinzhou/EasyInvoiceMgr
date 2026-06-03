@@ -30,6 +30,10 @@
         <span class="stat-label">待报销</span>
         <span class="stat-value">¥ {{ formatMoney(stats.pending_reimburse) }}</span>
       </div>
+      <div class="stat-card remaining">
+        <span class="stat-label">剩余金额</span>
+        <span class="stat-value">¥ {{ formatMoney(stats.remaining_budget) }}</span>
+      </div>
       <div class="stat-card count">
         <span class="stat-label">记录数</span>
         <span class="stat-value">{{ stats.total_count }}</span>
@@ -262,19 +266,20 @@
                     <textarea v-model="form.remarks" rows="2" placeholder="可选，填写其他说明"></textarea>
                   </div>
                 </div>
-                <!-- 修改上传人（编辑模式 + 管理员/教师/学生管理员可见） -->
-                <div v-if="editingRecord && canReview" class="form-group">
+                <!-- 修改上传人（仅管理员可见） -->
+                <div v-if="editingRecord && currentUser?.user_type === 'admin'" class="form-group">
                   <label>上传人</label>
                   <div class="uploader-search-wrapper">
                     <div class="input-shell">
                       <input
                         v-model="uploaderSearchText"
                         type="text"
-                        :placeholder="selectedUploaderName || '搜索用户...'"
+                        :placeholder="selectedUploaderName ? '点击输入搜索其他用户...' : '搜索用户...'"
                         @input="onUploaderSearchInput"
-                        @focus="showUploaderDropdown = true"
+                        @focus="onUploaderFocus"
                         @blur="onUploaderSearchBlur"
                         autocomplete="off"
+                        class="uploader-search-input"
                       />
                     </div>
                     <div v-if="showUploaderDropdown && uploaderSearchResults.length > 0" class="uploader-dropdown">
@@ -727,15 +732,29 @@ function onUploaderSearchInput() {
 }
 
 function onUploaderSearchBlur() {
-  setTimeout(() => { showUploaderDropdown.value = false }, 200)
+  setTimeout(() => {
+    showUploaderDropdown.value = false
+    // 如果输入为空且有已选用户，恢复显示其名称
+    if (!uploaderSearchText.value.trim() && selectedUploaderName.value) {
+      uploaderSearchText.value = selectedUploaderName.value
+    }
+  }, 200)
 }
 
 function selectUploader(user) {
   selectedUploaderId.value = user.user_id
   selectedUploaderName.value = user.real_name || user.username
-  uploaderSearchText.value = ''
+  uploaderSearchText.value = user.real_name || user.username
   uploaderSearchResults.value = []
   showUploaderDropdown.value = false
+}
+
+function onUploaderFocus() {
+  // 聚焦时清空搜索文本以便重新搜索
+  if (selectedUploaderName.value && uploaderSearchText.value === selectedUploaderName.value) {
+    uploaderSearchText.value = ''
+  }
+  showUploaderDropdown.value = true
 }
 
 // 拖拽/缩放状态
@@ -945,7 +964,7 @@ const filters = ref({
   reimburseStatus: ''
 })
 
-const filterCollapsed = ref(false)
+const filterCollapsed = ref(true)
 const sortBy = ref('default')
 const sortAsc = ref(false)
 const showPersonalOnly = ref(false)
@@ -1109,6 +1128,7 @@ const loadEvent = async () => {
         total_amount: response.data.data.spent_amount || 0,
         invoice_total: response.data.data.invoice_total_amount || 0,
         pending_reimburse: (parseFloat(response.data.data.invoice_total_amount || 0) - parseFloat(response.data.data.reimbursed_amount || 0)),
+        remaining_budget: response.data.data.remaining_budget || 0,
         total_count: (response.data.data.invoice_count || 0) + (response.data.data.purchase_record_count || 0)
       }
     }
@@ -1174,10 +1194,12 @@ const loadRecords = async () => {
     records.value = allRecords
     
     // 每次加载记录时都更新统计数据
+    const prevRemaining = stats.value?.remaining_budget
     stats.value = {
       total_amount: allRecords.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0),
       invoice_total: allRecords.filter(r => r.has_invoice).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
       pending_reimburse: allRecords.filter(r => r.has_invoice && !r.is_reimbursed).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
+      remaining_budget: prevRemaining || (event.value ? (parseFloat(event.value.total_budget || 0) - parseFloat(event.value.spent_amount || 0)) : 0),
       total_count: allRecords.length
     }
   } catch (e) {
@@ -1804,8 +1826,8 @@ const saveRecord = async () => {
     const token = localStorage.getItem('token')
     const payload = { ...form.value }
 
-    // 编辑模式下，如果选择了新的上传人，包含uploader_id
-    if (editingRecord.value && canReview.value && selectedUploaderId.value) {
+    // 编辑模式下，管理员选择新上传人时包含uploader_id
+    if (editingRecord.value && currentUser.value?.user_type === 'admin' && selectedUploaderId.value) {
       payload.uploader_id = selectedUploaderId.value
     }
 
@@ -2092,6 +2114,7 @@ const formatMoney = (val) => {
 .stat-card.invoice { border-left-color: #f39c12; }
 .stat-card.pending { border-left-color: #e74c3c; }
 .stat-card.count { border-left-color: #95a5a6; }
+.stat-card.remaining { border-left-color: #27ae60; }
 
 .stat-label { display: block; font-size: 12px; color: #7f8c8d; margin-bottom: 4px; }
 .stat-value { display: block; font-size: 20px; font-weight: 700; color: #2c3e50; }
@@ -2636,6 +2659,12 @@ const formatMoney = (val) => {
 /* ========== UPLOADER SEARCH ========== */
 .uploader-search-wrapper {
   position: relative;
+}
+.uploader-search-input {
+  color: #1e293b !important;
+}
+.uploader-search-input::placeholder {
+  color: #94a3b8 !important;
 }
 .uploader-dropdown {
   position: absolute;
@@ -3244,7 +3273,7 @@ const formatMoney = (val) => {
   .page-header { flex-direction: column; align-items: flex-start; }
   .toggle-group { flex-direction: column; gap: 8px; align-items: flex-start; }
   .amount-total { font-size: 10px; padding: 1px 5px; }
-  .stats-panel { grid-template-columns: repeat(2, 1fr); }
+  .stats-panel { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .action-buttons { flex-wrap: wrap; }
   .modal-content { width: 96%; max-height: 88vh; border-radius: 14px; }
   .modal-overlay { padding: 12px; }
@@ -3297,5 +3326,11 @@ const formatMoney = (val) => {
   .btn-view-sm, .btn-edit-sm, .btn-reimburse-sm, .btn-approve-sm, .btn-delete-sm { min-width: 40px; min-height: 40px; font-size: 13px; }
   .header-actions { flex-wrap: wrap; gap: 0.4rem; }
   .header-actions .action-button { min-height: 44px; font-size: 13px; flex: 1; min-width: calc(50% - 0.4rem); }
+  .uploader-dropdown { max-height: 160px; }
+  .uploader-dropdown-item { padding: .7rem; }
+  .uploader-name { font-size: .82rem; }
+}
+@media (max-width: 380px) {
+  .stats-panel { grid-template-columns: 1fr; }
 }
 </style>

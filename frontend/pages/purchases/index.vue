@@ -34,6 +34,13 @@
           <span class="stat-label">待报销</span>
         </div>
       </div>
+      <div class="stat-card remaining-stat">
+        <span class="stat-icon">💵</span>
+        <div class="stat-info">
+          <span class="stat-value">¥{{ formatMoney(totalStats.remainingBudget) }}</span>
+          <span class="stat-label">剩余金额</span>
+        </div>
+      </div>
       <div class="stat-card count-stat">
         <span class="stat-icon">📋</span>
         <div class="stat-info">
@@ -216,6 +223,7 @@ const formatMoney = (val) => {
 }
 .stat-card.invoice-stat { border-left-color: #f39c12; }
 .stat-card.pending-stat { border-left-color: #e74c3c; }
+.stat-card.remaining-stat { border-left-color: #27ae60; }
 .stat-card.count-stat { border-left-color: #3498db; }
 .stat-icon { font-size: 2rem; }
 

@@ -305,7 +305,9 @@ const statCards = computed(() => {
       totalBudget: Number(ev.total_budget || 0),
       invoiceTotal: Number(ev.invoice_total_amount || 0),
       reimbursedAmount: Number(ev.reimbursed_amount || 0),
+      remainingBudget: Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)),
       budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '0.0',
+      budgetRemainingRate: Number(ev.total_budget || 0) > 0 ? ((Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '100.0',
       reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(1) : '0.0',
       pendingReimburse: Math.max(0, Number(ev.invoice_total_amount || 0) - Number(ev.reimbursed_amount || 0)),
     }
@@ -314,16 +316,18 @@ const statCards = computed(() => {
       { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: `/purchases/${ev.event_id}`, prefix: '', displayValue: String(s.totalRecords) },
       { key: 'spending', variant: 'amber', value: s.totalAmount, label: '支出金额', sub: `预算使用率 ${s.budgetUsageRate}%`, subTrend: Number(s.budgetUsageRate) > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(s.totalAmount) },
       { key: 'invoice', variant: 'sky', value: s.invoiceTotal, label: '发票总额', sub: `待报销 ¥${fmt(s.pendingReimburse)}`, subTrend: '', link: '', prefix: '¥', displayValue: fmt(s.invoiceTotal) },
-      { key: 'reimburse', variant: 'violet', value: s.reimbursedAmount, label: '已报销金额', sub: `报销率 ${s.reimburseRate}%`, subTrend: Number(s.reimburseRate) > 70 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(s.reimbursedAmount) },
+      { key: 'reimburse', variant: 'violet', value: s.remainingBudget, label: '剩余金额', sub: `剩余率 ${s.budgetRemainingRate}%`, subTrend: Number(s.budgetRemainingRate) < 30 ? 'warn' : Number(s.budgetRemainingRate) > 60 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(s.remainingBudget) },
     ]
   }
   const s = stats.value
+  const totalRemaining = Math.max(0, s.totalBudget - s.totalAmount)
+  const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(1) : '100.0'
   return [
     { key: 'events', variant: 'indigo', value: s.totalEvents, label: '项目总数', sub: `${s.ongoingEvents} 个进行中`, subTrend: '', link: '/projects', prefix: '', displayValue: String(s.totalEvents) },
     { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: '/purchases', prefix: '', displayValue: String(s.totalRecords) },
     { key: 'spending', variant: 'amber', value: s.totalAmount, label: '总支出金额', sub: `预算使用率 ${s.budgetUsageRate}%`, subTrend: Number(s.budgetUsageRate) > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(s.totalAmount) },
     { key: 'invoice', variant: 'sky', value: s.invoiceTotal, label: '发票总额', sub: `待报销 ¥${fmt(s.pendingReimburse)}`, subTrend: '', link: '', prefix: '¥', displayValue: fmt(s.invoiceTotal) },
-    { key: 'reimburse', variant: 'violet', value: s.reimbursedAmount, label: '已报销金额', sub: `报销率 ${s.reimburseRate}%`, subTrend: Number(s.reimburseRate) > 70 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(s.reimbursedAmount) },
+    { key: 'reimburse', variant: 'violet', value: totalRemaining, label: '剩余金额', sub: `剩余率 ${remainingRate}%`, subTrend: Number(remainingRate) < 30 ? 'warn' : Number(remainingRate) > 60 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(totalRemaining) },
   ]
 })
 

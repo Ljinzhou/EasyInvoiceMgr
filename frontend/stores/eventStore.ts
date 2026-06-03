@@ -45,6 +45,7 @@ export interface TotalStatsSummary {
   invoiceTotal: number
   pendingReimburse: number
   recordCount: number
+  remainingBudget: number
 }
 
 export const useEventStore = defineStore('eventStore', {
@@ -108,6 +109,7 @@ export const useEventStore = defineStore('eventStore', {
       let invoiceTotal = 0
       let pendingReimburse = 0
       let recordCount = 0
+      let remainingBudget = 0
 
       for (const ev of this.events) {
         totalAmount += parseFloat(String(ev.spent_amount || 0))
@@ -117,9 +119,13 @@ export const useEventStore = defineStore('eventStore', {
           parseFloat(String(ev.invoice_total_amount || 0)) -
           parseFloat(String(ev.reimbursed_amount || 0))
         )
+        remainingBudget += Math.max(0,
+          parseFloat(String(ev.total_budget || 0)) -
+          parseFloat(String(ev.spent_amount || 0))
+        )
       }
 
-      return { totalAmount, invoiceTotal, pendingReimburse, recordCount }
+      return { totalAmount, invoiceTotal, pendingReimburse, recordCount, remainingBudget }
     },
 
     /** Whether data is stale (older than 3 minutes) */
