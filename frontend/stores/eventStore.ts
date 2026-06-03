@@ -84,8 +84,8 @@ export const useEventStore = defineStore('eventStore', {
       }
 
       const pendingReimburse = Math.max(0, invoiceTotal - reimbursedAmount)
-      const budgetUsageRate = totalBudget > 0 ? Number(((totalAmount / totalBudget) * 100).toFixed(1)) : 0
-      const reimburseRate = invoiceTotal > 0 ? Number(((reimbursedAmount / invoiceTotal) * 100).toFixed(1)) : 0
+      const budgetUsageRate = totalBudget > 0 ? Number(((totalAmount / totalBudget) * 100).toFixed(2)) : 0
+      const reimburseRate = invoiceTotal > 0 ? Number(((reimbursedAmount / invoiceTotal) * 100).toFixed(2)) : 0
 
       return {
         totalEvents: this.totalCount,

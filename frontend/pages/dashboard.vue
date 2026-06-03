@@ -133,7 +133,7 @@
                       <stop offset="100%" stop-color="#8b5cf6"/>
                     </linearGradient>
                   </defs>
-                  <text x="50" y="49" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ Math.round(budgetUsagePercent(ev)) }}%</text>
+                  <text x="50" y="49" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ budgetUsagePercent(ev).toFixed(2) }}%</text>
                   <text x="50" y="66" text-anchor="middle" font-size="8.5" fill="#94a3b8">使用率</text>
                 </svg>
               </div>
@@ -161,14 +161,14 @@
                   <div class="dc-bar-track">
                     <div class="dc-bar-fill" :class="progressClass(ev)" :style="{ width: Math.min(100, budgetUsagePercent(ev)) + '%' }"></div>
                   </div>
-                  <span class="dc-bar-val" :class="progressClass(ev)">{{ Math.round(budgetUsagePercent(ev)) }}%</span>
+                  <span class="dc-bar-val" :class="progressClass(ev)">{{ budgetUsagePercent(ev).toFixed(2) }}%</span>
                 </div>
                 <div class="dc-bar-row">
                   <span class="dc-bar-label">报销率</span>
                   <div class="dc-bar-track">
                     <div class="dc-bar-fill reimburse" :style="{ width: getReimburseRate(ev) + '%' }"></div>
                   </div>
-                  <span class="dc-bar-val reimburse-val">{{ getReimburseRate(ev) }}%</span>
+                  <span class="dc-bar-val reimburse-val">{{ getReimburseRate(ev).toFixed(2) }}%</span>
                 </div>
                 <div class="dc-meta">
                   <span class="dc-meta-tag">🧾 {{ ev.invoice_count || 0 }} 发票</span>
@@ -307,9 +307,9 @@ const statCards = computed(() => {
       invoiceTotal: Number(ev.invoice_total_amount || 0),
       reimbursedAmount: Number(ev.reimbursed_amount || 0),
       remainingBudget: Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)),
-      budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '0.0',
-      budgetRemainingRate: Number(ev.total_budget || 0) > 0 ? ((Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '100.0',
-      reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(1) : '0.0',
+      budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(2) : '0.00',
+      budgetRemainingRate: Number(ev.total_budget || 0) > 0 ? ((Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)) / Number(ev.total_budget || 0)) * 100).toFixed(2) : '100.00',
+      reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(2) : '0.00',
       pendingReimburse: Math.max(0, Number(ev.invoice_total_amount || 0) - Number(ev.reimbursed_amount || 0)),
     }
     return [
@@ -322,7 +322,7 @@ const statCards = computed(() => {
   }
   const s = stats.value
   const totalRemaining = Math.max(0, s.totalBudget - s.totalAmount)
-  const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(1) : '100.0'
+  const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(2) : '100.00'
   return [
     { key: 'events', variant: 'indigo', value: s.totalEvents, label: '项目总数', sub: `${s.ongoingEvents} 个进行中`, subTrend: '', link: '/projects', prefix: '', displayValue: String(s.totalEvents) },
     { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: '/purchases', prefix: '', displayValue: String(s.totalRecords) },
