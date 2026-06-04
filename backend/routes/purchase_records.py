@@ -171,14 +171,21 @@ def create_purchase_record(event_id):
         need_review = event.need_invoice_review if event else True
         # 如果不需要审核，直接设置为已通过状态
         status = 'approved' if not need_review else 'pending'
-        
+
+        # 发票金额自动填充：有发票时，实际开销以发票解析结果为准
+        invoice_total = float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0
+        if has_invoice and invoice_total > 0:
+            actual_amount = invoice_total
+        else:
+            actual_amount = float(data['amount']) if data.get('amount') is not None else 0.0
+
         record = PurchaseRecord(
             event_id=event_id,
             uploader_id=current_user_id,
             item_name=data['item_name'],
             purchase_platform=data['purchase_platform'],
             purchase_date=datetime.strptime(data['purchase_date'], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date'],
-            amount=float(data['amount']) if data.get('amount') is not None else 0.0,
+            amount=actual_amount,
             receipt_image_url=data['receipt_image_url'],
             receipt_image_name=data.get('receipt_image_name'),
             receipt_file_md5=data.get('receipt_file_md5'),
@@ -190,7 +197,7 @@ def create_purchase_record(event_id):
             invoice_md5=data.get('invoice_md5'),
             invoice_type=data.get('invoice_type'),
             invoice_number=data.get('invoice_number'),
-            total_amount=float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0,
+            total_amount=invoice_total,
             invoice_date=datetime.strptime(data['invoice_date'], '%Y-%m-%d').date() if data.get('invoice_date') else None,
             status=status,
             remarks=data.get('remarks')
@@ -262,8 +269,6 @@ def update_purchase_record(record_id):
             record.purchase_platform = data['purchase_platform']
         if 'purchase_date' in data and data['purchase_date']:
             record.purchase_date = datetime.strptime(data['purchase_date'][:10], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date']
-        if 'amount' in data and data['amount'] is not None:
-            record.amount = float(data['amount']) if data['amount'] else 0.0
         if 'receipt_image_url' in data and data['receipt_image_url'] is not None:
             record.receipt_image_url = data['receipt_image_url']
         if 'receipt_image_name' in data:
@@ -303,6 +308,12 @@ def update_purchase_record(record_id):
             record.invoice_date = datetime.strptime(data['invoice_date'][:10], '%Y-%m-%d').date() if isinstance(data['invoice_date'], str) else data['invoice_date']
         if 'remarks' in data:
             record.remarks = data['remarks']
+
+        # 发票金额自动填充：有发票时，实际开销以发票价税合计为准，禁止手动修改
+        if record.has_invoice and record.total_amount and float(record.total_amount) > 0:
+            record.amount = float(record.total_amount)
+        elif 'amount' in data and data['amount'] is not None:
+            record.amount = float(data['amount']) if data['amount'] else 0.0
 
         # 允许管理员/教师/学生管理员修改上传人
         if 'uploader_id' in data and data['uploader_id'] is not None and is_admin_or_teacher:

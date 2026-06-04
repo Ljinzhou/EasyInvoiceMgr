@@ -255,10 +255,19 @@
                 </div>
                 <div class="form-row">
                   <div class="form-group">
-                    <label>实际开销（元）</label>
-                    <div class="input-shell">
+                    <label>
+                      实际开销（元）
+                      <span v-if="isAmountLocked" class="amount-lock-badge" title="金额已由发票解析结果锁定，不可手动修改">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        发票锁定
+                      </span>
+                    </label>
+                    <div class="input-shell" :class="{ 'input-locked': isAmountLocked }">
                       <span class="input-prefix">&yen;</span>
-                      <input v-model.number="form.amount" type="number" step="0.01" min="0" required placeholder="0.00" class="has-prefix" />
+                      <input v-model.number="form.amount" type="number" step="0.01" min="0" required placeholder="0.00" class="has-prefix" :disabled="isAmountLocked" :readonly="isAmountLocked" />
+                      <span v-if="isAmountLocked" class="input-lock-icon" title="金额已由发票解析结果自动填充">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      </span>
                     </div>
                   </div>
                   <div class="form-group">
@@ -960,6 +969,13 @@ watch(showImageZoomModal, (val) => {
   }
 })
 
+// 发票金额同步：当发票存在且有价税合计时，自动同步实际开销
+watch(() => form.value.total_amount, (newVal) => {
+  if (form.value.has_invoice && newVal && parseFloat(newVal) > 0) {
+    form.value.amount = parseFloat(newVal)
+  }
+})
+
 // 过滤条件
 const filters = ref({
   startDate: '',
@@ -1104,6 +1120,11 @@ const canModifyRecord = (record) => {
   if (['admin', 'teacher', 'student_admin'].includes(currentUser.value.user_type)) return true
   return record.uploader_id === currentUser.value.user_id
 }
+
+// 是否金额被发票锁定：有发票且有解析金额时，实际开销以发票为准
+const isAmountLocked = computed(() => {
+  return form.value.has_invoice && form.value.total_amount && parseFloat(form.value.total_amount) > 0
+})
 
 const selectAll = computed({
   get: () => selectedRecords.value.length === records.value.length && records.value.length > 0,
@@ -1757,7 +1778,10 @@ const autoParseLocalInvoice = async () => {
       }
       if (info.item_name) form.value.item_name_from_invoice = info.item_name
       if (info.invoice_number) form.value.invoice_number = info.invoice_number
-      if (info.amount) form.value.total_amount = parseFloat(info.amount)
+      if (info.amount) {
+        form.value.total_amount = parseFloat(info.amount)
+        form.value.amount = parseFloat(info.amount)
+      }
       if (info.date) form.value.invoice_date = info.date
       parseApplied.value = true
       showToast('发票解析完成', 'success')
@@ -1815,7 +1839,10 @@ const parseInvoiceFromUrl = async () => {
 
       if (info.item_name) form.value.item_name_from_invoice = info.item_name
       if (info.invoice_number) form.value.invoice_number = info.invoice_number
-      if (info.amount) form.value.total_amount = parseFloat(info.amount)
+      if (info.amount) {
+        form.value.total_amount = parseFloat(info.amount)
+        form.value.amount = parseFloat(info.amount)
+      }
       if (info.date) form.value.invoice_date = info.date
 
       parseApplied.value = true
@@ -1903,7 +1930,10 @@ const saveRecord = async () => {
             if (info.item_name && !payload.item_name) payload.item_name = info.item_name
             if (info.item_name) payload.item_name_from_invoice = info.item_name
             if (info.invoice_number) payload.invoice_number = info.invoice_number
-            if (info.amount) payload.total_amount = parseFloat(info.amount)
+            if (info.amount) {
+              payload.total_amount = parseFloat(info.amount)
+              payload.amount = parseFloat(info.amount)
+            }
             if (info.date) payload.invoice_date = info.date
           } else if (!d.parsed_info && !d.is_pdf) {
             // AI解析失败（非PDF），显示错误提示但不阻止提交
@@ -2691,6 +2721,46 @@ const formatMoney = (val) => {
   pointer-events: none;
 }
 .input-shell input.has-prefix { padding-left: 1.6rem; }
+
+/* Amount lock indicator */
+.amount-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #92400e;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid #fbbf24;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.amount-lock-badge svg { flex-shrink: 0; }
+
+.input-locked {
+  opacity: 0.85;
+}
+.input-locked input:disabled,
+.input-locked input:read-only {
+  background: #fefce8;
+  border-color: #fde68a;
+  color: #92400e;
+  font-weight: 600;
+  cursor: not-allowed;
+  -webkit-text-fill-color: #92400e;
+  opacity: 1;
+}
+
+.input-lock-icon {
+  position: absolute;
+  right: 0.75rem;
+  color: #f59e0b;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
 
 /* ========== UPLOADER SEARCH ========== */
 .uploader-search-wrapper {
