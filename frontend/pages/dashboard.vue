@@ -133,7 +133,7 @@
                       <stop offset="100%" stop-color="#8b5cf6"/>
                     </linearGradient>
                   </defs>
-                  <text x="50" y="49" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ budgetUsagePercent(ev).toFixed(2) }}%</text>
+                  <text x="50" y="49" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ budgetUsagePercent(ev).toFixed(1) }}%</text>
                   <text x="50" y="66" text-anchor="middle" font-size="8.5" fill="#94a3b8">使用率</text>
                 </svg>
               </div>
@@ -161,14 +161,14 @@
                   <div class="dc-bar-track">
                     <div class="dc-bar-fill" :class="progressClass(ev)" :style="{ width: Math.min(100, budgetUsagePercent(ev)) + '%' }"></div>
                   </div>
-                  <span class="dc-bar-val" :class="progressClass(ev)">{{ budgetUsagePercent(ev).toFixed(2) }}%</span>
+                  <span class="dc-bar-val" :class="progressClass(ev)">¥{{ fmt(ev.spent_amount) }}</span>
                 </div>
                 <div class="dc-bar-row">
-                  <span class="dc-bar-label">报销率</span>
+                  <span class="dc-bar-label">剩余预算</span>
                   <div class="dc-bar-track">
-                    <div class="dc-bar-fill reimburse" :style="{ width: getReimburseRate(ev) + '%' }"></div>
+                    <div class="dc-bar-fill remaining" :style="{ width: Math.max(0, (getEventRemaining(ev) / Math.max(1, Number(ev.total_budget || 0))) * 100) + '%' }"></div>
                   </div>
-                  <span class="dc-bar-val reimburse-val">{{ getReimburseRate(ev).toFixed(2) }}%</span>
+                  <span class="dc-bar-val remaining-val">¥{{ fmt(getEventRemaining(ev)) }}</span>
                 </div>
                 <div class="dc-meta">
                   <span class="dc-meta-tag">🧾 {{ ev.invoice_count || 0 }} 发票</span>
@@ -195,11 +195,11 @@
           </div>
           <span>新建项目</span>
         </NuxtLink>
-        <NuxtLink v-if="canManageUsers" to="/users" class="action-card">
+        <NuxtLink to="/projects" class="action-card">
           <div class="action-icon-ring blue">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
-          <span>人员管理</span>
+          <span>项目管理</span>
         </NuxtLink>
         <NuxtLink v-if="canManageInvitationCodes" to="/invitation-codes" class="action-card">
           <div class="action-icon-ring amber">
@@ -307,9 +307,9 @@ const statCards = computed(() => {
       invoiceTotal: Number(ev.invoice_total_amount || 0),
       reimbursedAmount: Number(ev.reimbursed_amount || 0),
       remainingBudget: Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)),
-      budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(2) : '0.00',
-      budgetRemainingRate: Number(ev.total_budget || 0) > 0 ? ((Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)) / Number(ev.total_budget || 0)) * 100).toFixed(2) : '100.00',
-      reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(2) : '0.00',
+      budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '0.0',
+      budgetRemainingRate: Number(ev.total_budget || 0) > 0 ? ((Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '100.0',
+      reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(1) : '0.0',
       pendingReimburse: Math.max(0, Number(ev.invoice_total_amount || 0) - Number(ev.reimbursed_amount || 0)),
     }
     return [
@@ -322,7 +322,7 @@ const statCards = computed(() => {
   }
   const s = stats.value
   const totalRemaining = Math.max(0, s.totalBudget - s.totalAmount)
-  const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(2) : '100.00'
+  const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(1) : '100.0'
   return [
     { key: 'events', variant: 'indigo', value: s.totalEvents, label: '项目总数', sub: `${s.ongoingEvents} 个进行中`, subTrend: '', link: '/projects', prefix: '', displayValue: String(s.totalEvents) },
     { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: '/purchases', prefix: '', displayValue: String(s.totalRecords) },
@@ -816,7 +816,7 @@ onMounted(async () => {
 .dc-bar-fill.ok     { background: linear-gradient(90deg, #6366f1, #818cf8); }
 .dc-bar-fill.warn   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 .dc-bar-fill.danger { background: linear-gradient(90deg, #ef4444, #f87171); }
-.dc-bar-fill.reimburse { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+.dc-bar-fill.remaining { background: linear-gradient(90deg, #10b981, #34d399); }
 .dc-bar-val {
   font-size: 0.75rem;
   font-weight: 700;
@@ -827,7 +827,7 @@ onMounted(async () => {
 .dc-bar-val.ok     { color: #059669; }
 .dc-bar-val.warn   { color: #d97706; }
 .dc-bar-val.danger { color: #dc2626; }
-.dc-bar-val.reimburse-val { color: #3b82f6; }
+.dc-bar-val.remaining-val { color: #10b981; }
 
 /* Meta tags */
 .dc-meta {

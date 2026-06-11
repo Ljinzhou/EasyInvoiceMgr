@@ -5,7 +5,7 @@
       <h1 class="page-title">{{ event?.event_name || '购买记录' }}</h1>
       <div class="header-actions" v-if="isEventMember">
         <button @click="showAddModal = true" class="action-button primary">+ 添加记录</button>
-        <button @click="viewMembers" class="action-button members">👥 查看人员</button>
+        <button @click="viewMembers" class="action-button members">👥 人员管理</button>
         <button @click="exportData" class="action-button export">📤 导出数据</button>
         <button @click="batchReimburse" class="action-button reimburse" :disabled="selectedRecords.length === 0" v-if="canReview">
           批量报销 ({{ selectedRecords.length }})
@@ -15,7 +15,7 @@
         </button>
       </div>
       <div class="header-actions" v-else>
-        <button @click="viewMembers" class="action-button members">👥 查看人员</button>
+        <button @click="viewMembers" class="action-button members">👥 人员管理</button>
       </div>
     </div>
 
@@ -164,8 +164,6 @@
             </td>
             <td>
               {{ record.item_name }}
-              <span v-if="record.record_type === 'invoice'" class="record-type-tag">发票</span>
-              <span v-else class="record-type-tag purchase">购物</span>
             </td>
             <td><span class="platform-badge">{{ record.purchase_platform || '-' }}</span></td>
             <td class="amount">¥{{ parseFloat(record.amount).toFixed(2) }}</td>
@@ -2320,16 +2318,6 @@ const formatMoney = (val) => {
   border-radius: 10px; 
   font-size: 11px; 
 }
-.record-type-tag {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 500;
-}
-.record-type-tag.purchase { background: #e8f5e9; color: #2e7d32; }
-.record-type-tag.invoice { background: #e3f2fd; color: #1565c0; }
 .amount { font-weight: 600; color: #e74c3c; }
 .amount-header { white-space: nowrap; }
 .amount-total {

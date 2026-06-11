@@ -593,6 +593,59 @@ def remove_event_member(event_id, user_id):
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
+
+@events_bp.route('/events/<int:event_id>/members/<int:user_id>', methods=['PUT'])
+@jwt_required()
+def update_event_member(event_id, user_id):
+    logger.info(f'=== 更新赛事成员: event_id={event_id}, user_id={user_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        if user.user_type not in ['admin', 'teacher', 'student_admin']:
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+
+        member = EventMember.query.filter_by(
+            event_id=event_id,
+            user_id=user_id,
+            is_deleted=False
+        ).first()
+
+        if not member:
+            return jsonify({'code': 404, 'message': '成员不存在', 'data': None}), 404
+
+        data = request.get_json()
+        role_in_event = data.get('role_in_event')
+
+        if role_in_event and role_in_event not in ['student', 'student_admin', 'teacher']:
+            return jsonify({'code': 400, 'message': '无效的角色类型', 'data': None}), 400
+
+        if role_in_event:
+            member.role_in_event = role_in_event
+
+        db.session.commit()
+
+        logger.info(f'赛事成员更新成功: event_id={event_id}, user_id={user_id}, role={member.role_in_event}')
+        return jsonify({
+            'code': 200,
+            'message': '更新成员成功',
+            'data': {
+                'user_id': user_id,
+                'role_in_event': member.role_in_event
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'更新赛事成员异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
 from sqlalchemy import func
 
 @events_bp.route('/events/stats/user-summary', methods=['GET'])
