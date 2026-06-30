@@ -31,7 +31,7 @@
         </NuxtLink>
         <NuxtLink v-if="isMounted && canManageUsers" to="/users" class="nav-item" :class="{ active: $route.path.startsWith('/users') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">👥</span>
-          <span class="nav-text">人员管理</span>
+          <span class="nav-text">学生管理</span>
         </NuxtLink>
         <NuxtLink v-if="isMounted && canManageInvitationCodes" to="/invitation-codes" class="nav-item" :class="{ active: $route.path.startsWith('/invitation-codes') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">🎫</span>

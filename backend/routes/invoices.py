@@ -210,13 +210,12 @@ def create_invoice():
             amount=Decimal(str(request.form.get('amount', 0))),
             total_amount=Decimal(str(request.form.get('total_amount', request.form.get('amount', 0)))),
             invoice_date=datetime.strptime(request.form.get('invoice_date'), '%Y-%m-%d') if request.form.get('invoice_date') else None,
-            status='approved' if not event.need_invoice_review else 'pending',
+            status='approved',
             remarks=request.form.get('remarks')
         )
         
-        if not event.need_invoice_review:
-            invoice.reviewer_id = current_user_id
-            invoice.review_time = datetime.utcnow()
+        invoice.reviewer_id = current_user_id
+        invoice.review_time = datetime.utcnow()
         
         db.session.add(invoice)
         

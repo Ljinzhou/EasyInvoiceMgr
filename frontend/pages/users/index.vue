@@ -1,7 +1,7 @@
 <template>
   <div class="users-page">
     <div class="page-header">
-      <h1 class="page-title">人员管理</h1>
+      <h1 class="page-title">学生管理</h1>
       <div class="header-actions">
         <button 
           v-if="canManageUsers" 

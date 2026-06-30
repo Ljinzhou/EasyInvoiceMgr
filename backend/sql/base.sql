@@ -68,7 +68,6 @@ CREATE TABLE events (
     invoice_total_amount DECIMAL(12, 2) DEFAULT 0.00, -- 发票总金额
     voucher_count INTEGER DEFAULT 0, -- 凭证总数量
     voucher_total_amount DECIMAL(12, 2) DEFAULT 0.00, -- 凭证总金额
-    need_invoice_review BOOLEAN NOT NULL DEFAULT TRUE, -- 是否需要审核发票
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -195,13 +194,9 @@ CREATE TABLE purchase_records (
     total_amount DECIMAL(12, 2) DEFAULT 0.00 CHECK (total_amount >= 0),
     invoice_date DATE,
 
-    -- 审核信息
-    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    -- 报销信息
     is_reimbursed BOOLEAN NOT NULL DEFAULT FALSE,
     reimbursed_at TIMESTAMP WITH TIME ZONE,
-    reviewer_id BIGINT REFERENCES users(user_id),
-    review_time TIMESTAMP WITH TIME ZONE,
-    rejection_reason TEXT,
 
     -- 辅助信息
     remarks TEXT,

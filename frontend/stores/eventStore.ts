@@ -22,7 +22,6 @@ export interface EventItem {
   invoice_count: number
   purchase_record_count: number
   voucher_count: number
-  need_invoice_review: boolean
 }
 
 export interface EventStats {

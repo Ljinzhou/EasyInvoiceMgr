@@ -76,7 +76,6 @@ def get_purchase_records(event_id):
         records_data = []
         for record in records:
             uploader = User.query.get(record.uploader_id)
-            reviewer = User.query.get(record.reviewer_id) if record.reviewer_id else None
             
             invoice_file_url = get_presigned_url(record.invoice_file_key)
             invoice_preview_url = get_presigned_url(record.invoice_preview_key) or invoice_file_url
@@ -102,14 +101,11 @@ def get_purchase_records(event_id):
                 'invoice_number': record.invoice_number,
                 'total_amount': float(record.total_amount) if record.total_amount else 0,
                 'invoice_date': record.invoice_date.isoformat() if record.invoice_date else None,
-                'status': record.status,
                 'is_reimbursed': record.is_reimbursed,
                 'remarks': record.remarks,
                 'uploader_id': record.uploader_id,
                 'uploader_name': uploader.real_name if uploader else None,
-                'reviewer_name': reviewer.real_name if reviewer else None,
-                'created_at': record.created_at.isoformat() if record.created_at else None,
-                'rejection_reason': record.rejection_reason
+                'created_at': record.created_at.isoformat() if record.created_at else None
             })
         
         total_amount = sum(r['amount'] for r in records_data)
@@ -167,18 +163,20 @@ def create_purchase_record(event_id):
         cannot_invoice = bool(data.get('cannot_invoice'))
         has_invoice = bool(data.get('invoice_file_key')) if not cannot_invoice else False
 
-        # 检查赛事是否需要发票审核
-        need_review = event.need_invoice_review if event else True
-        # 如果不需要审核，直接设置为已通过状态
-        status = 'approved' if not need_review else 'pending'
-        
+        # 发票金额自动填充：有发票时，实际开销以发票解析结果为准
+        invoice_total = float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0
+        if has_invoice and invoice_total > 0:
+            actual_amount = invoice_total
+        else:
+            actual_amount = float(data['amount']) if data.get('amount') is not None else 0.0
+
         record = PurchaseRecord(
             event_id=event_id,
             uploader_id=current_user_id,
             item_name=data['item_name'],
             purchase_platform=data['purchase_platform'],
             purchase_date=datetime.strptime(data['purchase_date'], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date'],
-            amount=float(data['amount']) if data.get('amount') is not None else 0.0,
+            amount=actual_amount,
             receipt_image_url=data['receipt_image_url'],
             receipt_image_name=data.get('receipt_image_name'),
             receipt_file_md5=data.get('receipt_file_md5'),
@@ -190,9 +188,8 @@ def create_purchase_record(event_id):
             invoice_md5=data.get('invoice_md5'),
             invoice_type=data.get('invoice_type'),
             invoice_number=data.get('invoice_number'),
-            total_amount=float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0,
+            total_amount=invoice_total,
             invoice_date=datetime.strptime(data['invoice_date'], '%Y-%m-%d').date() if data.get('invoice_date') else None,
-            status=status,
             remarks=data.get('remarks')
         )
         
@@ -262,8 +259,6 @@ def update_purchase_record(record_id):
             record.purchase_platform = data['purchase_platform']
         if 'purchase_date' in data and data['purchase_date']:
             record.purchase_date = datetime.strptime(data['purchase_date'][:10], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date']
-        if 'amount' in data and data['amount'] is not None:
-            record.amount = float(data['amount']) if data['amount'] else 0.0
         if 'receipt_image_url' in data and data['receipt_image_url'] is not None:
             record.receipt_image_url = data['receipt_image_url']
         if 'receipt_image_name' in data:
@@ -304,6 +299,12 @@ def update_purchase_record(record_id):
         if 'remarks' in data:
             record.remarks = data['remarks']
 
+        # 发票金额自动填充：有发票时，实际开销以发票价税合计为准，禁止手动修改
+        if record.has_invoice and record.total_amount and float(record.total_amount) > 0:
+            record.amount = float(record.total_amount)
+        elif 'amount' in data and data['amount'] is not None:
+            record.amount = float(data['amount']) if data['amount'] else 0.0
+
         # 允许管理员/教师/学生管理员修改上传人
         if 'uploader_id' in data and data['uploader_id'] is not None and is_admin_or_teacher:
             new_uploader_id = int(data['uploader_id'])
@@ -324,6 +325,84 @@ def update_purchase_record(record_id):
         
     except Exception as e:
         logger.error(f'更新购买记录异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@purchase_records_bp.route('/records/<int:record_id>/transfer', methods=['POST'])
+@jwt_required()
+def transfer_purchase_record(record_id):
+    """将购买记录转移到其他比赛项目"""
+    logger.info(f'=== 转移购买记录: record_id={record_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
+        if not record:
+            return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
+
+        data = request.get_json()
+        if not data or 'target_event_id' not in data:
+            return jsonify({'code': 400, 'message': '缺少目标比赛项目ID', 'data': None}), 400
+
+        target_event_id = int(data['target_event_id'])
+
+        # 检查目标项目是否存在
+        target_event = Event.query.filter_by(event_id=target_event_id, is_deleted=False).first()
+        if not target_event:
+            return jsonify({'code': 404, 'message': '目标比赛项目不存在', 'data': None}), 404
+
+        # 不能转移到同一个项目
+        if target_event_id == record.event_id:
+            return jsonify({'code': 400, 'message': '不能转移到同一个比赛项目', 'data': None}), 400
+
+        is_admin_or_teacher = user.user_type in ['admin', 'teacher', 'student_admin']
+        is_uploader = record.uploader_id == int(current_user_id)
+
+        # 权限检查：只有上传者或管理员/教师/学生管理员可以转移
+        if not (is_admin_or_teacher or is_uploader):
+            return jsonify({'code': 403, 'message': '只能转移自己的购买记录', 'data': None}), 403
+
+        # 学生权限检查：必须是源项目成员
+        if not _check_student_event_access(record.event_id, user):
+            return jsonify({'code': 403, 'message': '您未加入源项目，无法转移记录', 'data': None}), 403
+
+        # 检查用户是否有目标项目的操作权限
+        if not _check_student_event_access(target_event_id, user):
+            return jsonify({'code': 403, 'message': '您未加入目标比赛项目，无法转移记录', 'data': None}), 403
+
+        # 自动检查并添加赛事成员（管理员/教师）
+        if is_admin_or_teacher:
+            ensure_event_membership(record.event_id, int(current_user_id))
+            ensure_event_membership(target_event_id, int(current_user_id))
+
+        old_event_id = record.event_id
+        record.event_id = target_event_id
+
+        # 清除报销状态（因为换了项目，需要在新项目中重新确认报销）
+        record.is_reimbursed = False
+        record.reimbursed_at = None
+
+        db.session.commit()
+
+        logger.info(f'购买记录转移成功: record_id={record_id}, {old_event_id} -> {target_event_id}')
+
+        return jsonify({
+            'code': 200,
+            'message': '转移成功',
+            'data': {
+                'record_id': record_id,
+                'old_event_id': old_event_id,
+                'new_event_id': target_event_id,
+                'target_event_name': target_event.event_name
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'转移购买记录异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
@@ -369,52 +448,6 @@ def delete_purchase_record(record_id):
         
     except Exception as e:
         logger.error(f'删除购买记录异常: {str(e)}', exc_info=True)
-        db.session.rollback()
-        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
-
-
-@purchase_records_bp.route('/records/<int:record_id>/approve', methods=['POST'])
-@jwt_required()
-def approve_purchase_record(record_id):
-    logger.info(f'=== 审核购买记录: record_id={record_id} ===')
-    try:
-        current_user_id = get_jwt_identity()
-        user = User.query.get(current_user_id)
-        if not user or user.user_type not in ['admin', 'teacher', 'student_admin']:
-            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
-
-        record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
-        if not record:
-            return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
-
-        # 自动检查并添加赛事成员
-        ensure_event_membership(record.event_id, int(current_user_id))
-
-        data = request.get_json()
-        status = data.get('status')
-        rejection_reason = data.get('rejection_reason')
-        
-        if status not in ['approved', 'rejected']:
-            return jsonify({'code': 400, 'message': '无效的状态', 'data': None}), 400
-        
-        if status == 'rejected' and not rejection_reason:
-            return jsonify({'code': 400, 'message': '拒绝时必须填写原因', 'data': None}), 400
-        
-        record.status = status
-        record.reviewer_id = int(current_user_id)
-        record.review_time = datetime.now(timezone.utc)
-        record.rejection_reason = rejection_reason if status == 'rejected' else None
-
-        db.session.commit()
-
-        return jsonify({
-            'code': 200,
-            'message': f'{"审核通过" if status == "approved" else "已拒绝"}',
-            'data': None
-        }), 200
-        
-    except Exception as e:
-        logger.error(f'审核购买记录异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 

@@ -15,6 +15,19 @@
           <option :value="null">全部项目汇总</option>
           <option v-for="ev in eventStore.events" :key="ev.event_id" :value="ev.event_id">{{ ev.event_name }}</option>
         </select>
+        <button
+          v-if="hasData"
+          class="ai-summary-btn"
+          :class="{ generating: summaryLoading }"
+          :disabled="summaryLoading"
+          @click="generateSummary"
+          title="AI 财务总结"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2l2.4 7.2h7.6l-6 4.8 2.4 7.2-6.4-4.8-6.4 4.8 2.4-7.2-6-4.8h7.6z"/>
+          </svg>
+          <span>AI 总结</span>
+        </button>
         <button class="refresh-btn" :class="{ spinning: loading }" @click="refreshData" :disabled="loading">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -95,6 +108,39 @@
         </div>
       </div>
 
+      <!-- AI Summary Card -->
+      <transition name="summary-slide">
+        <div v-if="summaryText || summaryLoading || summaryError" class="ai-summary-card" :class="{ loading: summaryLoading, error: summaryError }">
+          <div class="ai-summary-header">
+            <div class="ai-summary-badge">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M12 2l2.4 7.2h7.6l-6 4.8 2.4 7.2-6.4-4.8-6.4 4.8 2.4-7.2-6-4.8h7.6z"/>
+              </svg>
+              AI 分析
+            </div>
+            <span v-if="summaryScope" class="ai-summary-scope">{{ summaryScope }}</span>
+            <span v-if="summaryModel" class="ai-summary-model">{{ summaryModel }}</span>
+          </div>
+          <div class="ai-summary-body">
+            <div v-if="summaryLoading" class="ai-summary-loading">
+              <span class="ai-dot-pulse"></span>
+              <span>AI 正在分析数据…</span>
+            </div>
+            <div v-else-if="summaryError" class="ai-summary-error-text">
+              {{ summaryError }}
+            </div>
+            <div v-else class="ai-summary-text">{{ summaryText }}</div>
+          </div>
+          <div v-if="summaryText" class="ai-summary-footer">
+            <button class="ai-summary-dismiss" @click="summaryText = ''; summaryError = ''">关闭</button>
+            <button class="ai-summary-refresh" @click="generateSummary" :disabled="summaryLoading">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              重新生成
+            </button>
+          </div>
+        </div>
+      </transition>
+
 
       <!-- Per-Project Donut Cards -->
       <div v-if="hasData" class="project-donuts-section">
@@ -133,7 +179,7 @@
                       <stop offset="100%" stop-color="#8b5cf6"/>
                     </linearGradient>
                   </defs>
-                  <text x="50" y="49" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ budgetUsagePercent(ev).toFixed(2) }}%</text>
+                  <text x="50" y="49" text-anchor="middle" font-size="20" font-weight="700" fill="#1e293b">{{ budgetUsagePercent(ev).toFixed(1) }}%</text>
                   <text x="50" y="66" text-anchor="middle" font-size="8.5" fill="#94a3b8">使用率</text>
                 </svg>
               </div>
@@ -161,14 +207,14 @@
                   <div class="dc-bar-track">
                     <div class="dc-bar-fill" :class="progressClass(ev)" :style="{ width: Math.min(100, budgetUsagePercent(ev)) + '%' }"></div>
                   </div>
-                  <span class="dc-bar-val" :class="progressClass(ev)">{{ budgetUsagePercent(ev).toFixed(2) }}%</span>
+                  <span class="dc-bar-val" :class="progressClass(ev)">¥{{ fmt(ev.spent_amount) }}</span>
                 </div>
                 <div class="dc-bar-row">
-                  <span class="dc-bar-label">报销率</span>
+                  <span class="dc-bar-label">剩余预算</span>
                   <div class="dc-bar-track">
-                    <div class="dc-bar-fill reimburse" :style="{ width: getReimburseRate(ev) + '%' }"></div>
+                    <div class="dc-bar-fill remaining" :style="{ width: Math.max(0, (getEventRemaining(ev) / Math.max(1, Number(ev.total_budget || 0))) * 100) + '%' }"></div>
                   </div>
-                  <span class="dc-bar-val reimburse-val">{{ getReimburseRate(ev).toFixed(2) }}%</span>
+                  <span class="dc-bar-val remaining-val">¥{{ fmt(getEventRemaining(ev)) }}</span>
                 </div>
                 <div class="dc-meta">
                   <span class="dc-meta-tag">🧾 {{ ev.invoice_count || 0 }} 发票</span>
@@ -199,7 +245,7 @@
           <div class="action-icon-ring blue">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
-          <span>人员管理</span>
+          <span>学生管理</span>
         </NuxtLink>
         <NuxtLink v-if="canManageInvitationCodes" to="/invitation-codes" class="action-card">
           <div class="action-icon-ring amber">
@@ -307,9 +353,9 @@ const statCards = computed(() => {
       invoiceTotal: Number(ev.invoice_total_amount || 0),
       reimbursedAmount: Number(ev.reimbursed_amount || 0),
       remainingBudget: Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)),
-      budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(2) : '0.00',
-      budgetRemainingRate: Number(ev.total_budget || 0) > 0 ? ((Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)) / Number(ev.total_budget || 0)) * 100).toFixed(2) : '100.00',
-      reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(2) : '0.00',
+      budgetUsageRate: Number(ev.total_budget || 0) > 0 ? ((Number(ev.spent_amount || 0) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '0.0',
+      budgetRemainingRate: Number(ev.total_budget || 0) > 0 ? ((Math.max(0, Number(ev.total_budget || 0) - Number(ev.spent_amount || 0)) / Number(ev.total_budget || 0)) * 100).toFixed(1) : '100.0',
+      reimburseRate: Number(ev.invoice_total_amount || 0) > 0 ? ((Number(ev.reimbursed_amount || 0) / Number(ev.invoice_total_amount || 0)) * 100).toFixed(1) : '0.0',
       pendingReimburse: Math.max(0, Number(ev.invoice_total_amount || 0) - Number(ev.reimbursed_amount || 0)),
     }
     return [
@@ -322,7 +368,7 @@ const statCards = computed(() => {
   }
   const s = stats.value
   const totalRemaining = Math.max(0, s.totalBudget - s.totalAmount)
-  const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(2) : '100.00'
+  const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(1) : '100.0'
   return [
     { key: 'events', variant: 'indigo', value: s.totalEvents, label: '项目总数', sub: `${s.ongoingEvents} 个进行中`, subTrend: '', link: '/projects', prefix: '', displayValue: String(s.totalEvents) },
     { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: '/purchases', prefix: '', displayValue: String(s.totalRecords) },
@@ -383,6 +429,38 @@ const maxAmount = computed(() => {
   if (rankingData.value.length === 0) return 1
   return Math.max(...rankingData.value.map(r => r.total_amount || 0))
 })
+
+// AI Summary
+const summaryText = ref('')
+const summaryLoading = ref(false)
+const summaryError = ref('')
+const summaryModel = ref('')
+const summaryScope = ref('')
+
+async function generateSummary() {
+  summaryText.value = ''
+  summaryError.value = ''
+  summaryLoading.value = true
+  summaryModel.value = ''
+  summaryScope.value = ''
+
+  try {
+    const payload: any = {}
+    if (selectedEventId.value) payload.event_id = selectedEventId.value
+    const { data } = await $api.post('/system/ai-summary', payload)
+    if (data.code === 200) {
+      summaryText.value = data.data.summary
+      summaryModel.value = data.data.model || ''
+      summaryScope.value = data.data.scope || ''
+    } else {
+      summaryError.value = data.message || 'AI 总结生成失败'
+    }
+  } catch (e: any) {
+    summaryError.value = e.response?.data?.message || 'AI 总结请求失败，请检查网络和 API 配置'
+  } finally {
+    summaryLoading.value = false
+  }
+}
 
 async function fetchRanking() {
   rankingLoading.value = true
@@ -816,7 +894,7 @@ onMounted(async () => {
 .dc-bar-fill.ok     { background: linear-gradient(90deg, #6366f1, #818cf8); }
 .dc-bar-fill.warn   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 .dc-bar-fill.danger { background: linear-gradient(90deg, #ef4444, #f87171); }
-.dc-bar-fill.reimburse { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+.dc-bar-fill.remaining { background: linear-gradient(90deg, #10b981, #34d399); }
 .dc-bar-val {
   font-size: 0.75rem;
   font-weight: 700;
@@ -827,7 +905,7 @@ onMounted(async () => {
 .dc-bar-val.ok     { color: #059669; }
 .dc-bar-val.warn   { color: #d97706; }
 .dc-bar-val.danger { color: #dc2626; }
-.dc-bar-val.reimburse-val { color: #3b82f6; }
+.dc-bar-val.remaining-val { color: #10b981; }
 
 /* Meta tags */
 .dc-meta {
@@ -987,6 +1065,169 @@ onMounted(async () => {
   .rank-amount-col { min-width: 80px; }
   .rank-bar-bg { width: 60px; }
 }
+
+/* ---- AI Summary ---- */
+.ai-summary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .45rem .85rem;
+  border: 1.5px solid #c7d2fe;
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(99,102,241,.06), rgba(139,92,246,.04));
+  color: #6366f1;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .25s ease;
+  white-space: nowrap;
+}
+.ai-summary-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(99,102,241,.12), rgba(139,92,246,.08));
+  border-color: #a5b4fc;
+  box-shadow: 0 0 12px rgba(99,102,241,.15);
+}
+.ai-summary-btn:disabled { opacity: .55; cursor: not-allowed; }
+.ai-summary-btn.generating {
+  border-color: #a5b4fc;
+  background: linear-gradient(135deg, rgba(99,102,241,.1), rgba(139,92,246,.06));
+}
+.ai-summary-btn.generating svg {
+  animation: star-pulse 1.2s ease-in-out infinite;
+}
+@keyframes star-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .5; transform: scale(.85); }
+}
+
+/* Summary Card */
+.ai-summary-card {
+  margin-top: .25rem;
+  margin-bottom: 1rem;
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #6366f1;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+.ai-summary-card.error {
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+.ai-summary-header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .65rem .85rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+.ai-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .2rem .55rem;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border-radius: 5px;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.ai-summary-scope {
+  font-size: .78rem;
+  color: #475569;
+  font-weight: 500;
+}
+.ai-summary-model {
+  margin-left: auto;
+  font-size: .7rem;
+  color: #94a3b8;
+  padding: .12rem .45rem;
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+.ai-summary-body {
+  padding: .85rem;
+}
+.ai-summary-loading {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  color: #6366f1;
+  font-size: .85rem;
+  font-weight: 500;
+}
+.ai-dot-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6366f1;
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%, 80%, 100% { opacity: .2; transform: scale(.8); }
+  40% { opacity: 1; transform: scale(1.2); }
+}
+.ai-summary-error-text {
+  font-size: .85rem;
+  color: #dc2626;
+  line-height: 1.5;
+}
+.ai-summary-text {
+  font-size: .88rem;
+  color: #334155;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.ai-summary-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .5rem;
+  padding: .55rem .85rem;
+  border-top: 1px solid #f1f5f9;
+  background: #fafbfc;
+}
+.ai-summary-dismiss,
+.ai-summary-refresh {
+  padding: .3rem .7rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  font-size: .76rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+  background: white;
+}
+.ai-summary-dismiss { color: #64748b; }
+.ai-summary-dismiss:hover { background: #f1f5f9; color: #475569; }
+.ai-summary-refresh {
+  color: #6366f1;
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+}
+.ai-summary-refresh:hover:not(:disabled) { background: #eef2ff; border-color: #c7d2fe; }
+.ai-summary-refresh:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Card slide transition */
+.summary-slide-enter-active {
+  transition: all .35s cubic-bezier(.16,1,.3,1);
+}
+.summary-slide-leave-active {
+  transition: all .2s ease-in;
+}
+.summary-slide-enter-from {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+.summary-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
 @media (max-width: 480px) {
   .page-title { font-size: 1.3rem; }
   .stats-grid { grid-template-columns: 1fr; }
@@ -1005,6 +1246,7 @@ onMounted(async () => {
   .rank-amount-col { min-width: 100%; flex-direction: row; align-items: center; gap: 8px; }
   .rank-bar-bg { flex: 1; }
   .header-right { flex-direction: column; align-items: stretch; }
+  .header-right .ai-summary-btn { justify-content: center; min-height: 38px; }
   .project-selector { max-width: none; width: 100%; }
 }
 </style>

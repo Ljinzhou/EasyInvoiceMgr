@@ -56,8 +56,7 @@ def create_event():
             creator_id=current_user_id,
             leader_id=data.get('leader_id'),
             total_budget=total_budget,
-            remaining_budget=total_budget,
-            need_invoice_review=data.get('need_invoice_review', True)
+            remaining_budget=total_budget
         )
         
         db.session.add(event)
@@ -111,8 +110,7 @@ def create_event():
                 'reimbursed_amount': float(event.reimbursed_amount),
                 'remaining_budget': float(event.remaining_budget),
                 'invoice_count': event.invoice_count,
-                'invoice_total_amount': float(event.invoice_total_amount),
-                'need_invoice_review': event.need_invoice_review
+                'invoice_total_amount': float(event.invoice_total_amount)
             }
         }), 201
 
@@ -204,7 +202,6 @@ def get_events():
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
                 'leader_name': leader.real_name if leader else None,
-                'need_invoice_review': event.need_invoice_review,
                 'is_member': is_member
             })
         
@@ -273,8 +270,6 @@ def update_event(event_id):
         if 'total_budget' in data:
             event.total_budget = data['total_budget']
             event.remaining_budget = data['total_budget'] - float(event.reimbursed_amount)
-        if 'need_invoice_review' in data:
-            event.need_invoice_review = bool(data['need_invoice_review'])
 
         db.session.commit()
         
@@ -294,8 +289,7 @@ def update_event(event_id):
                 'leader_id': event.leader_id,
                 'total_budget': float(event.total_budget),
                 'reimbursed_amount': float(event.reimbursed_amount),
-                'remaining_budget': float(event.remaining_budget),
-                'need_invoice_review': event.need_invoice_review
+                'remaining_budget': float(event.remaining_budget)
             }
         }), 200
         
@@ -376,7 +370,6 @@ def get_event(event_id):
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
                 'voucher_count': invoice_count + purchase_count,
-                'need_invoice_review': event.need_invoice_review,
                 'is_member': event_is_member
             }
         }), 200
@@ -590,6 +583,59 @@ def remove_event_member(event_id, user_id):
         
     except Exception as e:
         logger.error(f'移除赛事成员异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@events_bp.route('/events/<int:event_id>/members/<int:user_id>', methods=['PUT'])
+@jwt_required()
+def update_event_member(event_id, user_id):
+    logger.info(f'=== 更新赛事成员: event_id={event_id}, user_id={user_id} ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        if user.user_type not in ['admin', 'teacher', 'student_admin']:
+            return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
+
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+
+        member = EventMember.query.filter_by(
+            event_id=event_id,
+            user_id=user_id,
+            is_deleted=False
+        ).first()
+
+        if not member:
+            return jsonify({'code': 404, 'message': '成员不存在', 'data': None}), 404
+
+        data = request.get_json()
+        role_in_event = data.get('role_in_event')
+
+        if role_in_event and role_in_event not in ['student', 'student_admin', 'teacher']:
+            return jsonify({'code': 400, 'message': '无效的角色类型', 'data': None}), 400
+
+        if role_in_event:
+            member.role_in_event = role_in_event
+
+        db.session.commit()
+
+        logger.info(f'赛事成员更新成功: event_id={event_id}, user_id={user_id}, role={member.role_in_event}')
+        return jsonify({
+            'code': 200,
+            'message': '更新成员成功',
+            'data': {
+                'user_id': user_id,
+                'role_in_event': member.role_in_event
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'更新赛事成员异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
