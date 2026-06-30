@@ -56,8 +56,7 @@ def create_event():
             creator_id=current_user_id,
             leader_id=data.get('leader_id'),
             total_budget=total_budget,
-            remaining_budget=total_budget,
-            need_invoice_review=data.get('need_invoice_review', True)
+            remaining_budget=total_budget
         )
         
         db.session.add(event)
@@ -111,8 +110,7 @@ def create_event():
                 'reimbursed_amount': float(event.reimbursed_amount),
                 'remaining_budget': float(event.remaining_budget),
                 'invoice_count': event.invoice_count,
-                'invoice_total_amount': float(event.invoice_total_amount),
-                'need_invoice_review': event.need_invoice_review
+                'invoice_total_amount': float(event.invoice_total_amount)
             }
         }), 201
 
@@ -204,7 +202,6 @@ def get_events():
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
                 'leader_name': leader.real_name if leader else None,
-                'need_invoice_review': event.need_invoice_review,
                 'is_member': is_member
             })
         
@@ -273,8 +270,6 @@ def update_event(event_id):
         if 'total_budget' in data:
             event.total_budget = data['total_budget']
             event.remaining_budget = data['total_budget'] - float(event.reimbursed_amount)
-        if 'need_invoice_review' in data:
-            event.need_invoice_review = bool(data['need_invoice_review'])
 
         db.session.commit()
         
@@ -294,8 +289,7 @@ def update_event(event_id):
                 'leader_id': event.leader_id,
                 'total_budget': float(event.total_budget),
                 'reimbursed_amount': float(event.reimbursed_amount),
-                'remaining_budget': float(event.remaining_budget),
-                'need_invoice_review': event.need_invoice_review
+                'remaining_budget': float(event.remaining_budget)
             }
         }), 200
         
@@ -376,7 +370,6 @@ def get_event(event_id):
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
                 'voucher_count': invoice_count + purchase_count,
-                'need_invoice_review': event.need_invoice_review,
                 'is_member': event_is_member
             }
         }), 200

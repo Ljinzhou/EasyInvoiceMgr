@@ -425,7 +425,6 @@ POST /api/events
   upload_end_time?: string     // ISO datetime
   leader_id?: number           // 负责人 user_id
   total_budget?: number        // 默认 0, 不能为负
-  need_invoice_review?: boolean // 默认 true, 是否需要发票审核
 }
 ```
 
@@ -450,7 +449,6 @@ POST /api/events
     remaining_budget: number
     invoice_count: number
     invoice_total_amount: number
-    need_invoice_review: boolean
   }
 }
 ```
@@ -508,7 +506,6 @@ GET /api/events
       creator_id: number
       leader_id: number | null
       leader_name: string | null
-      need_invoice_review: boolean
     }>
   }
 }
@@ -549,7 +546,6 @@ PUT /api/events/:event_id
   upload_end_time?: string
   leader_id?: number
   total_budget?: number
-  need_invoice_review?: boolean
 }
 ```
 
@@ -742,14 +738,11 @@ GET /api/events/:event_id/records
       invoice_number: string | null
       total_amount: number              // 发票总金额
       invoice_date: string | null       // YYYY-MM-DD
-      status: "pending" | "approved" | "rejected"
       is_reimbursed: boolean
       remarks: string | null
       uploader_id: number
       uploader_name: string | null
-      reviewer_name: string | null
       created_at: string | null         // ISO datetime
-      rejection_reason: string | null
     }>
     total_count: number
     total_amount: string                // 所有记录金额之和
@@ -800,7 +793,6 @@ POST /api/events/:event_id/records
 ```
 
 **业务逻辑**:
-- 如果赛事 `need_invoice_review = false`，记录自动设为 `approved`
 - `cannot_invoice = true` 时忽略所有发票字段
 - `invoice_file_key` 非空时自动设置 `has_invoice = true`
 - 自动将上传人加为赛事成员
@@ -868,34 +860,7 @@ DELETE /api/records/:record_id
 
 ---
 
-### 3.5 审核购买记录
-
-```
-POST /api/records/:record_id/approve
-```
-
-**Auth**: 仅 `admin` / `teacher` / `student_admin`
-
-**Request Body**:
-```typescript
-{
-  status: "approved" | "rejected"    // 必填
-  rejection_reason?: string          // 拒绝时必填
-}
-```
-
-**Response** (200):
-```typescript
-{
-  code: 200,
-  message: "审核通过" | "已拒绝",
-  data: null
-}
-```
-
----
-
-### 3.6 报销购买记录
+### 3.5 报销购买记录
 
 ```
 POST /api/records/:record_id/reimburse
@@ -2340,7 +2305,6 @@ GET /api/uploads/<path:filename>    // 兼容别名
 | `purchase_record_count` | Integer | 购买记录数 |
 | `voucher_count` | Integer | 凭证数量 |
 | `voucher_total_amount` | Numeric(12,2) | 凭证总额 |
-| `need_invoice_review` | Boolean | 是否需要发票审核 |
 | `is_deleted` | Boolean | 软删除 |
 
 ### EventMember 表 (`event_members`)

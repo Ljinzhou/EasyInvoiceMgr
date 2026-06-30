@@ -56,7 +56,6 @@ class Event(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
     is_deleted = db.Column(db.Boolean, default=False)
     extra_fields = db.Column(db.JSON)
-    need_invoice_review = db.Column(db.Boolean, default=True)
 
     creator = db.relationship('User', foreign_keys=[creator_id], backref='created_events')
     leader = db.relationship('User', foreign_keys=[leader_id], backref='led_events')
@@ -182,12 +181,8 @@ class PurchaseRecord(db.Model):
     total_amount = db.Column(db.Numeric(12, 2), default=0.00)
     invoice_date = db.Column(db.Date)
 
-    status = db.Column(db.String(20), nullable=False, default='pending')
     is_reimbursed = db.Column(db.Boolean, default=False)
     reimbursed_at = db.Column(db.DateTime(timezone=True))
-    reviewer_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))
-    review_time = db.Column(db.DateTime(timezone=True))
-    rejection_reason = db.Column(db.Text)
 
     remarks = db.Column(db.Text)
     created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
@@ -197,7 +192,6 @@ class PurchaseRecord(db.Model):
 
     event = db.relationship('Event', backref='purchase_records')
     uploader = db.relationship('User', foreign_keys=[uploader_id], backref='uploaded_purchase_records')
-    reviewer = db.relationship('User', foreign_keys=[reviewer_id], backref='reviewed_purchase_records')
 
 
 class SystemConfig(db.Model):

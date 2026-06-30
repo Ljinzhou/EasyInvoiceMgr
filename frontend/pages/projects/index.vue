@@ -265,23 +265,6 @@
               </div>
             </div>
 
-            <!-- Section: Review Setting -->
-            <div class="form-section">
-              <h3 class="form-section__title">审核设置</h3>
-              <div class="toggle-row">
-                <div class="toggle-row__info">
-                  <span class="toggle-row__label">发票审核</span>
-                  <span class="toggle-row__hint">开启后，提交的发票需要管理员审核通过</span>
-                </div>
-                <label class="toggle-switch">
-                  <input type="checkbox" v-model="editForm.need_invoice_review" />
-                  <span class="toggle-switch__track">
-                    <span class="toggle-switch__thumb"></span>
-                  </span>
-                </label>
-              </div>
-            </div>
-
             <!-- Footer -->
             <div class="edit-modal__footer">
               <button type="button" @click="showEditModal = false" class="btn-edit-cancel">取消</button>
@@ -402,8 +385,7 @@ const editForm = ref({
   upload_start_time: '',
   upload_end_time: '',
   total_budget: 0,
-  leader_id: null,
-  need_invoice_review: true
+  leader_id: null
 })
 
 const { searchText: leaderSearch, results: filteredUsers } = useUserSearch()
@@ -480,8 +462,7 @@ const editEvent = (event) => {
     upload_start_time: formatDateTimeLocal(event.upload_start_time),
     upload_end_time: formatDateTimeLocal(event.upload_end_time),
     total_budget: parseFloat(event.total_budget),
-    leader_id: event.leader_id || null,
-    need_invoice_review: event.need_invoice_review !== undefined ? event.need_invoice_review : true
+    leader_id: event.leader_id || null
   }
   showEditModal.value = true
 }

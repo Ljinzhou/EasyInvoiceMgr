@@ -109,22 +109,6 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="switch-label">
-            <span>是否需要审核发票</span>
-            <label class="switch">
-              <input type="checkbox" v-model="form.need_invoice_review" id="needInvoiceReviewSwitch" />
-              <span class="slider round"></span>
-            </label>
-          </label>
-          <p class="switch-hint">
-            {{ form.need_invoice_review ? '✅ 开启后，上传的发票需要管理员审核通过后才生效' : '⚠️ 关闭后，上传的发票将自动通过审核' }}
-          </p>
-          <p class="switch-warning" v-if="!form.need_invoice_review && isEditMode">
-            ⚠️ 注意：关闭审核可能会增加错误发票的风险
-          </p>
-        </div>
-
         <div v-if="error" class="error-message">{{ error }}</div>
         <div v-if="success" class="success-message">{{ success }}</div>
 
@@ -165,8 +149,7 @@ const form = ref({
   upload_start_time: '',
   upload_end_time: '',
   total_budget: 0,
-  leader_id: null,
-  need_invoice_review: true
+  leader_id: null
 })
 
 const loading = ref(false)
@@ -270,8 +253,7 @@ const loadEventData = async () => {
         upload_start_time: toLocal(event.upload_start_time),
         upload_end_time: toLocal(event.upload_end_time),
         total_budget: parseFloat(event.total_budget) || 0,
-        leader_id: event.leader_id || null,
-        need_invoice_review: event.need_invoice_review !== false // 默认为true
+        leader_id: event.leader_id || null
       }
       // 自动填充负责人姓名到搜索框
       leaderSearch.value = event.leader_name || ''
@@ -351,8 +333,7 @@ const resetForm = (clearMessages = false) => {
     upload_start_time: '',
     upload_end_time: '',
     total_budget: 0,
-    leader_id: null,
-    need_invoice_review: true
+    leader_id: null
   }
   leaderSearch.value = ''
   if (clearMessages) {

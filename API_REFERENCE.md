@@ -335,7 +335,6 @@ POST /api/events
 | upload_end_time | string | 否 | 上传窗口结束时间 |
 | leader_id | int | 否 | 负责人用户ID |
 | total_budget | number | 否 | 总预算，默认 0 |
-| need_invoice_review | bool | 否 | 发票是否需要审核，默认 true |
 
 > 创建者自动加入为成员；若指定了 leader_id，leader 也自动加入
 
@@ -359,8 +358,7 @@ POST /api/events
     "reimbursed_amount": 0.00,
     "remaining_budget": 10000.00,
     "invoice_count": 0,
-    "invoice_total_amount": 0.00,
-    "need_invoice_review": true
+    "invoice_total_amount": 0.00
   }
 }
 ```
@@ -410,7 +408,6 @@ GET /api/events
         "creator_id": 1,
         "leader_id": 2,
         "leader_name": "李老师",
-        "need_invoice_review": true,
         "is_member": true
       }
     ]
@@ -448,8 +445,7 @@ PUT /api/events/<event_id>
   "upload_start_time": "2025-07-01T00:00:00+00:00",
   "upload_end_time": "2025-07-15T00:00:00+00:00",
   "leader_id": 3,
-  "total_budget": 20000.00,
-  "need_invoice_review": false
+  "total_budget": 20000.00
 }
 ```
 
@@ -656,7 +652,6 @@ POST /api/invoices
 | remarks | string | 否 | 备注 |
 
 > MD5 去重：相同 MD5 的发票不允许重复上传。
-> 若赛事 `need_invoice_review=false`，则直接 `approved`；否则 `pending`。
 
 **响应** `200`:
 ```json
@@ -918,20 +913,7 @@ DELETE /api/records/<record_id>
 
 ---
 
-### 4.5 审核购买记录
-```
-POST /api/records/<record_id>/approve
-```
-**需认证**，权限: admin / teacher / student_admin
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| status | string | 是 | `approved` 或 `rejected` |
-| rejection_reason | string | 条件 | 拒绝时必填 |
-
----
-
-### 4.6 报销购买记录
+### 4.5 报销购买记录
 ```
 POST /api/records/<record_id>/reimburse
 ```
@@ -941,7 +923,7 @@ POST /api/records/<record_id>/reimburse
 
 ---
 
-### 4.7 下载购买记录关联的发票文件
+### 4.6 下载购买记录关联的发票文件
 ```
 GET /api/records/<record_id>/download-invoice
 ```
@@ -1791,7 +1773,6 @@ PUT /api/system/backup/config
 | purchase_record_count | int | |
 | voucher_count | int | |
 | voucher_total_amount | numeric(12,2) | |
-| need_invoice_review | bool | 发票是否需要审核 |
 | extra_fields | json | |
 | is_deleted | bool | |
 

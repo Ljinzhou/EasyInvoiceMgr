@@ -7,7 +7,7 @@
         <button @click="showAddModal = true" class="action-button primary">+ 添加记录</button>
         <button @click="viewMembers" class="action-button members">👥 人员管理</button>
         <button @click="exportData" class="action-button export">📤 导出数据</button>
-        <button @click="batchReimburse" class="action-button reimburse" :disabled="selectedRecords.length === 0" v-if="canReview">
+        <button @click="batchReimburse" class="action-button reimburse" :disabled="selectedRecords.length === 0" v-if="canReimburse">
           批量报销 ({{ selectedRecords.length }})
         </button>
         <button @click="deleteSelected" class="action-button danger" :disabled="selectedRecords.length === 0">
@@ -90,15 +90,6 @@
           </select>
         </div>
         <div class="filter-group">
-          <label>审核状态</label>
-          <select v-model="filters.reviewStatus">
-            <option value="">全部</option>
-            <option value="pending">待审核</option>
-            <option value="approved">已通过</option>
-            <option value="rejected">已拒绝</option>
-          </select>
-        </div>
-        <div class="filter-group">
           <label>报销状态</label>
           <select v-model="filters.reimburseStatus">
             <option value="">全部</option>
@@ -152,7 +143,6 @@
             <th>购物日期</th>
             <th>上传人</th>
             <th>发票状态</th>
-            <th>审核状态</th>
             <th>报销状态</th>
             <th>操作</th>
           </tr>
@@ -176,9 +166,6 @@
               </span>
             </td>
             <td>
-              <span class="status-badge" :class="record.status">{{ getStatusText(record.status) }}</span>
-            </td>
-            <td>
               <span v-if="record.cannot_invoice" class="reimburse-badge cannot-invoice">无法开票</span>
               <span v-else class="reimburse-badge" :class="{ 'is-reimbursed': record.is_reimbursed }">
                 {{ record.is_reimbursed ? '已报销' : '未报销' }}
@@ -188,14 +175,13 @@
               <div class="action-buttons">
                 <button @click="viewRecord(record)" class="btn-view-sm" title="查看详情">👁</button>
                 <button v-if="canModifyRecord(record)" @click="editRecord(record)" class="btn-edit-sm" title="编辑">✏</button>
-                <button v-if="record.has_invoice && !record.is_reimbursed && canReview" @click="reimburseRecord(record)" class="btn-reimburse-sm" title="报销">💰</button>
-                <button v-if="canReview && record.status === 'pending'" @click="approveRecord(record)" class="btn-approve-sm" title="通过">✓</button>
+                <button v-if="record.has_invoice && !record.is_reimbursed && canReimburse" @click="reimburseRecord(record)" class="btn-reimburse-sm" title="报销">💰</button>
                 <button v-if="canModifyRecord(record)" @click="deleteSingle(record)" class="btn-delete-sm" title="删除">X</button>
               </div>
             </td>
           </tr>
           <tr v-if="filteredRecords.length === 0">
-            <td :colspan="10" class="empty-row">没有符合条件的购买记录</td>
+            <td :colspan="9" class="empty-row">没有符合条件的购买记录</td>
           </tr>
         </tbody>
       </table>
@@ -522,6 +508,43 @@
                   </div>
               </div>
 
+              <!-- 转移记录（仅编辑模式） -->
+              <div v-if="editingRecord" class="form-section transfer-section">
+                <div class="section-header-row">
+                  <div class="section-icon-box purple">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  </div>
+                  <h3 class="section-title">转移记录</h3>
+                  <span class="transfer-badge">可选</span>
+                </div>
+                <p class="transfer-hint">将此购买记录转移到其他比赛项目，转移后将清除报销状态</p>
+                <div class="transfer-controls">
+                  <div class="form-group transfer-select-group">
+                    <label>目标比赛项目</label>
+                    <div class="input-shell">
+                      <select v-model="transferTargetEventId" :disabled="transferLoading">
+                        <option value="">-- 请选择目标比赛 --</option>
+                        <option v-for="ev in transferEvents" :key="ev.event_id" :value="ev.event_id">
+                          {{ ev.event_name }}{{ ev.status === 'completed' ? ' (已结束)' : '' }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    @click="transferRecord"
+                    class="transfer-btn"
+                    :disabled="!transferTargetEventId || transferLoading"
+                  >
+                    <span v-if="transferLoading" class="btn-spinner-sm"></span>
+                    <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/></svg>
+                    {{ transferLoading ? '转移中...' : '转移到此项目' }}
+                  </button>
+                </div>
+                <div v-if="transferError" class="transfer-error">{{ transferError }}</div>
+                <div v-if="transferSuccess" class="transfer-success">{{ transferSuccess }}</div>
+              </div>
+
               <!-- 操作按钮 -->
               <div class="form-actions">
                 <button type="button" @click="closeAddModal" class="cancel-btn">取消</button>
@@ -713,6 +736,13 @@ const parseApplied = ref(false)
 const imageLoadingError = ref(false)
 const invoiceImageLoading = ref(false)
 const aiParseError = ref('')
+
+// 转移记录相关
+const transferTargetEventId = ref('')
+const transferLoading = ref(false)
+const transferError = ref('')
+const transferSuccess = ref('')
+const transferEvents = ref([])
 
 // 上传人搜索
 const uploaderSearchText = ref('')
@@ -982,7 +1012,6 @@ const filters = ref({
   maxAmount: null,
   uploader: '',
   invoiceStatus: '',
-  reviewStatus: '',
   reimburseStatus: ''
 })
 
@@ -1026,11 +1055,6 @@ const filteredRecords = computed(() => {
     if (filters.value.invoiceStatus) {
       if (filters.value.invoiceStatus === 'has_invoice' && !record.has_invoice) return false
       if (filters.value.invoiceStatus === 'no_invoice' && record.has_invoice) return false
-    }
-
-    // 审核状态过滤
-    if (filters.value.reviewStatus && record.status) {
-      if (record.status !== filters.value.reviewStatus) return false
     }
 
     // 报销状态过滤
@@ -1092,12 +1116,11 @@ const resetFilters = () => {
     maxAmount: null,
     uploader: '',
     invoiceStatus: '',
-    reviewStatus: '',
     reimburseStatus: ''
   }
 }
 
-const canReview = computed(() => {
+const canReimburse = computed(() => {
   return ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
 })
 
@@ -1296,6 +1319,77 @@ const editRecord = (record) => {
   uploaderSearchResults.value = []
 
   showAddModal.value = true
+
+  // 加载可用于转移的目标比赛列表
+  loadTransferEvents()
+}
+
+const loadTransferEvents = async () => {
+  try {
+    await eventStore.ensureLoaded({ forceRefresh: false })
+    const allEvents = eventStore.events
+    // 过滤：排除当前比赛，只显示用户是成员的比赛
+    transferEvents.value = allEvents.filter(ev => {
+      if (ev.event_id === Number(eventId.value)) return false
+      // 对于管理员/教师/学生管理员，所有比赛都可选
+      if (['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)) return true
+      // 对于学生，只能选自己是成员的比赛
+      return ev.is_member === true
+    })
+  } catch (e) {
+    console.error('加载可用比赛列表失败:', e)
+    transferEvents.value = []
+  }
+}
+
+const transferRecord = async () => {
+  if (!transferTargetEventId.value) {
+    transferError.value = '请选择目标比赛项目'
+    return
+  }
+
+  const targetEvent = transferEvents.value.find(ev => ev.event_id === Number(transferTargetEventId.value))
+  if (!targetEvent) {
+    transferError.value = '所选比赛项目无效'
+    return
+  }
+
+  if (!confirm(`确定要将"${editingRecord.value.item_name}"转移到比赛"${targetEvent.event_name}"吗？\n\n转移后该记录将清除报销状态。`)) {
+    return
+  }
+
+  transferLoading.value = true
+  transferError.value = ''
+  transferSuccess.value = ''
+
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.post(`/records/${editingRecord.value.record_id}/transfer`, {
+      target_event_id: Number(transferTargetEventId.value)
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (response.data.code === 200) {
+      const data = response.data.data
+      transferSuccess.value = `已成功转移到"${data.target_event_name}"`
+      showToast(`记录已转移到"${data.target_event_name}"`, 'success')
+      // 延迟关闭modal，让用户看到成功提示
+      setTimeout(() => {
+        closeAddModal()
+        loadRecords()
+        eventStore.refreshAfterMutation(Number(eventId.value))
+        eventStore.refreshAfterMutation(Number(transferTargetEventId.value))
+      }, 1200)
+    } else {
+      transferError.value = response.data.message || '转移失败'
+    }
+  } catch (error) {
+    console.error('转移记录失败:', error.message)
+    transferError.value = error.response?.data?.message || error.message || '转移失败，请重试'
+  } finally {
+    transferLoading.value = false
+  }
 }
 
 const closeAddModal = () => {
@@ -1308,6 +1402,10 @@ const closeAddModal = () => {
   _invoice_blob_url.value = ''
   receiptLocalFile.value = null
   invoiceLocalFile.value = null
+  // 重置转移状态
+  transferTargetEventId.value = ''
+  transferError.value = ''
+  transferSuccess.value = ''
 }
 
 const resetForm = () => {
@@ -2022,19 +2120,6 @@ const deleteSelected = async () => {
   eventStore.refreshAfterMutation(Number(eventId.value))
 }
 
-const approveRecord = async (record) => {
-  try {
-    const token = localStorage.getItem('token')
-    await $api.post(`/records/${record.record_id}/approve`, { status: 'approved' }, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    await loadRecords()
-    eventStore.refreshAfterMutation(Number(eventId.value))
-  } catch (e) {
-    alert('操作失败')
-  }
-}
-
 const reimburseRecord = async (record) => {
   if (!confirm(`确定要报销"${record.item_name}"吗？金额：¥${parseFloat(record.total_amount || record.amount).toFixed(2)}`)) return
   
@@ -2072,11 +2157,6 @@ const batchReimburse = async () => {
 
 const exportData = () => {
   router.push(`/events/${eventId.value}/export`)
-}
-
-const getStatusText = (status) => {
-  const map = { pending: '待审核', approved: '已通过', rejected: '已拒绝' }
-  return map[status] || status
 }
 
 const formatDate = (dateStr) => {
@@ -2342,16 +2422,6 @@ const formatMoney = (val) => {
 .invoice-badge.yes { background: #eaffea; color: #27ae60; }
 .invoice-badge.no { background: #fff5f5; color: #e74c3c; }
 
-.status-badge {
-  padding: 3px 10px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 500;
-}
-.status-badge.pending { background: #fff8e6; color: #f39c12; }
-.status-badge.approved { background: #eaffea; color: #27ae60; }
-.status-badge.rejected { background: #fff5f5; color: #e74c3c; }
-
 .reimburse-badge {
   padding: 3px 10px;
   border-radius: 10px;
@@ -2362,7 +2432,7 @@ const formatMoney = (val) => {
 .reimburse-badge.is-reimbursed { background: #e8f8f0; color: #27ae60; }
 
 .action-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
-.btn-view-sm, .btn-edit-sm, .btn-delete-sm, .btn-approve-sm, .btn-reimburse-sm {
+.btn-view-sm, .btn-edit-sm, .btn-delete-sm, .btn-reimburse-sm {
   padding: 4px 8px;
   border: none;
   border-radius: 4px;
@@ -2372,7 +2442,6 @@ const formatMoney = (val) => {
 .btn-view-sm { background: #3498db; color: white; }
 .btn-edit-sm { background: #f39c12; color: white; }
 .btn-delete-sm { background: #e74c3c; color: white; }
-.btn-approve-sm { background: #27ae60; color: white; }
 .btn-reimburse-sm { background: #9b59b6; color: white; }
 
 .empty-row { text-align: center; padding: 40px !important; color: #999; }
@@ -2662,6 +2731,90 @@ const formatMoney = (val) => {
 
 .invoice-section { border-color: #fef3c7; }
 .invoice-section.section-active { border-color: #fde68a; background: #fffbeb; }
+
+/* ========== TRANSFER SECTION ========== */
+.transfer-section {
+  border-color: #e8ecf1;
+  background: linear-gradient(135deg, #fafbff 0%, #f6f3ff 100%);
+}
+.transfer-section:hover { border-color: #c4b5fd; }
+
+.section-icon-box.purple { background: #f5f3ff; color: #8b5cf6; }
+
+.transfer-badge {
+  font-size: 0.68rem;
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+  color: white;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.transfer-hint {
+  margin: 0 0 0.85rem 0;
+  font-size: 0.78rem;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.transfer-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.transfer-select-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.transfer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.65rem 1.2rem;
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(139,92,246,0.25);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.transfer-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 14px rgba(139,92,246,0.35);
+  transform: translateY(-1px);
+}
+.transfer-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.transfer-error {
+  margin-top: 0.65rem;
+  font-size: 0.78rem;
+  color: #dc2626;
+  background: #fef2f2;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+}
+
+.transfer-success {
+  margin-top: 0.65rem;
+  font-size: 0.78rem;
+  color: #065f46;
+  background: #ecfdf5;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #a7f3d0;
+}
 
 /* ========== FORM ROWS & INPUTS ========== */
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -3375,6 +3528,8 @@ const formatMoney = (val) => {
   .modal-body { padding: 1rem 1.25rem; }
   .form-actions { flex-direction: column; }
   .cancel-btn, .submit-btn { width: 100%; min-height: 44px; justify-content: center; }
+  .transfer-controls { flex-direction: column; }
+  .transfer-btn { width: 100%; min-height: 44px; justify-content: center; }
   .zoom-close-btn { top: 10px; right: 10px; }
   .toast-notification { left: 16px; right: 16px; max-width: none; top: 16px; }
 }
@@ -3417,7 +3572,7 @@ const formatMoney = (val) => {
   .toolbar-right { width: 100%; justify-content: space-between; }
   .personal-toggle { font-size: 12px; }
   .search-input { min-height: 44px; }
-  .btn-view-sm, .btn-edit-sm, .btn-reimburse-sm, .btn-approve-sm, .btn-delete-sm { min-width: 40px; min-height: 40px; font-size: 13px; }
+  .btn-view-sm, .btn-edit-sm, .btn-reimburse-sm, .btn-delete-sm { min-width: 40px; min-height: 40px; font-size: 13px; }
   .header-actions { flex-wrap: wrap; gap: 0.4rem; }
   .header-actions .action-button { min-height: 44px; font-size: 13px; flex: 1; min-width: calc(50% - 0.4rem); }
   .not-member-notice { font-size: .78rem; padding: .6rem .8rem; }
