@@ -76,3 +76,6 @@ uploads/
 
 # Alembic compiled
 backend/migrations/versions/*.pyc
+
+.reasonix
+.codegraph

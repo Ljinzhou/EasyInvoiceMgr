@@ -173,7 +173,7 @@ class BackupService:
     def restore_backup(self, record_id):
         """后台线程：从备份恢复数据"""
         with self.app.app_context():
-            from models import db, BackupRecord, SystemConfig
+            from models import db, BackupRecord
 
             record = db.session.get(BackupRecord, record_id)
             if not record or record.status != 'completed' or not record.file_path:
@@ -184,103 +184,37 @@ class BackupService:
                 logger.error(f'恢复失败：备份文件不存在 {record.file_path}')
                 return
 
-            record.status = 'running'
-            record.progress = 0
-            record.progress_message = '正在准备恢复...'
+            # 创建临时恢复记录（仅用于 _do_restore 获取 created_by，
+            # 该记录会被 DROP SCHEMA 销毁，_do_restore 结束时创建新完成记录）
+            restore_record = BackupRecord(
+                backup_type='restore',
+                backup_scope='full',
+                status='running',
+                progress=0,
+                progress_message='正在准备恢复...',
+                created_by=record.created_by,
+            )
+            db.session.add(restore_record)
             db.session.commit()
 
             try:
                 with tempfile.TemporaryDirectory() as staging_dir:
-                    # 解压备份文件
-                    record.progress = 5
-                    record.progress_message = '正在解压备份文件...'
-                    db.session.commit()
+                    new_id = self._do_restore(restore_record, record.file_path, staging_dir)
 
-                    with tarfile.open(record.file_path, 'r:gz') as tar:
-                        tar.extractall(staging_dir)
-
-                    # 查找数据库备份文件
-                    db_dump_path = None
-                    for f in os.listdir(staging_dir):
-                        if f.startswith('db_dump') and (f.endswith('.sql') or f.endswith('.sql.gz')):
-                            db_dump_path = os.path.join(staging_dir, f)
-                            break
-
-                    if not db_dump_path:
-                        raise RuntimeError('备份文件中未找到数据库转储文件')
-
-                    # 步骤1：恢复数据库 (10-40%)
-                    record.progress = 10
-                    record.progress_message = '正在恢复数据库...'
-                    db.session.commit()
-
-                    db_url = self.app.config.get('SQLALCHEMY_DATABASE_URI')
-                    self._restore_database(db_url, db_dump_path, staging_dir)
-
-                    record.progress = 40
-                    record.progress_message = '数据库恢复完成'
-                    db.session.commit()
-
-                    # 步骤2：恢复文件 (40-90%)
-                    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
-
-                    record.progress = 50
-                    record.progress_message = '正在恢复发票文件...'
-                    db.session.commit()
-
-                    invoices_src = os.path.join(staging_dir, 'invoices')
-                    if os.path.isdir(invoices_src):
-                        invoices_dest = os.path.join(uploads_dir, 'invoices')
-                        shutil.copytree(invoices_src, invoices_dest, dirs_exist_ok=True)
-
-                    record.progress = 70
-                    record.progress_message = '正在恢复用户头像...'
-                    db.session.commit()
-
-                    avatars_src = os.path.join(staging_dir, 'avatars')
-                    if os.path.isdir(avatars_src):
-                        avatars_dest = os.path.join(uploads_dir, 'avatars')
-                        shutil.copytree(avatars_src, avatars_dest, dirs_exist_ok=True)
-
-                    record.progress = 90
-                    record.progress_message = '文件恢复完成'
-                    db.session.commit()
-
-                    # 步骤3：恢复系统配置 (90-100%)
-                    record.progress = 95
-                    record.progress_message = '正在恢复系统配置...'
-                    db.session.commit()
-
-                    config_json_path = os.path.join(staging_dir, 'system_config.json')
-                    if os.path.exists(config_json_path):
-                        self._import_system_config(config_json_path)
-
-                    # 恢复源记录状态
-                    record.status = 'completed'
-                    record.progress = 100
-                    record.progress_message = '恢复完成'
-                    db.session.commit()
-
-                    # 创建恢复完成记录
-                    restore_record = BackupRecord(
-                        backup_type='restore',
-                        backup_scope='full',
-                        status='completed',
-                        progress=100,
-                        progress_message='恢复完成',
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                    db.session.add(restore_record)
-                    db.session.commit()
-
-                    logger.info(f'数据恢复完成: 源备份id={record_id}')
-
+                logger.info(f'数据恢复完成: 源备份id={record_id}, 新恢复记录id={new_id}')
             except Exception as e:
                 logger.error(f'恢复失败: id={record_id}, error={str(e)}', exc_info=True)
+                # 若 _restore_database 已执行则旧记录已销毁，创建失败日志
                 try:
-                    record.status = 'failed'
-                    record.error_message = str(e)
-                    record.completed_at = datetime.now(timezone.utc)
+                    fail_record = BackupRecord(
+                        backup_type='restore',
+                        backup_scope='full',
+                        status='failed',
+                        error_message=str(e),
+                        completed_at=datetime.now(timezone.utc),
+                        created_by=record.created_by,
+                    )
+                    db.session.add(fail_record)
                     db.session.commit()
                 except Exception:
                     pass
@@ -289,6 +223,151 @@ class BackupService:
                     db.session.remove()
                 except Exception:
                     pass
+
+    def restore_from_file(self, record_id, file_path):
+        """后台线程：从上传的备份文件恢复数据"""
+        with self.app.app_context():
+            from models import db, BackupRecord
+
+            record = db.session.get(BackupRecord, record_id)
+            if not record:
+                logger.error(f'恢复失败：恢复记录无效 id={record_id}')
+                return
+
+            if not os.path.exists(file_path):
+                logger.error(f'恢复失败：上传文件不存在 {file_path}')
+                record.status = 'failed'
+                record.error_message = '上传文件不存在'
+                db.session.commit()
+                return
+
+            record.status = 'running'
+            record.progress = 0
+            record.progress_message = '正在验证备份文件...'
+            db.session.commit()
+
+            try:
+                # 先验证 tar.gz 结构
+                try:
+                    with tarfile.open(file_path, 'r:gz') as tar:
+                        names = tar.getnames()
+                        has_db = any(n.startswith('db_dump') for n in names)
+                        if not has_db:
+                            raise ValueError('备份文件中未找到数据库转储文件，请选择有效的系统备份')
+                except tarfile.ReadError:
+                    raise ValueError('文件不是有效的 tar.gz 压缩包')
+
+                with tempfile.TemporaryDirectory() as staging_dir:
+                    self._do_restore(record, file_path, staging_dir)
+                # _do_restore 会在数据库恢复后创建新的完成记录
+                # 旧 record 已随 DROP SCHEMA 销毁，无需再更新
+
+            except Exception as e:
+                logger.error(f'本地文件恢复失败: id={record_id}, error={str(e)}', exc_info=True)
+                # 尝试记录失败状态；若 _restore_database 已执行则旧 record 已销毁，
+                # 此时创建一条新的失败记录
+                try:
+                    existing = db.session.get(BackupRecord, record_id)
+                    if existing:
+                        existing.status = 'failed'
+                        existing.error_message = str(e)
+                        existing.completed_at = datetime.now(timezone.utc)
+                    else:
+                        # 旧记录已随 schema 删除，创建失败日志
+                        fail_record = BackupRecord(
+                            backup_type='restore',
+                            backup_scope='full',
+                            status='failed',
+                            error_message=str(e),
+                            completed_at=datetime.now(timezone.utc),
+                        )
+                        db.session.add(fail_record)
+                    db.session.commit()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    db.session.remove()
+                except Exception:
+                    pass
+
+    def _do_restore(self, record, archive_path, staging_dir):
+        """从 tar.gz 压缩包恢复数据。
+
+        重要：_restore_database 会执行 DROP SCHEMA public CASCADE，
+        导致所有表（包括 backup_records）被销毁。因此 record 对象在
+        数据库恢复后将变为无效，不可再提交。本方法会在恢复完成后
+        创建一条新的 BackupRecord 作为恢复日志。
+        返回新记录的 id。
+        """
+        from models import db, BackupRecord
+
+        # 在数据库恢复前保存必要信息（之后 record 会失效）
+        created_by = record.created_by
+
+        # 解压备份文件
+        record.progress = 5
+        record.progress_message = '正在解压备份文件...'
+        db.session.commit()
+
+        with tarfile.open(archive_path, 'r:gz') as tar:
+            tar.extractall(staging_dir)
+
+        # 查找数据库备份文件
+        db_dump_path = None
+        for f in os.listdir(staging_dir):
+            if f.startswith('db_dump') and (f.endswith('.sql') or f.endswith('.sql.gz')):
+                db_dump_path = os.path.join(staging_dir, f)
+                break
+
+        if not db_dump_path:
+            raise RuntimeError('备份文件中未找到数据库转储文件')
+
+        # 数据库恢复前最后的进度更新
+        record.progress = 10
+        record.progress_message = '正在恢复数据库...'
+        db.session.commit()
+
+        # 恢复数据库（会 DROP SCHEMA public CASCADE，record 将失效）
+        db_url = self.app.config.get('SQLALCHEMY_DATABASE_URI')
+        self._restore_database(db_url, db_dump_path, staging_dir)
+
+        # === 此后 record 对象已随表一起销毁，不可再访问 ===
+        db.session.expire_all()
+
+        # 恢复文件（进度不再写入 DB，文件操作通常较快）
+        uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+
+        invoices_src = os.path.join(staging_dir, 'invoices')
+        if os.path.isdir(invoices_src):
+            invoices_dest = os.path.join(uploads_dir, 'invoices')
+            shutil.copytree(invoices_src, invoices_dest, dirs_exist_ok=True)
+
+        avatars_src = os.path.join(staging_dir, 'avatars')
+        if os.path.isdir(avatars_src):
+            avatars_dest = os.path.join(uploads_dir, 'avatars')
+            shutil.copytree(avatars_src, avatars_dest, dirs_exist_ok=True)
+
+        # 恢复系统配置
+        config_json_path = os.path.join(staging_dir, 'system_config.json')
+        if os.path.exists(config_json_path):
+            self._import_system_config(config_json_path)
+
+        # 创建恢复完成记录（旧 record 已随 schema 销毁）
+        restore_record = BackupRecord(
+            backup_type='restore',
+            backup_scope='full',
+            status='completed',
+            progress=100,
+            progress_message='恢复完成',
+            completed_at=datetime.now(timezone.utc),
+            created_by=created_by,
+        )
+        db.session.add(restore_record)
+        db.session.commit()
+
+        logger.info(f'数据恢复完成: 恢复记录id={restore_record.id}')
+        return restore_record.id
 
     def run_scheduled_backup(self):
         """定时任务入口：创建 scheduled 类型备份记录并执行"""

@@ -3,6 +3,8 @@ import os
 import threading
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_cors import cross_origin
+from config import CORS_ORIGINS
 from models import db, SystemConfig, User, BackupRecord
 from utils.crypto_utils import encrypt_value, decrypt_value
 
@@ -11,7 +13,7 @@ logger = logging.getLogger(__name__)
 system_bp = Blueprint('system', __name__)
 
 # 需要加密存储的配置键
-ENCRYPTED_KEYS = {'ai_api_key'}
+ENCRYPTED_KEYS = {'ai_api_key', 'summary_ai_api_key'}
 
 
 def _get_version():
@@ -116,6 +118,27 @@ def get_ai_api_url() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Summary AI (DeepSeek) configuration helpers
+# ---------------------------------------------------------------------------
+
+def get_summary_ai_model() -> str:
+    """Get the configured summary AI model. Default: deepseek-v4-pro."""
+    model = _get_config_value('summary_ai_model')
+    return model or 'deepseek-v4-pro'
+
+
+def get_summary_ai_api_key() -> str | None:
+    """Get the configured summary AI API key (DB only, encrypted storage)."""
+    return _get_config_value('summary_ai_api_key')
+
+
+def get_summary_ai_api_url() -> str:
+    """Get the configured summary AI API URL. Default: DeepSeek endpoint."""
+    url = _get_config_value('summary_ai_api_url')
+    return url or 'https://api.deepseek.com/v1/chat/completions'
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -180,7 +203,7 @@ def update_system_config():
     if not isinstance(configs, dict):
         return jsonify({'code': 400, 'message': 'configs必须是对象'}), 400
 
-    allowed_keys = {'ai_model', 'ai_api_key', 'ai_api_url'}
+    allowed_keys = {'ai_model', 'ai_api_key', 'ai_api_url', 'summary_ai_model', 'summary_ai_api_key', 'summary_ai_api_url'}
     admin_id = get_jwt_identity()
 
     updated_keys = []
@@ -483,6 +506,82 @@ def restore_backup(backup_id):
     })
 
 
+@system_bp.route('/system/backup/restore/upload', methods=['POST'])
+@jwt_required()
+def restore_upload_backup():
+    """从本地上传的 .tar.gz 备份文件恢复数据。仅管理员可用，需确认。"""
+    err = _admin_required()
+    if err:
+        return err
+
+    # 检查是否有正在运行的任务
+    running = BackupRecord.query.filter(
+        BackupRecord.status.in_(['pending', 'running'])
+    ).first()
+    if running:
+        return jsonify({'code': 409, 'message': '已有任务正在执行，请等待完成'}), 409
+
+    # 验证文件上传
+    if 'file' not in request.files:
+        return jsonify({'code': 400, 'message': '请选择备份文件（.tar.gz）'}), 400
+
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'code': 400, 'message': '未选择文件'}), 400
+
+    if not file.filename.lower().endswith('.tar.gz'):
+        return jsonify({'code': 400, 'message': '只支持 .tar.gz 格式的备份文件'}), 400
+
+    # 确认参数
+    data = request.form.get('confirm', 'false')
+    if data != 'true':
+        return jsonify({'code': 400, 'message': '请确认恢复操作（需传入 confirm: true）'}), 400
+
+    from utils.backup_service import get_backup_service
+
+    service = get_backup_service()
+    if not service:
+        return jsonify({'code': 503, 'message': '备份服务未初始化', 'data': None}), 503
+
+    # 保存上传文件到 exports 目录
+    import uuid
+    safe_filename = f'upload_restore_{uuid.uuid4().hex[:8]}.tar.gz'
+    upload_path = os.path.join(service.exports_dir, safe_filename)
+
+    try:
+        file.save(upload_path)
+        file_size = os.path.getsize(upload_path)
+    except Exception as e:
+        logger.error(f'保存上传文件失败: {e}')
+        return jsonify({'code': 500, 'message': '文件保存失败'}), 500
+
+    # 创建恢复记录
+    admin_id = get_jwt_identity()
+    record = BackupRecord(
+        backup_type='restore',
+        backup_scope='full',
+        status='pending',
+        file_path=upload_path,
+        file_size=file_size,
+        file_count=1,
+        created_by=admin_id,
+    )
+    db.session.add(record)
+    db.session.commit()
+
+    # 启动后台恢复
+    thread = threading.Thread(target=service.restore_from_file, args=(record.id, upload_path), daemon=True)
+    thread.start()
+
+    logger.warning(f'管理员 {admin_id} 发起本地文件恢复: 文件名={file.filename}, 记录id={record.id}')
+
+    return jsonify({
+        'code': 200,
+        'message': '恢复任务已启动',
+        'data': {'id': record.id, 'filename': file.filename}
+    })
+
+
 @system_bp.route('/system/backup/config', methods=['GET'])
 @jwt_required()
 def get_backup_config():
@@ -651,6 +750,279 @@ def test_model():
     except Exception as e:
         logger.error(f'Model test error: {e}', exc_info=True)
         return jsonify({'code': 500, 'message': f'测试失败: {str(e)}'}), 500
+
+
+@system_bp.route('/system/test-summary-model', methods=['POST'])
+@jwt_required()
+def test_summary_model():
+    """Test the configured summary AI model (DeepSeek chat)."""
+    err = _admin_required()
+    if err:
+        return err
+
+    import time
+
+    from utils.glm_vision_service import REQUESTS_AVAILABLE
+    if not REQUESTS_AVAILABLE:
+        return jsonify({'code': 500, 'message': 'requests 库未安装'}), 500
+
+    api_key = get_summary_ai_api_key()
+    if not api_key:
+        return jsonify({'code': 400, 'message': '请先配置 AI 总结 API 密钥'}), 400
+
+    model = get_summary_ai_model()
+    api_url = get_summary_ai_api_url()
+
+    try:
+        import requests as req
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "这是一条测试消息，用于验证 AI 总结模型连通性。请简短回复'连接测试成功'。"
+                }
+            ],
+            "max_tokens": 32
+        }
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        start = time.time()
+        resp = req.post(api_url, headers=headers, json=payload, timeout=15)
+        elapsed_ms = int((time.time() - start) * 1000)
+
+        if resp.status_code == 200:
+            body = resp.json()
+            if 'choices' in body and len(body['choices']) > 0:
+                reply = body['choices'][0].get('message', {}).get('content', '')
+                return jsonify({
+                    'code': 200,
+                    'message': 'AI 总结模型连接测试成功',
+                    'data': {
+                        'model': model,
+                        'latency_ms': elapsed_ms,
+                        'reply': reply[:200]
+                    }
+                })
+            else:
+                return jsonify({
+                    'code': 500,
+                    'message': '模型返回数据异常：无有效响应',
+                    'data': {'model': model, 'latency_ms': elapsed_ms}
+                }), 500
+        else:
+            error_detail = resp.text[:300]
+            logger.error(f'Summary model test failed: HTTP {resp.status_code}: {error_detail}')
+            return jsonify({
+                'code': 500,
+                'message': f'模型请求失败 (HTTP {resp.status_code})',
+                'data': {'model': model, 'latency_ms': elapsed_ms, 'error': error_detail}
+            }), 500
+
+    except req.exceptions.Timeout:
+        return jsonify({'code': 500, 'message': '测试超时，请检查网络和 API 地址'}), 500
+    except Exception as e:
+        logger.error(f'Summary model test error: {e}', exc_info=True)
+        return jsonify({'code': 500, 'message': f'测试失败: {str(e)}'}), 500
+
+
+@system_bp.route('/system/ai-summary', methods=['POST', 'OPTIONS'])
+@cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
+@jwt_required(optional=True)
+def ai_summary():
+    """生成 AI 财务总结。总结范围：全部项目汇总，或指定项目。"""
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+
+    err = _admin_required()
+    if err:
+        return err
+
+    import time
+    from models import Event, PurchaseRecord, Invoice, User
+    from sqlalchemy import func
+
+    from utils.glm_vision_service import REQUESTS_AVAILABLE
+    if not REQUESTS_AVAILABLE:
+        return jsonify({'code': 500, 'message': 'requests 库未安装'}), 500
+
+    api_key = get_summary_ai_api_key()
+    if not api_key:
+        return jsonify({'code': 400, 'message': '请先在系统设置中配置 AI 总结 API 密钥'}), 400
+
+    model = get_summary_ai_model()
+    api_url = get_summary_ai_api_url()
+
+    # 确定总结范围
+    data = request.get_json(silent=True) or {}
+    event_id = data.get('event_id')
+
+    if event_id:
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 404, 'message': '项目不存在'}), 404
+        events = [event]
+    else:
+        events = Event.query.filter_by(is_deleted=False).all()
+
+    if not events:
+        return jsonify({'code': 400, 'message': '暂无项目数据可供总结'}), 400
+
+    # 汇总数据
+    event_ids = [e.event_id for e in events]
+
+    total_budget = sum(float(e.total_budget or 0) for e in events)
+
+    # spent_amount 不是 Event 模型列，需要从 purchase + invoice 计算
+    purchase_spent = db.session.query(func.sum(PurchaseRecord.amount)).filter(
+        PurchaseRecord.event_id.in_(event_ids), PurchaseRecord.is_deleted == False
+    ).scalar() or 0
+    invoice_table_spent = db.session.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.event_id.in_(event_ids), Invoice.is_deleted == False
+    ).scalar() or 0
+    total_spent = float(purchase_spent) + float(invoice_table_spent)
+
+    total_remaining = max(0, total_budget - total_spent)
+    usage_rate = (total_spent / total_budget * 100) if total_budget > 0 else 0
+
+    total_invoice_amount = sum(float(e.invoice_total_amount or 0) for e in events)
+    total_reimbursed = sum(float(e.reimbursed_amount or 0) for e in events)
+    pending_reimburse = max(0, total_invoice_amount - total_reimbursed)
+
+    total_records = int(db.session.query(func.count(PurchaseRecord.record_id))
+        .filter(PurchaseRecord.event_id.in_(event_ids), PurchaseRecord.is_deleted == False).scalar() or 0)
+    total_invoice_count = int(db.session.query(func.count(Invoice.invoice_id))
+        .filter(Invoice.event_id.in_(event_ids), Invoice.is_deleted == False).scalar() or 0)
+
+    # 用户消费排名（Top 10）
+    pr_sq = db.session.query(
+        PurchaseRecord.uploader_id,
+        func.sum(PurchaseRecord.amount).label('total'),
+        func.count(PurchaseRecord.record_id).label('cnt')
+    ).filter(
+        PurchaseRecord.event_id.in_(event_ids),
+        PurchaseRecord.is_deleted == False
+    ).group_by(PurchaseRecord.uploader_id).subquery()
+
+    rankings = db.session.query(
+        User.real_name, pr_sq.c.total, pr_sq.c.cnt
+    ).join(pr_sq, User.user_id == pr_sq.c.uploader_id
+    ).order_by(pr_sq.c.total.desc()).limit(10).all()
+
+    # 构建 AI 提示词
+    scope_text = f'项目「{events[0].event_name}」' if event_id and len(events) == 1 else f'全部 {len(events)} 个项目'
+
+    parts = [
+        f'你是一个专业的财务分析助手。请根据以下财务数据生成一段简洁的中文总结报告（150-300字），重点突出关键数据和需要注意的问题。',
+        '',
+        f'## 总结范围：{scope_text}',
+        '',
+        '## 总体概况',
+        f'- 项目数：{len(events)} 个',
+        f'- 总记录数：{total_records} 条（购买）+ {total_invoice_count} 条（发票）',
+        f'- 总预算：¥{total_budget:,.2f}',
+        f'- 已支出：¥{total_spent:,.2f}（预算使用率 {usage_rate:.1f}%）',
+        f'- 剩余预算：¥{total_remaining:,.2f}',
+        f'- 发票总额：¥{total_invoice_amount:,.2f}',
+        f'- 已报销：¥{total_reimbursed:,.2f}（待报销 ¥{pending_reimburse:,.2f}）',
+        '',
+    ]
+
+    if len(events) <= 10:
+        # 预计算每个项目的支出金额
+        ev_spent_map = {}
+        if events:
+            pr_rows = db.session.query(
+                PurchaseRecord.event_id,
+                func.sum(PurchaseRecord.amount).label('total')
+            ).filter(
+                PurchaseRecord.event_id.in_(event_ids),
+                PurchaseRecord.is_deleted == False
+            ).group_by(PurchaseRecord.event_id).all()
+            inv_rows = db.session.query(
+                Invoice.event_id,
+                func.sum(Invoice.total_amount).label('total')
+            ).filter(
+                Invoice.event_id.in_(event_ids),
+                Invoice.is_deleted == False
+            ).group_by(Invoice.event_id).all()
+            for eid, total in pr_rows:
+                ev_spent_map[eid] = ev_spent_map.get(eid, 0) + float(total or 0)
+            for eid, total in inv_rows:
+                ev_spent_map[eid] = ev_spent_map.get(eid, 0) + float(total or 0)
+
+        parts.append('## 各项目明细')
+        for e in events:
+            ev_spent = ev_spent_map.get(e.event_id, 0)
+            ev_budget = float(e.total_budget or 0)
+            ev_usage = (ev_spent / ev_budget * 100) if ev_budget > 0 else 0
+            parts.append(
+                f'- {e.event_name}（{e.status}）：预算 ¥{ev_budget:,.2f}，已用 ¥{ev_spent:,.2f}'
+                f'（{ev_usage:.1f}%），发票 {e.invoice_count or 0} 张，记录 {e.purchase_record_count or 0} 条'
+            )
+
+    if rankings:
+        parts.append('')
+        parts.append('## 用户消费排名（Top 10）')
+        for i, (name, total, cnt) in enumerate(rankings):
+            parts.append(f'{i+1}. {name}：¥{float(total):,.2f}（{cnt} 条记录）')
+
+    parts.append('')
+    parts.append('请生成总结报告。要求：1) 先一句话概述整体情况；2) 指出预算使用率最高/最低的项目；3) 如有预算超支风险请特别提醒；4) 指出消费最高的用户；5) 待报销金额较大时提醒。')
+
+    prompt_text = '\n'.join(parts)
+
+    try:
+        import requests as req
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt_text}],
+            "max_tokens": 800,
+            "temperature": 0.3,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        start = time.time()
+        resp = req.post(api_url, headers=headers, json=payload, timeout=30)
+        elapsed_ms = int((time.time() - start) * 1000)
+
+        if resp.status_code == 200:
+            body = resp.json()
+            if 'choices' in body and len(body['choices']) > 0:
+                reply = body['choices'][0].get('message', {}).get('content', '')
+                return jsonify({
+                    'code': 200,
+                    'message': 'AI 总结生成成功',
+                    'data': {
+                        'summary': reply,
+                        'model': model,
+                        'latency_ms': elapsed_ms,
+                        'scope': scope_text,
+                    }
+                })
+            else:
+                return jsonify({'code': 500, 'message': '模型返回数据异常：无有效响应'}), 500
+        else:
+            error_detail = resp.text[:300] if resp.text else '无详细信息'
+            logger.error(f'AI summary API error: HTTP {resp.status_code} - {error_detail}')
+            return jsonify({
+                'code': 500,
+                'message': f'AI 总结请求失败 (HTTP {resp.status_code})',
+                'data': {'error': error_detail}
+            }), 500
+
+    except req.exceptions.Timeout:
+        return jsonify({'code': 500, 'message': 'AI 总结超时，请稍后重试'}), 500
+    except Exception as e:
+        logger.error(f'AI summary error: {e}', exc_info=True)
+        return jsonify({'code': 500, 'message': f'AI 总结失败: {str(e)}'}), 500
 
 
 def _compare_versions(a: str, b: str) -> int:
