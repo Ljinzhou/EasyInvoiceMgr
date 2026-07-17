@@ -11,6 +11,9 @@
         <button @click="batchReimburse" class="action-button reimburse" :disabled="selectedRecords.length === 0" v-if="canReimburse">
           批量报销 ({{ selectedRecords.length }})
         </button>
+        <button @click="showBatchTransferModal = true" class="action-button transfer" :disabled="selectedRecords.length === 0">
+          批量转移 ({{ selectedRecords.length }})
+        </button>
         <button @click="deleteSelected" class="action-button danger" :disabled="selectedRecords.length === 0">
           删除 ({{ selectedRecords.length }})
         </button>
@@ -186,6 +189,28 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 分页控件 -->
+    <div class="pagination-container" v-if="pagination.total > 0">
+      <div class="pagination-info">
+        <span>显示</span>
+        <select v-model="pagination.page_size" @change="changePageSize" class="page-size-select">
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="30">30</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+        </select>
+        <span>条/页，共 {{ pagination.total }} 条</span>
+      </div>
+      <div class="pagination-controls">
+        <button @click="goToPage(1)" :disabled="pagination.page <= 1" class="page-btn">首页</button>
+        <button @click="prevPage" :disabled="pagination.page <= 1" class="page-btn">上一页</button>
+        <span class="page-indicator">{{ pagination.page }} / {{ pagination.total_pages }}</span>
+        <button @click="nextPage" :disabled="pagination.page >= pagination.total_pages" class="page-btn">下一页</button>
+        <button @click="goToPage(pagination.total_pages)" :disabled="pagination.page >= pagination.total_pages" class="page-btn">末页</button>
+      </div>
     </div>
 
     <!-- 添加/编辑记录弹窗 -->
@@ -565,6 +590,47 @@
         </div>
       </div>
 
+    <!-- 批量转移弹窗 -->
+    <div v-if="showBatchTransferModal" class="modal-overlay" @mousedown.self="showBatchTransferModal = false">
+      <div class="modal-content batch-transfer-modal">
+        <div class="modal-header">
+          <h2>批量转移记录</h2>
+          <button @click="showBatchTransferModal = false" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="transfer-info">
+            即将转移 <strong>{{ selectedRecords.length }}</strong> 条记录到其他比赛项目
+          </p>
+          <div class="transfer-selected-list">
+            <div v-for="id in selectedRecords.slice(0, 5)" :key="id" class="transfer-selected-item">
+              {{ getRecordNameById(id) }}
+            </div>
+            <div v-if="selectedRecords.length > 5" class="transfer-more">
+              还有 {{ selectedRecords.length - 5 }} 条...
+            </div>
+          </div>
+          <div class="form-group">
+            <label>选择目标比赛项目</label>
+            <select v-model="batchTransferTargetId" class="form-select">
+              <option value="">-- 请选择 --</option>
+              <option v-for="ev in transferEvents" :key="ev.event_id" :value="ev.event_id">
+                {{ ev.event_name }}{{ ev.status === 'finished' ? ' (已结束)' : '' }}
+              </option>
+            </select>
+          </div>
+          <div v-if="batchTransferError" class="transfer-error-msg">{{ batchTransferError }}</div>
+          <div v-if="batchTransferSuccess" class="transfer-success-msg">{{ batchTransferSuccess }}</div>
+        </div>
+        <div class="modal-footer">
+          <button @click="showBatchTransferModal = false" class="cancel-btn">取消</button>
+          <button @click="confirmBatchTransfer" class="transfer-confirm-btn" :disabled="!batchTransferTargetId || batchTransferLoading">
+            <span v-if="batchTransferLoading">转移中...</span>
+            <span v-else>确认转移</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 详情弹窗 -->
     <div v-if="showDetailModal" class="modal-overlay" @mousedown.self="showDetailModal = false">
       <div class="modal-content large detail-modal">
@@ -730,6 +796,15 @@ const event = ref(null)
 const records = ref([])
 const stats = ref(null)
 const selectedRecords = ref([])
+
+// 分页状态
+const pagination = ref({
+  page: 1,
+  page_size: 30,
+  total: 0,
+  total_pages: 1
+})
+const loadingRecords = ref(false)
 const showAddModal = ref(false)
 const showDetailModal = ref(false)
 const editingRecord = ref(null)
@@ -751,6 +826,13 @@ const transferLoading = ref(false)
 const transferError = ref('')
 const transferSuccess = ref('')
 const transferEvents = ref([])
+
+// 批量转移相关
+const showBatchTransferModal = ref(false)
+const batchTransferTargetId = ref('')
+const batchTransferLoading = ref(false)
+const batchTransferError = ref('')
+const batchTransferSuccess = ref('')
 
 // 上传人搜索
 const uploaderSearchText = ref('')
@@ -1225,18 +1307,25 @@ const loadEvent = async () => {
 
 const loadRecords = async () => {
   try {
+    loadingRecords.value = true
     const token = localStorage.getItem('token')
     
-    const recordsParams = { headers: { Authorization: `Bearer ${token}` } }
+    const recordsParams = { 
+      headers: { Authorization: `Bearer ${token}` },
+      params: { 
+        page: pagination.value.page, 
+        page_size: pagination.value.page_size 
+      }
+    }
     const invoicesParams = { headers: { Authorization: `Bearer ${token}` }, params: { event_id: eventId.value } }
     if (showPersonalOnly.value && currentUser.value?.user_id) {
       const uid = currentUser.value.user_id
-      recordsParams['params'] = { uploader_id: uid }
+      recordsParams['params']['uploader_id'] = uid
       invoicesParams.params.uploader_id = uid
     }
 
     const [purchaseResponse, invoiceResponse] = await Promise.all([
-      $api.get(`/events/${eventId.value}/records`, recordsParams).catch(() => ({ data: { code: 200, data: { records: [] } } })),
+      $api.get(`/events/${eventId.value}/records`, recordsParams).catch(() => ({ data: { code: 200, data: { records: [], pagination: { total: 0, total_pages: 1 } } } })),
       $api.get('/invoices', invoicesParams).catch(() => ({ data: { code: 200, data: { invoices: [] } } }))
     ])
     
@@ -1248,6 +1337,11 @@ const loadRecords = async () => {
         record_type: 'purchase',
         display_id: `P${r.record_id}`
       })))
+      // 更新分页信息
+      if (purchaseResponse.data.data.pagination) {
+        pagination.value.total = purchaseResponse.data.data.pagination.total || 0
+        pagination.value.total_pages = purchaseResponse.data.data.pagination.total_pages || 1
+      }
     }
     
     if (invoiceResponse.data.code === 200 && invoiceResponse.data.data?.data) {
@@ -1286,11 +1380,27 @@ const loadRecords = async () => {
       invoice_total: allRecords.filter(r => r.has_invoice).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
       pending_reimburse: allRecords.filter(r => r.has_invoice && !r.is_reimbursed).reduce((sum, r) => sum + parseFloat(r.total_amount || r.amount || 0), 0),
       remaining_budget: Math.max(0, parseFloat(event.value?.total_budget || 0) - totalAmount),
-      total_count: allRecords.length
+      total_count: pagination.value.total
     }
   } catch (e) {
     console.error('加载记录失败:', e.message)
+  } finally {
+    loadingRecords.value = false
   }
+}
+
+// 分页操作
+const goToPage = (page) => {
+  if (page < 1 || page > pagination.value.total_pages) return
+  pagination.value.page = page
+  loadRecords()
+}
+
+const nextPage = () => goToPage(pagination.value.page + 1)
+const prevPage = () => goToPage(pagination.value.page - 1)
+const changePageSize = () => {
+  pagination.value.page = 1
+  loadRecords()
 }
 
 const toggleSelectAll = () => {}
@@ -1432,6 +1542,92 @@ const closeAddModal = () => {
   transferError.value = ''
   transferSuccess.value = ''
 }
+
+// 根据ID获取记录名称
+const getRecordNameById = (id) => {
+  const record = records.value.find(r => (r.display_id || r.record_id) === id)
+  return record ? record.item_name : id
+}
+
+// 批量转移记录
+const confirmBatchTransfer = async () => {
+  if (!batchTransferTargetId.value) {
+    batchTransferError.value = '请选择目标比赛项目'
+    return
+  }
+
+  const targetEvent = transferEvents.value.find(ev => ev.event_id === Number(batchTransferTargetId.value))
+  if (!targetEvent) {
+    batchTransferError.value = '所选比赛项目无效'
+    return
+  }
+
+  if (!confirm(`确定要将 ${selectedRecords.value.length} 条记录转移到比赛"${targetEvent.event_name}"吗？\n\n转移后将清除这些记录的报销状态。`)) {
+    return
+  }
+
+  batchTransferLoading.value = true
+  batchTransferError.value = ''
+  batchTransferSuccess.value = ''
+
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.post('/records/batch-transfer', {
+      record_ids: selectedRecords.value,
+      target_event_id: Number(batchTransferTargetId.value)
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (response.data.code === 200) {
+      const data = response.data.data
+      batchTransferSuccess.value = response.data.message
+      showToast(`成功转移 ${data.success_count} 条记录`, 'success')
+      
+      // 延迟关闭并刷新
+      setTimeout(() => {
+        showBatchTransferModal.value = false
+        selectedRecords.value = []
+        loadRecords()
+        eventStore.refreshAfterMutation(Number(eventId.value))
+        eventStore.refreshAfterMutation(Number(batchTransferTargetId.value))
+        batchTransferTargetId.value = ''
+      }, 1500)
+    } else {
+      batchTransferError.value = response.data.message || '转移失败'
+    }
+  } catch (error) {
+    console.error('批量转移失败:', error)
+    batchTransferError.value = error.response?.data?.message || error.message || '转移失败，请重试'
+  } finally {
+    batchTransferLoading.value = false
+  }
+}
+
+// 加载批量转移可选的比赛列表
+const loadTransferEventsForBatch = async () => {
+  try {
+    await eventStore.ensureLoaded({ forceRefresh: false })
+    const allEvents = eventStore.events
+    transferEvents.value = allEvents.filter(ev => {
+      if (ev.event_id === Number(eventId.value)) return false
+      if (['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)) return true
+      return ev.is_member || ev.creator_id === currentUser.value?.user_id
+    })
+  } catch (e) {
+    console.error('加载可用比赛列表失败:', e)
+    transferEvents.value = []
+  }
+}
+
+// 监听批量转移弹窗打开
+watch(showBatchTransferModal, (val) => {
+  if (val) {
+    loadTransferEventsForBatch()
+    batchTransferError.value = ''
+    batchTransferSuccess.value = ''
+  }
+})
 
 const resetForm = () => {
   form.value = {
@@ -2319,6 +2515,7 @@ const formatMoney = (val) => {
 .action-button.members { background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); }
 .action-button.export { background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); }
 .action-button.reimburse { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); }
+.action-button.transfer { background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%); }
 .action-button.danger { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); }
 .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -2576,6 +2773,74 @@ const formatMoney = (val) => {
 .btn-reimburse-sm { background: #9b59b6; color: white; }
 
 .empty-row { text-align: center; padding: 40px !important; color: #999; }
+
+/* 分页控件样式 */
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: white;
+  border-radius: 8px;
+  margin-top: 1rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.page-size-select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.page-size-select:hover {
+  border-color: #667eea;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-btn {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  padding: 0.4rem 1rem;
+  background: #f5f5f5;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: #333;
+}
 
 /* 过滤面板样式 */
 .filter-panel {
@@ -2945,6 +3210,146 @@ const formatMoney = (val) => {
   padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid #a7f3d0;
+}
+
+/* ========== BATCH TRANSFER MODAL ========== */
+.batch-transfer-modal {
+  max-width: 480px;
+}
+
+.batch-transfer-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.2rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.batch-transfer-modal .modal-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #1e293b;
+}
+
+.batch-transfer-modal .modal-body {
+  padding: 1.5rem;
+}
+
+.batch-transfer-modal .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.transfer-info {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.transfer-info strong {
+  color: #667eea;
+}
+
+.transfer-selected-list {
+  max-height: 150px;
+  overflow-y: auto;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.transfer-selected-item {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  color: #475569;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.transfer-selected-item:last-child {
+  border-bottom: none;
+}
+
+.transfer-more {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.form-select {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+}
+
+.form-select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102,126,234,0.08);
+}
+
+.transfer-error-msg {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #dc2626;
+  background: #fef2f2;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+}
+
+.transfer-success-msg {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #065f46;
+  background: #ecfdf5;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #a7f3d0;
+}
+
+.cancel-btn {
+  padding: 0.6rem 1.2rem;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.cancel-btn:hover {
+  background: #f8fafc;
+}
+
+.transfer-confirm-btn {
+  padding: 0.6rem 1.5rem;
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.transfer-confirm-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 14px rgba(139,92,246,0.35);
+}
+
+.transfer-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ========== FORM ROWS & INPUTS ========== */

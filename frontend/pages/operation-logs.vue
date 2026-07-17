@@ -116,10 +116,25 @@
     </div>
 
     <!-- 分页 -->
-    <div class="pagination" v-if="total > pageSize">
-      <button @click="page--; fetchLogs()" :disabled="page === 1">上一页</button>
-      <span>第 {{ page }} / {{ totalPages }} 页 (共 {{ total }} 条)</span>
-      <button @click="page++; fetchLogs()" :disabled="page >= totalPages">下一页</button>
+    <div class="pagination-container" v-if="total > 0">
+      <div class="pagination-info">
+        <span>显示</span>
+        <select v-model="pageSize" @change="page = 1; fetchLogs()" class="page-size-select">
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="30">30</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+        </select>
+        <span>条/页，共 {{ total }} 条</span>
+      </div>
+      <div class="pagination-controls">
+        <button @click="page = 1; fetchLogs()" :disabled="page === 1" class="page-btn">首页</button>
+        <button @click="page--; fetchLogs()" :disabled="page === 1" class="page-btn">上一页</button>
+        <span class="page-indicator">{{ page }} / {{ totalPages }} 页</span>
+        <button @click="page++; fetchLogs()" :disabled="page >= totalPages" class="page-btn">下一页</button>
+        <button @click="page = totalPages; fetchLogs()" :disabled="page >= totalPages" class="page-btn">末页</button>
+      </div>
     </div>
 
     <!-- 删除确认弹窗 -->
@@ -145,7 +160,7 @@ const logs = ref<any[]>([])
 const actionTypes = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(50)
+const pageSize = ref(30)
 const selectedLogs = ref<number[]>([])
 
 const filters = ref({
@@ -502,27 +517,68 @@ th {
   padding: 2rem !important;
 }
 
-.pagination {
+.pagination-container {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
-  gap: 1rem;
   margin-top: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
-.pagination button {
-  padding: 0.5rem 1rem;
-  background: #667eea;
-  color: white;
-  border: none;
+.pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-size-select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.page-size-select:hover {
+  border-color: #667eea;
+}
+
+.page-btn {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #ddd;
+  background: white;
   border-radius: 4px;
   cursor: pointer;
-  min-height: 36px;
+  font-size: 0.85rem;
+  transition: all 0.2s;
 }
 
-.pagination button:disabled {
-  background: #ccc;
+.page-btn:hover:not(:disabled) {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.page-btn:disabled {
+  background: #f5f5f5;
+  color: #ccc;
   cursor: not-allowed;
+}
+
+.page-indicator {
+  color: #666;
+  font-size: 0.9rem;
+  padding: 0 0.5rem;
 }
 
 .modal-overlay {

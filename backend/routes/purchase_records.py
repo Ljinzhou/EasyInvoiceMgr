@@ -82,16 +82,27 @@ def get_purchase_records(event_id):
         if not event:
             return jsonify({'code': 404, 'message': '赛事不存在', 'data': None}), 404
 
-        records = PurchaseRecord.query.filter_by(
+        # 分页参数
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 30, type=int)
+        page = max(1, page)
+        page_size = min(max(1, page_size), 100)  # 限制最大100条
+
+        query = PurchaseRecord.query.filter_by(
             event_id=event_id,
             is_deleted=False
         ).order_by(PurchaseRecord.created_at.desc())
 
         uploader_id = request.args.get('uploader_id', type=int)
         if uploader_id:
-            records = records.filter_by(uploader_id=uploader_id)
+            query = query.filter_by(uploader_id=uploader_id)
 
-        records = records.all()
+        # 计算总数
+        total = query.count()
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        
+        # 分页查询
+        records = query.offset((page - 1) * page_size).limit(page_size).all()
         
         records_data = []
         for record in records:
@@ -138,10 +149,16 @@ def get_purchase_records(event_id):
             'message': 'success',
             'data': {
                 'records': records_data,
-                'total_count': len(records_data),
+                'total_count': total,
                 'total_amount': str(total_amount),
                 'invoice_total': str(invoice_total),
-                'pending_reimburse': str(pending_reimburse)
+                'pending_reimburse': str(pending_reimburse),
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total': total,
+                    'total_pages': total_pages
+                }
             }
         }), 200
         
@@ -561,6 +578,157 @@ def transfer_purchase_record(record_id):
 
     except Exception as e:
         logger.error(f'转移购买记录异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@purchase_records_bp.route('/records/batch-transfer', methods=['POST'])
+@jwt_required()
+def batch_transfer_purchase_records():
+    """批量转移购买记录到其他比赛项目"""
+    logger.info('=== 批量转移购买记录 ===')
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'code': 400, 'message': '请求数据无效', 'data': None}), 400
+
+        record_ids_raw = data.get('record_ids', [])
+        target_event_id = data.get('target_event_id')
+
+        if not record_ids_raw or not isinstance(record_ids_raw, list) or len(record_ids_raw) == 0:
+            return jsonify({'code': 400, 'message': '请选择要转移的记录', 'data': None}), 400
+
+        if not target_event_id:
+            return jsonify({'code': 400, 'message': '请选择目标比赛项目', 'data': None}), 400
+
+        target_event_id = int(target_event_id)
+
+        # 解析 record_id：支持 "P116" 格式，提取纯数字
+        record_ids = []
+        for rid in record_ids_raw:
+            rid_str = str(rid).strip()
+            # 去掉前缀字母，只保留数字部分
+            numeric_id = ''.join(filter(str.isdigit, rid_str))
+            if numeric_id:
+                record_ids.append(int(numeric_id))
+
+        if not record_ids:
+            return jsonify({'code': 400, 'message': '记录ID无效', 'data': None}), 400
+
+        # 检查目标项目是否存在
+        target_event = Event.query.filter_by(event_id=target_event_id, is_deleted=False).first()
+        if not target_event:
+            return jsonify({'code': 404, 'message': '目标比赛项目不存在', 'data': None}), 404
+
+        is_admin_or_teacher = user.user_type in ['admin', 'teacher', 'student_admin']
+
+        # 检查用户是否有目标项目的操作权限
+        if not _check_student_event_access(target_event_id, user):
+            return jsonify({'code': 403, 'message': '您未加入目标比赛项目，无法转移记录', 'data': None}), 403
+
+        # 获取所有要转移的记录
+        records = PurchaseRecord.query.filter(
+            PurchaseRecord.record_id.in_(record_ids),
+            PurchaseRecord.is_deleted == False
+        ).all()
+
+        if len(records) == 0:
+            return jsonify({'code': 404, 'message': '没有找到要转移的记录', 'data': None}), 404
+
+        # 检查权限：对于每条记录，检查用户是否有权限
+        if not is_admin_or_teacher:
+            for record in records:
+                if record.uploader_id != int(current_user_id):
+                    return jsonify({'code': 403, 'message': '只能转移自己的购买记录', 'data': None}), 403
+                if not _check_student_event_access(record.event_id, user):
+                    return jsonify({'code': 403, 'message': '您未加入部分记录所在的项目，无法转移', 'data': None}), 403
+
+        # 执行转移
+        success_count = 0
+        failed_records = []
+        transfer_details = []
+
+        for record in records:
+            # 不能转移到同一个项目
+            if record.event_id == target_event_id:
+                failed_records.append({
+                    'record_id': record.record_id,
+                    'item_name': record.item_name,
+                    'reason': '不能转移到同一个比赛项目'
+                })
+                continue
+
+            # 学生权限检查：必须是源项目成员
+            if not is_admin_or_teacher and not _check_student_event_access(record.event_id, user):
+                failed_records.append({
+                    'record_id': record.record_id,
+                    'item_name': record.item_name,
+                    'reason': '您未加入源项目'
+                })
+                continue
+
+            old_event_id = record.event_id
+            record.event_id = target_event_id
+            # 清除报销状态
+            record.is_reimbursed = False
+            record.reimbursed_at = None
+
+            # 获取源项目信息
+            source_event = Event.query.get(old_event_id)
+
+            success_count += 1
+            transfer_details.append({
+                'record_id': record.record_id,
+                'item_name': record.item_name,
+                'source_event_id': old_event_id,
+                'source_event_name': source_event.event_name if source_event else None,
+                'target_event_id': target_event_id,
+                'target_event_name': target_event.event_name
+            })
+
+            _log_operation(
+                user_id=current_user_id,
+                username=user.real_name or user.username,
+                action_type='transfer_record',
+                action_description=f'批量转移：{record.item_name}（从「{source_event.event_name if source_event else old_event_id}」到「{target_event.event_name}」）',
+                target_type='purchase_record',
+                target_id=record.record_id,
+                target_name=record.item_name,
+                event_id=target_event_id,
+                event_name=target_event.event_name,
+                detail={
+                    'source_event_id': old_event_id,
+                    'source_event_name': source_event.event_name if source_event else None,
+                    'target_event_id': target_event_id,
+                    'target_event_name': target_event.event_name,
+                    'amount': float(record.amount or 0),
+                    'has_invoice': record.has_invoice,
+                    'batch_transfer': True
+                }
+            )
+
+        db.session.commit()
+
+        logger.info(f'批量转移完成: 成功 {success_count} 条, 失败 {len(failed_records)} 条')
+
+        return jsonify({
+            'code': 200,
+            'message': f'批量转移完成：成功 {success_count} 条，失败 {len(failed_records)} 条',
+            'data': {
+                'success_count': success_count,
+                'failed_count': len(failed_records),
+                'failed_records': failed_records,
+                'transfer_details': transfer_details
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'批量转移购买记录异常: {str(e)}', exc_info=True)
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
