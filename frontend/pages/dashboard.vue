@@ -13,7 +13,7 @@
       <div class="header-right">
         <select v-if="hasData" v-model="selectedEventId" class="project-selector">
           <option :value="null">全部项目汇总</option>
-          <option v-for="ev in eventStore.events" :key="ev.event_id" :value="ev.event_id">{{ ev.event_name }}</option>
+          <option v-if="ongoingEvents.length > 0" :value="'ongoing'">正在进行的项目</option>
         </select>
         <button
           v-if="hasData"
@@ -143,18 +143,19 @@
 
 
       <!-- Per-Project Donut Cards -->
-      <div v-if="hasData" class="project-donuts-section">
-        <h3 class="section-title">各项目预算概览</h3>
-        <div class="donut-cards-grid">
+      <div v-if="eventStore.events.length > 0" class="project-donuts-section">
+        <!-- 进行中的项目 -->
+        <h3 v-if="ongoingEvents.length > 0" class="section-title">进行中的项目</h3>
+        <div v-if="ongoingEvents.length > 0" class="donut-cards-grid">
           <div
-            v-for="ev in eventStore.events"
+            v-for="ev in ongoingEvents"
             :key="ev.event_id"
             class="donut-card"
             :class="[accentClass(ev), { selected: ev.event_id === selectedEventId }]"
             @click="selectedEventId = ev.event_id; navigateTo(`/purchases/${ev.event_id}`)"
           >
             <div class="dc-header">
-              <div class="dc-status-dot" :class="ev.status"></div>
+              <div class="dc-status-dot ongoing"></div>
               <h4 class="dc-name">{{ ev.event_name }}</h4>
               <span class="dc-member-tag" :class="ev.is_member !== false ? 'joined' : 'not-joined'">{{ ev.is_member !== false ? '已加入' : '未加入' }}</span>
               <span class="dc-leader" v-if="ev.leader_name">{{ ev.leader_name }}</span>
@@ -224,6 +225,75 @@
             </div>
           </div>
         </div>
+
+        <!-- 已结束的项目（只在全部汇总时显示） -->
+        <h3 v-if="finishedEvents.length > 0 && !isOngoingSummary" class="section-title finished-title">已结束的项目</h3>
+        <div v-if="finishedEvents.length > 0 && !isOngoingSummary" class="donut-cards-grid finished-donut-grid">
+          <div
+            v-for="ev in finishedEvents"
+            :key="ev.event_id"
+            class="donut-card finished-donut-card"
+            :class="{ selected: ev.event_id === selectedEventId }"
+            @click="selectedEventId = ev.event_id; navigateTo(`/purchases/${ev.event_id}`)"
+          >
+            <div class="dc-header">
+              <div class="dc-status-dot finished"></div>
+              <h4 class="dc-name">{{ ev.event_name }}</h4>
+              <span class="dc-member-tag" :class="ev.is_member !== false ? 'joined' : 'not-joined'">{{ ev.is_member !== false ? '已加入' : '未加入' }}</span>
+              <span class="dc-leader" v-if="ev.leader_name">{{ ev.leader_name }}</span>
+            </div>
+            <div class="dc-body">
+              <div class="dc-donut">
+                <svg viewBox="0 0 100 100" width="100" height="100">
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" stroke-width="8"/>
+                  <circle
+                    cx="50" cy="50" r="42" fill="none"
+                    stroke="#9ca3af"
+                    stroke-width="8"
+                    stroke-linecap="round"
+                    :stroke-dasharray="2 * Math.PI * 42"
+                    :stroke-dashoffset="2 * Math.PI * 42 * (1 - Math.min(100, budgetUsagePercent(ev)) / 100)"
+                    transform="rotate(-90 50 50)"
+                    class="donut-arc"
+                  />
+                  <text x="50" y="49" text-anchor="middle" font-size="20" font-weight="700" fill="#6b7280">{{ budgetUsagePercent(ev).toFixed(1) }}%</text>
+                  <text x="50" y="66" text-anchor="middle" font-size="8.5" fill="#9ca3af">使用率</text>
+                </svg>
+              </div>
+              <div class="dc-info">
+                <div class="dc-amounts">
+                  <div class="dc-amt">
+                    <span class="dc-amt-label">已用</span>
+                    <span class="dc-amt-value spent">¥{{ fmt(ev.spent_amount) }}</span>
+                  </div>
+                  <div class="dc-amt">
+                    <span class="dc-amt-label">总预算</span>
+                    <span class="dc-amt-value">¥{{ fmt(ev.total_budget) }}</span>
+                  </div>
+                  <div class="dc-amt">
+                    <span class="dc-amt-label">剩余</span>
+                    <span class="dc-amt-value">¥{{ fmt(getEventRemaining(ev)) }}</span>
+                  </div>
+                  <div class="dc-amt">
+                    <span class="dc-amt-label">发票总额</span>
+                    <span class="dc-amt-value invoice">¥{{ fmt(ev.invoice_total_amount) }}</span>
+                  </div>
+                </div>
+                <div class="dc-bar-row">
+                  <span class="dc-bar-label">预算使用</span>
+                  <div class="dc-bar-track">
+                    <div class="dc-bar-fill" style="background: linear-gradient(90deg, #9ca3af, #6b7280);" :style="{ width: Math.min(100, budgetUsagePercent(ev)) + '%' }"></div>
+                  </div>
+                  <span class="dc-bar-val">¥{{ fmt(ev.spent_amount) }}</span>
+                </div>
+                <div class="dc-meta">
+                  <span class="dc-meta-tag">🧾 {{ ev.invoice_count || 0 }} 发票</span>
+                  <span class="dc-meta-tag">🛒 {{ ev.purchase_record_count || 0 }} 购物</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
 
@@ -262,8 +332,9 @@
             <h3>🏆 用户消费排名</h3>
             <div class="ranking-controls">
               <select v-model="rankingEventFilter" class="ranking-filter">
-                <option :value="null">所有项目合计</option>
-                <option v-for="ev in eventStore.events" :key="ev.event_id" :value="ev.event_id">{{ ev.event_name }}</option>
+                <option :value="'all'">全部项目</option>
+                <option v-if="ongoingEvents.length > 0" :value="'ongoing'">进行中项目</option>
+                <option v-for="ev in ongoingEvents" :key="ev.event_id" :value="ev.event_id">{{ ev.event_name }}</option>
               </select>
             </div>
           </div>
@@ -325,10 +396,21 @@ const canManageInvitationCodes = computed(() =>
 )
 
 // Project selector
-const selectedEventId = ref<number | null>(null)
-const selectedEvent = computed(() =>
-  selectedEventId.value ? eventStore.events.find(e => e.event_id === selectedEventId.value) || null : null
-)
+const selectedEventId = ref<number | null | string>('ongoing')
+const selectedEvent = computed(() => {
+  if (selectedEventId.value === 'ongoing') {
+    // 返回 null 表示显示"正在进行中的项目"汇总
+    return null
+  }
+  if (selectedEventId.value === null) {
+    return null
+  }
+  return eventStore.events.find(e => e.event_id === selectedEventId.value) || null
+})
+const isOngoingSummary = computed(() => selectedEventId.value === 'ongoing')
+const isAllSummary = computed(() => selectedEventId.value === null)
+const ongoingEvents = computed(() => eventStore.events.filter(e => e.status === 'ongoing'))
+const finishedEvents = computed(() => eventStore.events.filter(e => e.status === 'finished'))
 
 // Stats
 const stats = computed(() => eventStore.fullStats)
@@ -359,18 +441,37 @@ const statCards = computed(() => {
       pendingReimburse: Math.max(0, Number(ev.invoice_total_amount || 0) - Number(ev.reimbursed_amount || 0)),
     }
     return [
-      { key: 'events', variant: 'indigo', value: s.totalEvents, label: '选中项目', sub: `${ev.status === 'ongoing' ? '进行中' : ev.status === 'completed' ? '已完成' : '已归档'}`, subTrend: '', link: `/purchases/${ev.event_id}`, prefix: '', displayValue: ev.event_name.length > 10 ? ev.event_name.slice(0, 10) + '…' : ev.event_name },
+      { key: 'events', variant: 'indigo', value: s.totalEvents, label: '选中项目', sub: `${ev.status === 'ongoing' ? '进行中' : '已结束'}`, subTrend: '', link: `/purchases/${ev.event_id}`, prefix: '', displayValue: ev.event_name.length > 10 ? ev.event_name.slice(0, 10) + '…' : ev.event_name },
       { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: `/purchases/${ev.event_id}`, prefix: '', displayValue: String(s.totalRecords) },
       { key: 'spending', variant: 'amber', value: s.totalAmount, label: '支出金额', sub: `预算使用率 ${s.budgetUsageRate}%`, subTrend: Number(s.budgetUsageRate) > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(s.totalAmount) },
       { key: 'invoice', variant: 'sky', value: s.invoiceTotal, label: '发票总额', sub: `待报销 ¥${fmt(s.pendingReimburse)}`, subTrend: '', link: '', prefix: '¥', displayValue: fmt(s.invoiceTotal) },
       { key: 'reimburse', variant: 'violet', value: s.remainingBudget, label: '剩余金额', sub: `剩余率 ${s.budgetRemainingRate}%`, subTrend: Number(s.budgetRemainingRate) < 30 ? 'warn' : Number(s.budgetRemainingRate) > 60 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(s.remainingBudget) },
     ]
   }
+
+  // 汇总模式
   const s = stats.value
+  if (isOngoingSummary.value) {
+    // 只统计进行中的项目
+    const ongoingTotalBudget = ongoingEvents.value.reduce((sum, e) => sum + Number(e.total_budget || 0), 0)
+    const ongoingSpent = ongoingEvents.value.reduce((sum, e) => sum + Number(e.spent_amount || 0), 0)
+    const totalRemaining = Math.max(0, ongoingTotalBudget - ongoingSpent)
+    const remainingRate = ongoingTotalBudget > 0 ? ((totalRemaining / ongoingTotalBudget) * 100).toFixed(1) : '100.0'
+    const ongoingRecords = ongoingEvents.value.reduce((sum, e) => sum + (e.invoice_count || 0) + (e.purchase_record_count || 0), 0)
+    return [
+      { key: 'events', variant: 'indigo', value: ongoingEvents.value.length, label: '进行中的项目', sub: `${s.totalEvents} 个项目`, subTrend: '', link: '/projects', prefix: '', displayValue: String(ongoingEvents.value.length) },
+      { key: 'records', variant: 'emerald', value: ongoingRecords, label: '记录总数', sub: `发票 ${ongoingEvents.value.reduce((sum, e) => sum + (e.invoice_count || 0), 0)} | 购物 ${ongoingEvents.value.reduce((sum, e) => sum + (e.purchase_record_count || 0), 0)}`, subTrend: '', link: '/purchases', prefix: '', displayValue: String(ongoingRecords) },
+      { key: 'spending', variant: 'amber', value: ongoingSpent, label: '总支出金额', sub: `预算使用率 ${ongoingTotalBudget > 0 ? ((ongoingSpent / ongoingTotalBudget) * 100).toFixed(1) : '0.0'}%`, subTrend: Number(ongoingSpent / ongoingTotalBudget * 100) > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(ongoingSpent) },
+      { key: 'invoice', variant: 'sky', value: ongoingEvents.value.reduce((sum, e) => sum + Number(e.invoice_total_amount || 0), 0), label: '发票总额', sub: `待报销 ¥${fmt(ongoingEvents.value.reduce((sum, e) => sum + Math.max(0, Number(e.invoice_total_amount || 0) - Number(e.reimbursed_amount || 0)), 0))}`, subTrend: '', link: '', prefix: '¥', displayValue: fmt(ongoingEvents.value.reduce((sum, e) => sum + Number(e.invoice_total_amount || 0), 0)) },
+      { key: 'reimburse', variant: 'violet', value: totalRemaining, label: '剩余金额', sub: `剩余率 ${remainingRate}%`, subTrend: Number(remainingRate) < 30 ? 'warn' : Number(remainingRate) > 60 ? 'up' : '', link: '', prefix: '¥', displayValue: fmt(totalRemaining) },
+    ]
+  }
+
+  // 全部项目汇总（包含已结束的）
   const totalRemaining = Math.max(0, s.totalBudget - s.totalAmount)
   const remainingRate = s.totalBudget > 0 ? ((totalRemaining / s.totalBudget) * 100).toFixed(1) : '100.0'
   return [
-    { key: 'events', variant: 'indigo', value: s.totalEvents, label: '项目总数', sub: `${s.ongoingEvents} 个进行中`, subTrend: '', link: '/projects', prefix: '', displayValue: String(s.totalEvents) },
+    { key: 'events', variant: 'indigo', value: s.totalEvents, label: '项目总数', sub: `${s.ongoingEvents} 个进行中 | ${s.totalEvents - s.ongoingEvents} 个已结束`, subTrend: '', link: '/projects', prefix: '', displayValue: String(s.totalEvents) },
     { key: 'records', variant: 'emerald', value: s.totalRecords, label: '记录总数', sub: `发票 ${s.invoiceCount} | 购物 ${s.purchaseCount}`, subTrend: '', link: '/purchases', prefix: '', displayValue: String(s.totalRecords) },
     { key: 'spending', variant: 'amber', value: s.totalAmount, label: '总支出金额', sub: `预算使用率 ${s.budgetUsageRate}%`, subTrend: Number(s.budgetUsageRate) > 80 ? 'warn' : '', link: '', prefix: '¥', displayValue: fmt(s.totalAmount) },
     { key: 'invoice', variant: 'sky', value: s.invoiceTotal, label: '发票总额', sub: `待报销 ¥${fmt(s.pendingReimburse)}`, subTrend: '', link: '', prefix: '¥', displayValue: fmt(s.invoiceTotal) },
@@ -419,7 +520,7 @@ function getReimburseRate(event: any): number {
 }
 
 // Ranking
-const rankingEventFilter = ref<number | null>(null)
+const rankingEventFilter = ref<number | string | null>('ongoing')
 const rankingData = ref<any[]>([])
 const rankingLoading = ref(false)
 const rankingVisible = ref(false)
@@ -467,7 +568,12 @@ async function fetchRanking() {
   try {
     const token = localStorage.getItem('token')
     const params: any = {}
-    if (rankingEventFilter.value) params.event_id = rankingEventFilter.value
+    // 'all' 表示全部项目，'ongoing' 表示进行中项目，数字表示单个项目
+    if (rankingEventFilter.value === 'ongoing') {
+      params.status = 'ongoing'
+    } else if (rankingEventFilter.value && rankingEventFilter.value !== 'all') {
+      params.event_id = rankingEventFilter.value
+    }
     const resp = await $api.get('/events/stats/user-summary', {
       params,
       headers: { Authorization: `Bearer ${token}` }
@@ -727,6 +833,24 @@ onMounted(async () => {
   color: var(--text-1);
   margin: 0 0 0.75rem;
 }
+.section-title.finished-title {
+  margin-top: 1.5rem;
+  color: #6b7280;
+}
+.finished-donut-grid {
+  opacity: 0.85;
+}
+.finished-donut-card {
+  border-left-color: #9ca3af !important;
+  border-color: #e5e7eb;
+}
+.finished-donut-card:hover {
+  opacity: 1;
+}
+.donut-card.finished-donut-card::after {
+  background: radial-gradient(ellipse at 0% 50%, rgba(156,163,175,0.05) 0%, transparent 60%);
+}
+.dc-status-dot.finished { background: #9ca3af; }
 .donut-cards-grid {
   display: flex;
   flex-direction: column;

@@ -7,6 +7,76 @@ import logging
 logger = logging.getLogger(__name__)
 events_bp = Blueprint('events', __name__)
 
+
+def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
+    """记录操作日志"""
+    try:
+        from utils.operation_log import LogService
+        LogService.log(
+            user_id=user_id,
+            username=username,
+            action_type=action_type,
+            action_description=action_description,
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            event_id=event_id,
+            event_name=event_name,
+            detail=detail
+        )
+    except Exception as e:
+        logger.warning(f'记录操作日志失败: {str(e)}')
+
+
+# 字段中文标签（用于操作日志的 description）
+EVENT_FIELD_LABELS = {
+    'event_name': '项目名称',
+    'description': '描述',
+    'total_budget': '预算',
+    'status': '状态',
+    'event_start_time': '开始时间',
+    'event_end_time': '结束时间',
+    'upload_start_time': '上传开始时间',
+    'upload_end_time': '上传结束时间',
+    'leader_id': '负责人',
+}
+
+
+def _normalize_event_value(field, value):
+    """将字段值归一化以便进行变更对比。"""
+    if value is None:
+        return None
+    if field == 'total_budget':
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return value
+    if field in ('event_start_time', 'event_end_time', 'upload_start_time', 'upload_end_time'):
+        if isinstance(value, datetime):
+            return value.isoformat()
+    return value
+
+
+def _format_event_value(field, value):
+    """将字段值格式化为人类可读的描述文本片段。"""
+    if value is None:
+        return '无'
+    if field == 'total_budget':
+        try:
+            return f'{float(value):.2f}'
+        except (TypeError, ValueError):
+            return str(value)
+    if field in ('event_start_time', 'event_end_time', 'upload_start_time', 'upload_end_time'):
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d %H:%M')
+    if field == 'leader_id':
+        user_obj = User.query.get(value)
+        return f'"{user_obj.real_name}"' if user_obj and user_obj.real_name else f'"{value}"'
+    if field in ('event_name', 'description', 'status'):
+        return f'"{value}"'
+    return str(value)
+
+
 @events_bp.route('/events', methods=['POST'])
 @jwt_required()
 def create_event():
@@ -91,6 +161,20 @@ def create_event():
                 db.session.add(creator_member)
 
         db.session.commit()
+
+        # 记录日志
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='create_event',
+            action_description=f'创建项目「{event.event_name}」',
+            target_type='event',
+            target_id=event.event_id,
+            target_name=event.event_name,
+            event_id=event.event_id,
+            event_name=event.event_name,
+            detail={'budget': total_budget, 'description': data.get('description')}
+        )
 
         return jsonify({
             'code': 200,
@@ -238,7 +322,18 @@ def update_event(event_id):
         ensure_event_membership(event_id, int(current_user_id))
 
         data = request.get_json()
-        
+
+        # 在修改前获取旧值，用于日志记录变更详情
+        old_event_name = event.event_name
+        old_description = event.description
+        old_total_budget = float(event.total_budget or 0)
+        old_status = event.status
+        old_event_start_time = event.event_start_time
+        old_event_end_time = event.event_end_time
+        old_upload_start_time = event.upload_start_time
+        old_upload_end_time = event.upload_end_time
+        old_leader_id = event.leader_id
+
         if 'event_name' in data:
             event.event_name = data['event_name']
         if 'description' in data:
@@ -269,10 +364,86 @@ def update_event(event_id):
                     db.session.add(leader_member)
         if 'total_budget' in data:
             event.total_budget = data['total_budget']
-            event.remaining_budget = data['total_budget'] - float(event.reimbursed_amount)
+            reimbursed = float(event.reimbursed_amount or 0)
+            event.remaining_budget = float(data['total_budget']) - reimbursed
+        if 'status' in data and data['status'] is not None:
+            # 数据库枚举值: 'ongoing', 'finished'
+            valid_statuses = ['ongoing', 'finished']
+            new_status = data['status']
+            if new_status in valid_statuses:
+                old_status = event.status
+                event.status = new_status
+                logger.info(f'赛事状态变更: event_id={event_id}, {old_status} -> {new_status}')
+            else:
+                return jsonify({'code': 400, 'message': f'无效的状态值 "{new_status}"，有效值为: {", ".join(valid_statuses)}', 'data': None}), 400
+
+        # 在 commit 前构造变更字典（与真实更新的字段保持一致）
+        changes = {}
+        if 'event_name' in data and data['event_name'] != old_event_name:
+            changes['event_name'] = {'old': old_event_name, 'new': data['event_name']}
+        if 'description' in data and data['description'] != old_description:
+            changes['description'] = {'old': old_description, 'new': data['description']}
+        if 'total_budget' in data:
+            try:
+                new_budget_val = float(data['total_budget'])
+            except (TypeError, ValueError):
+                new_budget_val = data['total_budget']
+            if new_budget_val != old_total_budget:
+                changes['total_budget'] = {'old': old_total_budget, 'new': new_budget_val}
+        if 'status' in data and data['status'] is not None and data['status'] != old_status:
+            changes['status'] = {'old': old_status, 'new': data['status']}
+        if 'event_start_time' in data and data['event_start_time']:
+            new_est = datetime.fromisoformat(data['event_start_time'].replace('Z', '+00:00'))
+            if new_est != old_event_start_time:
+                changes['event_start_time'] = {'old': old_event_start_time, 'new': new_est}
+        if 'event_end_time' in data and data['event_end_time']:
+            new_eet = datetime.fromisoformat(data['event_end_time'].replace('Z', '+00:00'))
+            if new_eet != old_event_end_time:
+                changes['event_end_time'] = {'old': old_event_end_time, 'new': new_eet}
+        if 'upload_start_time' in data and data['upload_start_time']:
+            new_ust = datetime.fromisoformat(data['upload_start_time'].replace('Z', '+00:00'))
+            if new_ust != old_upload_start_time:
+                changes['upload_start_time'] = {'old': old_upload_start_time, 'new': new_ust}
+        if 'upload_end_time' in data and data['upload_end_time']:
+            new_uet = datetime.fromisoformat(data['upload_end_time'].replace('Z', '+00:00'))
+            if new_uet != old_upload_end_time:
+                changes['upload_end_time'] = {'old': old_upload_end_time, 'new': new_uet}
+        if 'leader_id' in data and data['leader_id'] != old_leader_id:
+            changes['leader_id'] = {'old': old_leader_id, 'new': data['leader_id']}
+
+        # 构造 action_description（在 commit 前完成，避免依赖 commit 后的状态）
+        if changes:
+            change_parts = []
+            for field in ['event_name', 'description', 'total_budget', 'status',
+                          'event_start_time', 'event_end_time',
+                          'upload_start_time', 'upload_end_time', 'leader_id']:
+                if field in changes:
+                    label = EVENT_FIELD_LABELS.get(field, field)
+                    old_part = _format_event_value(field, changes[field]['old'])
+                    new_part = _format_event_value(field, changes[field]['new'])
+                    change_parts.append(f'{label} {old_part}→{new_part}')
+            change_text = '、'.join(change_parts)
+            action_desc = f'修改项目「{event.event_name}」: {change_text}'
+        else:
+            action_desc = f'修改项目「{event.event_name}」'
 
         db.session.commit()
-        
+        logger.info(f'赛事更新成功: event_id={event_id}, event_name={event.event_name}, status={event.status}')
+
+        # 记录日志
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='update_event',
+            action_description=action_desc,
+            target_type='event',
+            target_id=event_id,
+            target_name=event.event_name,
+            event_id=event_id,
+            event_name=event.event_name,
+            detail={'changes': changes}
+        )
+
         return jsonify({
             'code': 200,
             'message': 'success',
@@ -280,22 +451,23 @@ def update_event(event_id):
                 'event_id': event.event_id,
                 'event_name': event.event_name,
                 'description': event.description,
-                'status': event.status,
+                'status': event.status or 'ongoing',
                 'event_start_time': event.event_start_time.isoformat() if event.event_start_time else None,
                 'event_end_time': event.event_end_time.isoformat() if event.event_end_time else None,
                 'upload_start_time': event.upload_start_time.isoformat() if event.upload_start_time else None,
                 'upload_end_time': event.upload_end_time.isoformat() if event.upload_end_time else None,
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
-                'total_budget': float(event.total_budget),
-                'reimbursed_amount': float(event.reimbursed_amount),
-                'remaining_budget': float(event.remaining_budget)
+                'total_budget': float(event.total_budget or 0),
+                'reimbursed_amount': float(event.reimbursed_amount or 0),
+                'remaining_budget': float(event.remaining_budget or 0)
             }
         }), 200
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+        logger.error(f'更新赛事失败: event_id={event_id}, error={str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': f'服务器错误: {str(e)}', 'data': None}), 500
 
 @events_bp.route('/events/<int:event_id>', methods=['GET'])
 @jwt_required()
@@ -419,6 +591,20 @@ def delete_event(event_id):
         db.session.commit()
         
         logger.info(f'赛事删除成功: event_id={event_id}, event_name={event.event_name}')
+
+        # 记录日志
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='delete_event',
+            action_description=f'删除项目「{event.event_name}」',
+            target_type='event',
+            target_id=event_id,
+            target_name=event.event_name,
+            event_id=event_id,
+            event_name=event.event_name
+        )
+
         return jsonify({
             'code': 200,
             'message': '项目删除成功',
@@ -530,6 +716,21 @@ def add_event_member(event_id):
         db.session.commit()
         
         logger.info(f'赛事成员添加成功: event_id={event_id}, user_id={user_id}, role={role_in_event}')
+
+        # 记录日志
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='add_member',
+            action_description=f'添加成员「{target_user.real_name}」到项目「{event.event_name}」',
+            target_type='event',
+            target_id=event_id,
+            target_name=event.event_name,
+            event_id=event_id,
+            event_name=event.event_name,
+            detail={'added_user_id': user_id, 'added_user_name': target_user.real_name, 'role': role_in_event}
+        )
+
         return jsonify({
             'code': 200,
             'message': '添加成员成功',
@@ -575,6 +776,22 @@ def remove_event_member(event_id, user_id):
         db.session.commit()
         
         logger.info(f'赛事成员移除成功: event_id={event_id}, user_id={user_id}')
+
+        # 记录日志
+        removed_user = User.query.get(user_id)
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='remove_member',
+            action_description=f'从项目「{event.event_name}」移除成员「{removed_user.real_name if removed_user else str(user_id)}」',
+            target_type='event',
+            target_id=event_id,
+            target_name=event.event_name,
+            event_id=event_id,
+            event_name=event.event_name,
+            detail={'removed_user_id': user_id}
+        )
+
         return jsonify({
             'code': 200,
             'message': '移除成员成功',
@@ -625,6 +842,22 @@ def update_event_member(event_id, user_id):
         db.session.commit()
 
         logger.info(f'赛事成员更新成功: event_id={event_id}, user_id={user_id}, role={member.role_in_event}')
+
+        # 记录日志
+        target_user = User.query.get(user_id)
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='update_member_role',
+            action_description=f'修改项目「{event.event_name}」成员「{target_user.real_name if target_user else str(user_id)}」的角色为{role_in_event}',
+            target_type='event',
+            target_id=event_id,
+            target_name=event.event_name,
+            event_id=event_id,
+            event_name=event.event_name,
+            detail={'target_user_id': user_id, 'new_role': role_in_event}
+        )
+
         return jsonify({
             'code': 200,
             'message': '更新成员成功',
@@ -652,6 +885,7 @@ def get_user_summary():
             return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
 
         event_id = request.args.get('event_id', type=int)
+        status = request.args.get('status')  # 'ongoing', 'finished', or None for all
 
         # Build a list of event IDs the user can access
         if event_id:
@@ -659,6 +893,12 @@ def get_user_summary():
             if not event:
                 return jsonify({'code': 404, 'message': '赛事不存在', 'data': None}), 404
             event_ids = [event_id]
+        elif status == 'ongoing':
+            events = Event.query.filter_by(is_deleted=False, status='ongoing').all()
+            event_ids = [e.event_id for e in events]
+        elif status == 'finished':
+            events = Event.query.filter_by(is_deleted=False, status='finished').all()
+            event_ids = [e.event_id for e in events]
         else:
             # 所有用户均可查看全部比赛的消费排名
             events = Event.query.filter_by(is_deleted=False).all()

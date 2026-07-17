@@ -104,6 +104,7 @@ def create_app():
     from routes.purchase_records import purchase_records_bp
     from routes.system import system_bp
     from routes.export import export_bp
+    from routes.operation_logs import operation_logs_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(events_bp, url_prefix='/api')
@@ -114,6 +115,7 @@ def create_app():
     app.register_blueprint(purchase_records_bp, url_prefix='/api')
     app.register_blueprint(system_bp, url_prefix='/api')
     app.register_blueprint(export_bp, url_prefix='/api')
+    app.register_blueprint(operation_logs_bp, url_prefix='/api/operation-logs')
     logger.info('蓝图注册完成')
 
     from routes.export import init_export_service

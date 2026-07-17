@@ -4,7 +4,8 @@
       <button @click="goBack" class="back-button">← 返回</button>
       <h1 class="page-title">{{ event?.event_name || '购买记录' }}</h1>
       <div class="header-actions" v-if="isEventMember">
-        <button @click="showAddModal = true" class="action-button primary">+ 添加记录</button>
+        <button @click="showAddModal = true" class="action-button primary" :disabled="event?.status === 'finished'">+ 添加记录</button>
+        <span v-if="event?.status === 'finished'" class="status-warning">⚠️ 项目已结束，无法添加记录</span>
         <button @click="viewMembers" class="action-button members">👥 人员管理</button>
         <button @click="exportData" class="action-button export">📤 导出数据</button>
         <button @click="batchReimburse" class="action-button reimburse" :disabled="selectedRecords.length === 0" v-if="canReimburse">
@@ -148,7 +149,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="record in filteredRecords" :key="record.display_id || record.record_id" :class="{ 'has-invoice': record.has_invoice, 'is-invoice-record': record.record_type === 'invoice' }">
+          <tr v-for="record in filteredRecords" :key="record.display_id || record.record_id" :class="{ 'has-invoice': record.has_invoice, 'is-invoice-record': record.record_type === 'invoice', 'highlight-record': highlightRecordId && (record.record_id === highlightRecordId || record.display_id === highlightRecordId) }">
             <td class="checkbox-col">
               <input type="checkbox" :value="record.display_id || record.record_id" v-model="selectedRecords" />
             </td>
@@ -531,7 +532,7 @@
                       <select v-model="transferTargetEventId" :disabled="transferLoading">
                         <option value="">-- 请选择目标比赛 --</option>
                         <option v-for="ev in transferEvents" :key="ev.event_id" :value="ev.event_id">
-                          {{ ev.event_name }}{{ ev.status === 'completed' ? ' (已结束)' : '' }}
+                          {{ ev.event_name }}{{ ev.status === 'finished' ? ' (已结束)' : '' }}
                         </option>
                       </select>
                     </div>
@@ -713,7 +714,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({ layout: 'default' })
@@ -724,6 +725,7 @@ const router = useRouter()
 const eventStore = useEventStore()
 
 const eventId = computed(() => route.params.id)
+const highlightRecordId = ref(null)
 const event = ref(null)
 const records = ref([])
 const stats = ref(null)
@@ -1155,10 +1157,10 @@ const isAmountLocked = computed(() => {
 })
 
 const selectAll = computed({
-  get: () => selectedRecords.value.length === records.value.length && records.value.length > 0,
+  get: () => filteredRecords.value.length > 0 && selectedRecords.value.length === filteredRecords.value.length,
   set: (val) => {
     if (val) {
-      selectedRecords.value = records.value.map(r => r.record_id)
+      selectedRecords.value = filteredRecords.value.map(r => r.display_id || r.record_id)
     } else {
       selectedRecords.value = []
     }
@@ -1169,8 +1171,23 @@ onMounted(async () => {
   const userStr = localStorage.getItem('user')
   currentUser.value = userStr ? JSON.parse(userStr) : null
 
+  // 获取高亮记录ID（从URL参数）
+  highlightRecordId.value = route.query.highlight ? Number(route.query.highlight) : null
+
   await loadEvent()
   await loadRecords()
+})
+
+// 当高亮记录加载后，自动滚动到该记录
+watch([records, highlightRecordId], () => {
+  if (highlightRecordId.value && records.value.length > 0) {
+    nextTick(() => {
+      const el = document.querySelector('.highlight-record')
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    })
+  }
 })
 
 watch(showPersonalOnly, () => {
@@ -1233,8 +1250,8 @@ const loadRecords = async () => {
       })))
     }
     
-    if (invoiceResponse.data.code === 200 && invoiceResponse.data.data?.invoices) {
-      allRecords = allRecords.concat(invoiceResponse.data.data.invoices.map(inv => ({
+    if (invoiceResponse.data.code === 200 && invoiceResponse.data.data?.data) {
+      allRecords = allRecords.concat(invoiceResponse.data.data.data.map(inv => ({
         record_id: inv.invoice_id,
         item_name: inv.project_name || inv.file_name,
         purchase_platform: '发票上传',
@@ -2120,13 +2137,16 @@ const deleteSingle = async (record) => {
 const deleteSelected = async () => {
   if (!confirm(`确定要删除选中的 ${selectedRecords.value.length} 条记录吗？`)) return
   
+  let successCount = 0
   for (const id of [...selectedRecords.value]) {
+    const record = records.value.find(r => (r.display_id || r.record_id) == id || r.record_id == id)
+    if (!record) continue
     try {
-      const token = localStorage.getItem('token')
-      await $api.delete(`/records/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-    } catch (e) {}
+      await $api.delete(`/records/${record.record_id}`)
+      successCount++
+    } catch (e) {
+      console.error('删除失败:', e)
+    }
   }
   
   selectedRecords.value = []
@@ -2138,10 +2158,10 @@ const reimburseRecord = async (record) => {
   if (!confirm(`确定要报销"${record.item_name}"吗？金额：¥${parseFloat(record.total_amount || record.amount).toFixed(2)}`)) return
   
   try {
-    const token = localStorage.getItem('token')
-    await $api.post(`/records/${record.record_id}/reimburse`, {}, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    const endpoint = record.record_type === 'invoice'
+      ? `/invoices/${record.record_id}/reimburse`
+      : `/records/${record.record_id}/reimburse`
+    await $api.post(endpoint, {})
     await loadRecords()
     eventStore.refreshAfterMutation(Number(eventId.value))
   } catch (e) {
@@ -2150,21 +2170,86 @@ const reimburseRecord = async (record) => {
 }
 
 const batchReimburse = async () => {
-  if (!confirm(`确定要批量报销选中的 ${selectedRecords.value.length} 条记录吗？`)) return
+  const count = selectedRecords.value.length
+  if (count === 0) {
+    alert('请先选择要报销的记录')
+    return
+  }
+  if (!confirm(`确定要批量报销选中的 ${count} 条记录吗？`)) return
+  
+  // 先检查是否有可以报销的记录
+  const validRecords = records.value.filter(r => 
+    selectedRecords.value.includes(r.display_id || r.record_id) && 
+    r.has_invoice && 
+    !r.is_reimbursed
+  )
+  
+  if (validRecords.length === 0) {
+    const hasInvoiceless = records.value.some(r => 
+      selectedRecords.value.includes(r.display_id || r.record_id) && 
+      !r.has_invoice
+    )
+    const allReimbursed = records.value.some(r => 
+      selectedRecords.value.includes(r.display_id || r.record_id) && 
+      r.is_reimbursed
+    )
+    
+    if (hasInvoiceless) {
+      alert('报销失败：所选记录中没有上传发票，无法报销\n\n请先为购买记录上传发票后再试')
+    } else if (allReimbursed) {
+      alert('报销失败：所选记录已全部报销')
+    } else {
+      alert('报销失败：没有可报销的记录')
+    }
+    return
+  }
+  
+  let successCount = 0
+  let failCount = 0
+  let skipCount = 0
   
   for (const id of [...selectedRecords.value]) {
-    const record = records.value.find(r => r.record_id === id)
-    if (record?.has_invoice && !record.is_reimbursed) {
-      try {
-        const token = localStorage.getItem('token')
-        await $api.post(`/records/${id}/reimburse`, {}, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-      } catch (e) {}
+    const record = records.value.find(r => 
+      String(r.display_id) === String(id) || String(r.record_id) === String(id)
+    )
+    if (!record) {
+      skipCount++
+      continue
+    }
+    
+    if (!record.has_invoice) {
+      skipCount++
+      continue
+    }
+    if (record.is_reimbursed) {
+      skipCount++
+      continue
+    }
+    
+    try {
+      const endpoint = record.record_type === 'invoice'
+        ? `/invoices/${record.record_id}/reimburse`
+        : `/records/${record.record_id}/reimburse`
+      const resp = await $api.post(endpoint, {})
+      if (resp.data.code === 200) {
+        successCount++
+        record.is_reimbursed = true
+      } else {
+        failCount++
+        alert(`报销失败: ${resp.data.message}`)
+      }
+    } catch (e) {
+      failCount++
+      alert(`请求失败: ${e.message || e}`)
     }
   }
   
   selectedRecords.value = []
+  
+  if (successCount > 0 || failCount > 0) {
+    alert(`批量报销完成！成功 ${successCount} 条，失败 ${failCount} 条${skipCount > 0 ? `，跳过 ${skipCount} 条` : ''}`)
+  }
+  
   await loadRecords()
   eventStore.refreshAfterMutation(Number(eventId.value))
 }
@@ -2236,6 +2321,19 @@ const formatMoney = (val) => {
 .action-button.reimburse { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); }
 .action-button.danger { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); }
 .action-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.status-warning {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0.5rem 0.8rem;
+  background: #fef3cd;
+  color: #856404;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #ffc107;
+}
 
 .stats-panel {
   display: grid;
@@ -2403,6 +2501,25 @@ const formatMoney = (val) => {
 .records-table tr:hover { background: #fafbfc; }
 .records-table tr.has-invoice { background: #fffbf0; }
 .records-table tr.is-invoice-record { background: #f0f7ff; }
+.records-table tr.highlight-record {
+  background: #fff3cd !important;
+  box-shadow: inset 0 0 0 2px #ffc107;
+  animation: highlight-fade 4s ease-out forwards;
+}
+@keyframes highlight-fade {
+  0% {
+    background: #fff3cd;
+    box-shadow: inset 0 0 0 3px #ffc107;
+  }
+  20% {
+    background: #fff3cd;
+    box-shadow: inset 0 0 0 3px #ffc107;
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
 
 .checkbox-col { width: 40px; text-align: center; }
 .platform-badge { 

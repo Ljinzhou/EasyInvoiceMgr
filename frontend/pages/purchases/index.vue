@@ -3,16 +3,13 @@
     <div class="page-header">
       <h1 class="page-title">🛒 购买记录</h1>
       <div class="header-actions">
-        <select v-model="filterEvent" class="event-filter" @change="loadEvents">
-          <option value="">全部项目</option>
-          <option v-for="e in events" :key="e.event_id" :value="e.event_id">{{ e.event_name }}</option>
-        </select>
         <NuxtLink to="/projects" class="action-button primary">+ 新建项目</NuxtLink>
       </div>
     </div>
 
     <!-- 总览统计 -->
     <div class="overview-stats">
+      <p class="stats-note">（包含所有项目数据）</p>
       <div class="stat-card">
         <span class="stat-icon">💰</span>
         <div class="stat-info">
@@ -51,11 +48,11 @@
     </div>
 
     <!-- 已加入的比赛 -->
-    <div v-if="joinedEvents.length > 0" class="events-section">
-      <h2 class="section-label joined-label">✅ 已加入的比赛 ({{ joinedEvents.length }})</h2>
+    <div v-if="joinedOngoingEvents.length > 0" class="events-section">
+      <h2 class="section-label joined-label">✅ 已加入的比赛 - 进行中 ({{ joinedOngoingEvents.length }})</h2>
       <div class="events-grid">
         <div
-          v-for="ev in joinedEvents"
+          v-for="ev in joinedOngoingEvents"
           :key="ev.event_id"
           class="event-card"
           @click="$router.push(`/purchases/${ev.event_id}`)"
@@ -89,12 +86,51 @@
       </div>
     </div>
 
-    <!-- 未加入的比赛 -->
-    <div v-if="notJoinedEvents.length > 0" class="events-section">
-      <h2 class="section-label not-joined-label">🔒 未加入的比赛 ({{ notJoinedEvents.length }})</h2>
+    <!-- 已结束的比赛（已加入） -->
+    <div v-if="joinedFinishedEvents.length > 0" class="events-section">
+      <h2 class="section-label finished-label">🏁 已结束的比赛 ({{ joinedFinishedEvents.length }})</h2>
       <div class="events-grid">
         <div
-          v-for="ev in notJoinedEvents"
+          v-for="ev in joinedFinishedEvents"
+          :key="ev.event_id"
+          class="event-card"
+          @click="$router.push(`/purchases/${ev.event_id}`)"
+        >
+          <div class="card-header finished-header">
+            <h3 class="event-name">{{ ev.event_name || '未命名项目' }}</h3>
+            <span class="event-status finished">已结束</span>
+          </div>
+          <div class="card-body">
+            <div class="card-row">
+              <span class="label">负责人：</span>
+              <span class="value">{{ ev.leader_name || '-' }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">预算：</span>
+              <span class="value">¥{{ formatMoney(ev.total_budget) }}</span>
+            </div>
+            <div class="card-row highlight">
+              <span class="label">已花费：</span>
+              <span class="value amount">¥{{ formatMoney(ev.spent_amount || 0) }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">记录数：</span>
+              <span class="value">{{ ev.voucher_count || 0 }} 条</span>
+            </div>
+          </div>
+          <div class="card-footer">
+            <button class="view-btn">查看详情 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 未加入的比赛（进行中） -->
+    <div v-if="notJoinedOngoingEvents.length > 0" class="events-section">
+      <h2 class="section-label not-joined-label">🔒 未加入的比赛 - 进行中 ({{ notJoinedOngoingEvents.length }})</h2>
+      <div class="events-grid">
+        <div
+          v-for="ev in notJoinedOngoingEvents"
           :key="ev.event_id"
           class="event-card not-joined-card"
           @click="$router.push(`/purchases/${ev.event_id}`)"
@@ -128,18 +164,57 @@
       </div>
     </div>
 
+    <!-- 未加入的比赛（已结束） -->
+    <div v-if="notJoinedFinishedEvents.length > 0" class="events-section">
+      <h2 class="section-label finished-label">🔒 未加入的比赛 - 已结束 ({{ notJoinedFinishedEvents.length }})</h2>
+      <div class="events-grid">
+        <div
+          v-for="ev in notJoinedFinishedEvents"
+          :key="ev.event_id"
+          class="event-card not-joined-card"
+          @click="$router.push(`/purchases/${ev.event_id}`)"
+        >
+          <div class="card-header not-joined-finished-header">
+            <h3 class="event-name">{{ ev.event_name || '未命名项目' }}</h3>
+            <span class="event-status finished">已结束</span>
+          </div>
+          <div class="card-body">
+            <div class="card-row">
+              <span class="label">负责人：</span>
+              <span class="value">{{ ev.leader_name || '-' }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">预算：</span>
+              <span class="value">¥{{ formatMoney(ev.total_budget) }}</span>
+            </div>
+            <div class="card-row highlight">
+              <span class="label">已花费：</span>
+              <span class="value amount">¥{{ formatMoney(ev.spent_amount || 0) }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">记录数：</span>
+              <span class="value">{{ ev.voucher_count || 0 }} 条</span>
+            </div>
+          </div>
+          <div class="card-footer">
+            <button class="view-btn">仅查看 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="events.length === 0" class="empty-state">
       <span class="empty-icon">🛒</span>
       <p>暂无项目数据</p>
       <NuxtLink to="/events/create" class="create-link">创建第一个项目</NuxtLink>
     </div>
 
-    <!-- 快速添加记录入口 -->
-    <div v-if="events.length > 0" class="quick-add-section">
+    <!-- 快速添加记录入口（只显示进行中的项目） -->
+    <div v-if="ongoingEvents.length > 0" class="quick-add-section">
       <h2>快速添加记录</h2>
       <select v-model="quickAddEventId" class="quick-select">
         <option value="">选择项目...</option>
-        <option v-for="e in events" :key="e.event_id" :value="e.event_id">{{ e.event_name }}</option>
+        <option v-for="e in ongoingEvents" :key="e.event_id" :value="e.event_id">{{ e.event_name }}</option>
       </select>
       <button 
         @click="goToPurchasePage" 
@@ -159,7 +234,6 @@ definePageMeta({ layout: 'default' })
 const eventStore = useEventStore()
 const router = useRouter()
 
-const filterEvent = ref('')
 const quickAddEventId = ref('')
 
 const currentUser = ref(null)
@@ -182,10 +256,11 @@ function isEventMember(ev) {
 const joinedEvents = computed(() => events.value.filter(e => isEventMember(e)))
 const notJoinedEvents = computed(() => events.value.filter(e => !isEventMember(e)))
 
-const filteredEvents = computed(() => {
-  if (!filterEvent.value) return events.value
-  return events.value.filter((e) => e.event_id == filterEvent.value)
-})
+const joinedOngoingEvents = computed(() => joinedEvents.value.filter(e => e.status === 'ongoing'))
+const joinedFinishedEvents = computed(() => joinedEvents.value.filter(e => e.status === 'finished'))
+const notJoinedOngoingEvents = computed(() => notJoinedEvents.value.filter(e => e.status === 'ongoing'))
+const notJoinedFinishedEvents = computed(() => notJoinedEvents.value.filter(e => e.status === 'finished'))
+const ongoingEvents = computed(() => events.value.filter(e => e.status === 'ongoing'))
 
 onMounted(async () => {
   const userStr = localStorage.getItem('user')
@@ -237,15 +312,6 @@ const formatMoney = (val) => {
   align-items: center;
 }
 
-.event-filter {
-  padding: 0.7rem 1rem;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-  cursor: pointer;
-}
-
 .action-button {
   padding: 0.7rem 1.5rem;
   border: none;
@@ -265,6 +331,16 @@ const formatMoney = (val) => {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   margin-bottom: 2rem;
+  position: relative;
+}
+
+.stats-note {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 12px;
+  color: #7f8c8d;
+  margin: 0;
 }
 
 .stat-card {
@@ -344,8 +420,14 @@ const formatMoney = (val) => {
   background: rgba(255,255,255,0.2);
   color: white;
 }
+.event-status.finished { background: rgba(231, 76, 60, 0.9); }
 .event-status.completed { background: rgba(39, 174, 96, 0.9); }
 .event-status.archived { background: rgba(149, 165, 166, 0.9); }
+
+.finished-header { background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%) !important; }
+.not-joined-finished-header { background: linear-gradient(135deg, #bdc3c7 0%, #95a5a6 100%) !important; }
+
+.section-label.finished-label { color: #7f8c8d; border-bottom-color: #bdc3c7; }
 
 .card-body { padding: 16px 20px; }
 

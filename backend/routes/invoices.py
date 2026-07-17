@@ -30,6 +30,78 @@ import tempfile
 logger = logging.getLogger(__name__)
 invoices_bp = Blueprint('invoices', __name__)
 
+
+def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
+    """记录操作日志"""
+    try:
+        from utils.operation_log import LogService
+        LogService.log(
+            user_id=user_id,
+            username=username,
+            action_type=action_type,
+            action_description=action_description,
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            event_id=event_id,
+            event_name=event_name,
+            detail=detail
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f'记录操作日志失败: {str(e)}')
+
+
+# 字段中文标签（用于操作日志的 description）
+INVOICE_FIELD_LABELS = {
+    'invoice_type': '发票类型',
+    'project_name': '项目名称',
+    'amount': '金额',
+    'total_amount': '价税合计',
+    'invoice_date': '开票日期',
+    'invoice_number': '发票号码',
+    'remarks': '备注',
+}
+
+
+def _format_invoice_value(field, value):
+    """将字段值格式化为人类可读的描述文本片段。"""
+    if value is None or value == '':
+        return '空'
+    if field in ('amount', 'total_amount'):
+        try:
+            return f'{float(value):.2f}'
+        except (TypeError, ValueError):
+            return str(value)
+    if field == 'invoice_date':
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d')
+        try:
+            if hasattr(value, 'strftime'):
+                return value.strftime('%Y-%m-%d')
+        except Exception:
+            pass
+    if field in ('invoice_type', 'project_name', 'invoice_number', 'remarks'):
+        return f'"{value}"'
+    return str(value)
+
+
+def _invoice_values_equal(field, old_value, new_value):
+    """比较两个发票字段值是否变更。"""
+    if field in ('amount', 'total_amount'):
+        try:
+            return float(old_value or 0) == float(new_value or 0)
+        except (TypeError, ValueError):
+            return str(old_value) == str(new_value)
+    if field == 'invoice_date':
+        old_str = old_value.strftime('%Y-%m-%d') if hasattr(old_value, 'strftime') and old_value else str(old_value or '')
+        new_str = str(new_value) if new_value else ''
+        return old_str == new_str
+    if old_value is None and (new_value is None or new_value == ''):
+        return True
+    return str(old_value if old_value is not None else '') == str(new_value if new_value is not None else '')
+
+
 @invoices_bp.route('/invoices', methods=['GET'])
 @jwt_required()
 def get_invoices():
@@ -223,6 +295,24 @@ def create_invoice():
         event.invoice_total_amount += invoice.amount
         
         db.session.commit()
+
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='create_invoice',
+            action_description=f'上传发票「{invoice.invoice_number or invoice.file_name}」，项目「{invoice.project_name or event.event_name}」',
+            target_type='invoice',
+            target_id=invoice.invoice_id,
+            target_name=invoice.invoice_number or invoice.file_name,
+            event_id=event.event_id,
+            event_name=event.event_name,
+            detail={
+                'file_name': invoice.file_name,
+                'invoice_number': invoice.invoice_number,
+                'project_name': invoice.project_name,
+                'amount': float(invoice.amount)
+            }
+        )
         
         logger.info(f'发票创建成功: invoice_id={invoice.invoice_id}')
         
@@ -284,6 +374,24 @@ def delete_invoice(invoice_id):
             storage_manager.delete_file(invoice.image_url)
         
         db.session.commit()
+
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='delete_invoice',
+            action_description=f'删除发票「{invoice.invoice_number or invoice.file_name}」，项目「{invoice.project_name or (event.event_name if event else "未知项目")}」',
+            target_type='invoice',
+            target_id=invoice_id,
+            target_name=invoice.invoice_number or invoice.file_name,
+            event_id=invoice.event_id,
+            event_name=event.event_name if event else None,
+            detail={
+                'file_name': invoice.file_name,
+                'invoice_number': invoice.invoice_number,
+                'project_name': invoice.project_name,
+                'amount': float(invoice.amount)
+            }
+        )
         
         logger.info(f'发票删除成功: invoice_id={invoice_id}')
         return jsonify({
@@ -347,6 +455,28 @@ def approve_invoice(invoice_id):
                 event.remaining_budget = event.total_budget - event.reimbursed_amount
         
         db.session.commit()
+
+        event = Event.query.get(invoice.event_id)
+        action_type = 'approve_invoice' if status == 'approved' else 'reject_invoice'
+        action_name = '审批通过' if status == 'approved' else '拒绝'
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type=action_type,
+            action_description=f'{action_name}发票「{invoice.invoice_number or invoice.file_name}」，项目「{invoice.project_name or (event.event_name if event else "未知项目")}」',
+            target_type='invoice',
+            target_id=invoice_id,
+            target_name=invoice.invoice_number or invoice.file_name,
+            event_id=invoice.event_id,
+            event_name=event.event_name if event else None,
+            detail={
+                'status': status,
+                'rejection_reason': rejection_reason,
+                'invoice_number': invoice.invoice_number,
+                'project_name': invoice.project_name,
+                'amount': float(invoice.amount)
+            }
+        )
         
         logger.info(f'发票审核成功: invoice_id={invoice_id}, status={status}')
         return jsonify({
@@ -542,21 +672,29 @@ def update_invoice(invoice_id):
         
         data = request.get_json()
         logger.info(f'更新数据: {data}')
-        
+
         from decimal import Decimal
-        
+
+        # 在 commit 前获取旧值，用于日志记录变更详情
+        old_invoice_type = invoice.invoice_type
+        old_project_name = invoice.project_name
+        old_amount = float(invoice.amount) if invoice.amount is not None else None
+        old_invoice_date = invoice.invoice_date
+        old_invoice_number = invoice.invoice_number
+        old_remarks = invoice.remarks
+
         if 'invoice_type' in data:
             invoice.invoice_type = data['invoice_type']
         if 'project_name' in data and data['project_name']:
             invoice.project_name = data['project_name']
         if 'amount' in data:
             new_amount = Decimal(str(data['amount']))
-            old_amount = invoice.amount
+            old_amount_dec = invoice.amount
             event = Event.query.get(invoice.event_id)
             if event:
-                event.invoice_total_amount = event.invoice_total_amount - old_amount + new_amount
+                event.invoice_total_amount = event.invoice_total_amount - old_amount_dec + new_amount
                 if invoice.status == 'approved':
-                    event.reimbursed_amount = event.reimbursed_amount - old_amount + new_amount
+                    event.reimbursed_amount = event.reimbursed_amount - old_amount_dec + new_amount
                     event.remaining_budget = event.total_budget - event.reimbursed_amount
             invoice.amount = new_amount
         if 'invoice_date' in data and data['invoice_date']:
@@ -565,8 +703,61 @@ def update_invoice(invoice_id):
             invoice.invoice_number = data['invoice_number']
         if 'remarks' in data:
             invoice.remarks = data['remarks']
-        
+
+        # 在 commit 前构造变更字典
+        changes = {}
+        if 'invoice_type' in data and not _invoice_values_equal('invoice_type', old_invoice_type, data['invoice_type']):
+            changes['invoice_type'] = {'old': old_invoice_type, 'new': data['invoice_type']}
+        if 'project_name' in data and not _invoice_values_equal('project_name', old_project_name, data['project_name']):
+            changes['project_name'] = {'old': old_project_name, 'new': data['project_name']}
+        if 'amount' in data:
+            try:
+                new_amount_val = float(Decimal(str(data['amount'])))
+            except Exception:
+                new_amount_val = data['amount']
+            if not _invoice_values_equal('amount', old_amount, new_amount_val):
+                changes['amount'] = {'old': old_amount, 'new': new_amount_val}
+        if 'invoice_date' in data and data['invoice_date']:
+            new_date = datetime.strptime(data['invoice_date'], '%Y-%m-%d').date()
+            if not _invoice_values_equal('invoice_date', old_invoice_date, new_date):
+                changes['invoice_date'] = {'old': old_invoice_date, 'new': new_date}
+        if 'invoice_number' in data and not _invoice_values_equal('invoice_number', old_invoice_number, data['invoice_number']):
+            changes['invoice_number'] = {'old': old_invoice_number, 'new': data['invoice_number']}
+        if 'remarks' in data and not _invoice_values_equal('remarks', old_remarks, data['remarks']):
+            changes['remarks'] = {'old': old_remarks, 'new': data['remarks']}
+
+        # 构造 action_description（在 commit 前完成）
+        event = Event.query.get(invoice.event_id)
+        target_name = invoice.invoice_number or invoice.file_name
+        event_name_str = event.event_name if event else '未知项目'
+        if changes:
+            change_parts = []
+            for field in ['invoice_type', 'project_name', 'amount', 'total_amount',
+                          'invoice_date', 'invoice_number', 'remarks']:
+                if field in changes:
+                    label = INVOICE_FIELD_LABELS.get(field, field)
+                    old_part = _format_invoice_value(field, changes[field]['old'])
+                    new_part = _format_invoice_value(field, changes[field]['new'])
+                    change_parts.append(f'{label} {old_part}→{new_part}')
+            change_text = '、'.join(change_parts)
+            action_desc = f'修改发票「{target_name}」，项目「{invoice.project_name or event_name_str}」: {change_text}'
+        else:
+            action_desc = f'修改发票「{target_name}」，项目「{invoice.project_name or event_name_str}」'
+
         db.session.commit()
+
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='update_invoice',
+            action_description=action_desc,
+            target_type='invoice',
+            target_id=invoice_id,
+            target_name=target_name,
+            event_id=invoice.event_id,
+            event_name=event_name_str if event else None,
+            detail={'changes': changes}
+        )
         
         logger.info(f'发票更新成功: invoice_id={invoice_id}')
         return jsonify({
@@ -597,6 +788,7 @@ def batch_reimburse_invoices():
             return jsonify({'code': 400, 'message': '请选择要报销的发票', 'data': None}), 400
         
         count = 0
+        reimbursed_invoices = []
         for iid in invoice_ids:
             invoice = Invoice.query.filter_by(invoice_id=iid, is_deleted=False).first()
             if invoice and invoice.status == 'approved' and not invoice.is_reimbursed:
@@ -608,9 +800,41 @@ def batch_reimburse_invoices():
                     event.reimbursed_amount += invoice.amount
                     event.remaining_budget = event.total_budget - event.reimbursed_amount
                 
+                reimbursed_invoices.append({
+                    'invoice_id': invoice.invoice_id,
+                    'invoice_number': invoice.invoice_number,
+                    'file_name': invoice.file_name,
+                    'project_name': invoice.project_name,
+                    'event_id': invoice.event_id,
+                    'event_name': event.event_name if event else None,
+                    'amount': float(invoice.amount)
+                })
                 count += 1
         
         db.session.commit()
+
+        event_ids = {item['event_id'] for item in reimbursed_invoices}
+        event_names = sorted({
+            item['event_name'] for item in reimbursed_invoices if item['event_name']
+        })
+        invoice_names = [
+            item['invoice_number'] or item['file_name'] for item in reimbursed_invoices
+        ]
+        invoice_summary = f'「{"、".join(invoice_names)}」' if invoice_names else ''
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='batch_reimburse_invoices',
+            action_description=f'批量报销 {count} 张发票{invoice_summary}' + (f'，项目「{"、".join(event_names)}」' if event_names else ''),
+            target_type='invoice',
+            event_id=next(iter(event_ids)) if len(event_ids) == 1 else None,
+            event_name=event_names[0] if len(event_names) == 1 else None,
+            detail={
+                'requested_invoice_ids': invoice_ids,
+                'reimbursed_count': count,
+                'invoices': reimbursed_invoices
+            }
+        )
         
         return jsonify({
             'code': 200,
@@ -655,6 +879,24 @@ def reimburse_invoice(invoice_id):
             event.remaining_budget = event.total_budget - event.reimbursed_amount
         
         db.session.commit()
+
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='reimburse_invoice',
+            action_description=f'报销发票「{invoice.invoice_number or invoice.file_name}」，项目「{invoice.project_name or (event.event_name if event else "未知项目")}」',
+            target_type='invoice',
+            target_id=invoice_id,
+            target_name=invoice.invoice_number or invoice.file_name,
+            event_id=invoice.event_id,
+            event_name=event.event_name if event else None,
+            detail={
+                'invoice_number': invoice.invoice_number,
+                'project_name': invoice.project_name,
+                'amount': float(invoice.amount),
+                'reimbursed_at': invoice.reimbursed_at.isoformat() if invoice.reimbursed_at else None
+            }
+        )
         
         return jsonify({
             'code': 200,

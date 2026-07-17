@@ -16,6 +16,26 @@ system_bp = Blueprint('system', __name__)
 ENCRYPTED_KEYS = {'ai_api_key', 'summary_ai_api_key'}
 
 
+def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
+    """记录操作日志"""
+    try:
+        from utils.operation_log import LogService
+        LogService.log(
+            user_id=user_id,
+            username=username,
+            action_type=action_type,
+            action_description=action_description,
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            event_id=event_id,
+            event_name=event_name,
+            detail=detail
+        )
+    except Exception as e:
+        logger.warning(f'记录操作日志失败: {str(e)}')
+
+
 def _get_version():
     """从 VERSION 文件读取应用版本号。"""
     version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'VERSION')
@@ -216,6 +236,22 @@ def update_system_config():
 
         db.session.commit()
         logger.info(f'管理员 {admin_id} 更新了系统配置: {updated_keys}')
+
+        admin_user = db.session.get(User, admin_id)
+        _log_operation(
+            user_id=int(admin_id),
+            username=admin_user.username if admin_user else str(admin_id),
+            action_type='update_config',
+            action_description=f'更新系统配置：{", ".join(updated_keys) if updated_keys else "(无变更)"}',
+            target_type='system_config',
+            target_id=None,
+            target_name=','.join(updated_keys),
+            detail={
+                'updated_keys': updated_keys,
+                'count': len(updated_keys)
+            }
+        )
+
         return jsonify({
             'code': 200,
             'message': '配置保存成功',
@@ -360,6 +396,22 @@ def manual_backup():
     thread = threading.Thread(target=service.run_backup, args=(record.id,), daemon=True)
     thread.start()
 
+    backup_admin = db.session.get(User, admin_id)
+    _log_operation(
+        user_id=int(admin_id),
+        username=backup_admin.username if backup_admin else str(admin_id),
+        action_type='backup',
+        action_description=f'触发手动备份（备份ID: {record.id}）',
+        target_type='backup',
+        target_id=record.id,
+        target_name=f'backup-{record.id}',
+        detail={
+            'backup_id': record.id,
+            'backup_type': 'manual',
+            'backup_scope': 'full'
+        }
+    )
+
     return jsonify({
         'code': 200,
         'message': '备份任务已创建',
@@ -455,8 +507,29 @@ def delete_backup(backup_id):
         except Exception as e:
             logger.warning(f'删除备份文件失败: {record.file_path}, error={str(e)}')
 
+    backup_id_for_log = record.id
+    backup_type_for_log = record.backup_type
+    backup_scope_for_log = record.backup_scope
+
     db.session.delete(record)
     db.session.commit()
+
+    del_admin_id = get_jwt_identity()
+    del_admin = db.session.get(User, del_admin_id)
+    _log_operation(
+        user_id=int(del_admin_id),
+        username=del_admin.username if del_admin else str(del_admin_id),
+        action_type='delete_backup',
+        action_description=f'删除备份记录（ID: {backup_id_for_log}）',
+        target_type='backup',
+        target_id=backup_id_for_log,
+        target_name=f'backup-{backup_id_for_log}',
+        detail={
+            'backup_id': backup_id_for_log,
+            'backup_type': backup_type_for_log,
+            'backup_scope': backup_scope_for_log
+        }
+    )
 
     return jsonify({'code': 200, 'message': '备份已删除'})
 
@@ -498,6 +571,21 @@ def restore_backup(backup_id):
 
     admin_id = get_jwt_identity()
     logger.warning(f'管理员 {admin_id} 发起数据恢复: 备份id={backup_id}')
+
+    restore_admin = db.session.get(User, admin_id)
+    _log_operation(
+        user_id=int(admin_id),
+        username=restore_admin.username if restore_admin else str(admin_id),
+        action_type='restore_backup',
+        action_description=f'从备份恢复数据（备份ID: {backup_id}）',
+        target_type='backup',
+        target_id=backup_id,
+        target_name=f'backup-{backup_id}',
+        detail={
+            'backup_id': backup_id,
+            'restore_type': 'from_record'
+        }
+    )
 
     return jsonify({
         'code': 200,
@@ -721,6 +809,22 @@ def test_model():
             body = resp.json()
             if 'choices' in body and len(body['choices']) > 0:
                 reply = body['choices'][0].get('message', {}).get('content', '')
+                tm_admin_id = get_jwt_identity()
+                tm_admin = db.session.get(User, tm_admin_id)
+                _log_operation(
+                    user_id=int(tm_admin_id),
+                    username=tm_admin.username if tm_admin else str(tm_admin_id),
+                    action_type='test_model',
+                    action_description=f'测试视觉模型「{model}」成功（{elapsed_ms}ms）',
+                    target_type='ai_model',
+                    target_id=None,
+                    target_name=model,
+                    detail={
+                        'model': model,
+                        'latency_ms': elapsed_ms,
+                        'success': True
+                    }
+                )
                 return jsonify({
                     'code': 200,
                     'message': '模型连接测试成功',
@@ -731,6 +835,23 @@ def test_model():
                     }
                 })
             else:
+                tm_admin_id = get_jwt_identity()
+                tm_admin = db.session.get(User, tm_admin_id)
+                _log_operation(
+                    user_id=int(tm_admin_id),
+                    username=tm_admin.username if tm_admin else str(tm_admin_id),
+                    action_type='test_model',
+                    action_description=f'测试视觉模型「{model}」失败：返回数据异常',
+                    target_type='ai_model',
+                    target_id=None,
+                    target_name=model,
+                    detail={
+                        'model': model,
+                        'latency_ms': elapsed_ms,
+                        'success': False,
+                        'error': 'no_valid_response'
+                    }
+                )
                 return jsonify({
                     'code': 500,
                     'message': '模型返回数据异常：无有效响应',
@@ -739,6 +860,23 @@ def test_model():
         else:
             error_detail = resp.text[:300]
             logger.error(f'Model test failed: HTTP {resp.status_code}: {error_detail}')
+            tm_admin_id = get_jwt_identity()
+            tm_admin = db.session.get(User, tm_admin_id)
+            _log_operation(
+                user_id=int(tm_admin_id),
+                username=tm_admin.username if tm_admin else str(tm_admin_id),
+                action_type='test_model',
+                action_description=f'测试视觉模型「{model}」失败：HTTP {resp.status_code}',
+                target_type='ai_model',
+                target_id=None,
+                target_name=model,
+                detail={
+                    'model': model,
+                    'latency_ms': elapsed_ms,
+                    'success': False,
+                    'http_status': resp.status_code
+                }
+            )
             return jsonify({
                 'code': 500,
                 'message': f'模型请求失败 (HTTP {resp.status_code})',
@@ -799,6 +937,23 @@ def test_summary_model():
             body = resp.json()
             if 'choices' in body and len(body['choices']) > 0:
                 reply = body['choices'][0].get('message', {}).get('content', '')
+                tsm_admin_id = get_jwt_identity()
+                tsm_admin = db.session.get(User, tsm_admin_id)
+                _log_operation(
+                    user_id=int(tsm_admin_id),
+                    username=tsm_admin.username if tsm_admin else str(tsm_admin_id),
+                    action_type='test_model',
+                    action_description=f'测试总结模型「{model}」成功（{elapsed_ms}ms）',
+                    target_type='ai_model',
+                    target_id=None,
+                    target_name=model,
+                    detail={
+                        'model': model,
+                        'latency_ms': elapsed_ms,
+                        'success': True,
+                        'model_type': 'summary'
+                    }
+                )
                 return jsonify({
                     'code': 200,
                     'message': 'AI 总结模型连接测试成功',
@@ -809,6 +964,24 @@ def test_summary_model():
                     }
                 })
             else:
+                tsm_admin_id = get_jwt_identity()
+                tsm_admin = db.session.get(User, tsm_admin_id)
+                _log_operation(
+                    user_id=int(tsm_admin_id),
+                    username=tsm_admin.username if tsm_admin else str(tsm_admin_id),
+                    action_type='test_model',
+                    action_description=f'测试总结模型「{model}」失败：返回数据异常',
+                    target_type='ai_model',
+                    target_id=None,
+                    target_name=model,
+                    detail={
+                        'model': model,
+                        'latency_ms': elapsed_ms,
+                        'success': False,
+                        'error': 'no_valid_response',
+                        'model_type': 'summary'
+                    }
+                )
                 return jsonify({
                     'code': 500,
                     'message': '模型返回数据异常：无有效响应',
@@ -817,6 +990,24 @@ def test_summary_model():
         else:
             error_detail = resp.text[:300]
             logger.error(f'Summary model test failed: HTTP {resp.status_code}: {error_detail}')
+            tsm_admin_id = get_jwt_identity()
+            tsm_admin = db.session.get(User, tsm_admin_id)
+            _log_operation(
+                user_id=int(tsm_admin_id),
+                username=tsm_admin.username if tsm_admin else str(tsm_admin_id),
+                action_type='test_model',
+                action_description=f'测试总结模型「{model}」失败：HTTP {resp.status_code}',
+                target_type='ai_model',
+                target_id=None,
+                target_name=model,
+                detail={
+                    'model': model,
+                    'latency_ms': elapsed_ms,
+                    'success': False,
+                    'http_status': resp.status_code,
+                    'model_type': 'summary'
+                }
+            )
             return jsonify({
                 'code': 500,
                 'message': f'模型请求失败 (HTTP {resp.status_code})',
@@ -997,6 +1188,27 @@ def ai_summary():
             body = resp.json()
             if 'choices' in body and len(body['choices']) > 0:
                 reply = body['choices'][0].get('message', {}).get('content', '')
+                ai_admin_id = get_jwt_identity()
+                ai_admin = db.session.get(User, ai_admin_id)
+                _log_operation(
+                    user_id=int(ai_admin_id),
+                    username=ai_admin.username if ai_admin else str(ai_admin_id),
+                    action_type='ai_summary',
+                    action_description=f'生成AI财务总结（{scope_text}，模型: {model}，耗时 {elapsed_ms}ms）',
+                    target_type='ai_summary',
+                    target_id=event_id,
+                    target_name=scope_text,
+                    event_id=event_id if event_id else None,
+                    event_name=events[0].event_name if events and event_id else None,
+                    detail={
+                        'scope': scope_text,
+                        'event_id': event_id,
+                        'event_count': len(events),
+                        'model': model,
+                        'latency_ms': elapsed_ms,
+                        'success': True
+                    }
+                )
                 return jsonify({
                     'code': 200,
                     'message': 'AI 总结生成成功',
@@ -1008,10 +1220,50 @@ def ai_summary():
                     }
                 })
             else:
+                ai_admin_id = get_jwt_identity()
+                ai_admin = db.session.get(User, ai_admin_id)
+                _log_operation(
+                    user_id=int(ai_admin_id),
+                    username=ai_admin.username if ai_admin else str(ai_admin_id),
+                    action_type='ai_summary',
+                    action_description=f'生成AI财务总结失败：返回数据异常（{scope_text}）',
+                    target_type='ai_summary',
+                    target_id=event_id,
+                    target_name=scope_text,
+                    event_id=event_id if event_id else None,
+                    event_name=events[0].event_name if events and event_id else None,
+                    detail={
+                        'scope': scope_text,
+                        'event_id': event_id,
+                        'model': model,
+                        'success': False,
+                        'error': 'no_valid_response'
+                    }
+                )
                 return jsonify({'code': 500, 'message': '模型返回数据异常：无有效响应'}), 500
         else:
             error_detail = resp.text[:300] if resp.text else '无详细信息'
             logger.error(f'AI summary API error: HTTP {resp.status_code} - {error_detail}')
+            ai_admin_id = get_jwt_identity()
+            ai_admin = db.session.get(User, ai_admin_id)
+            _log_operation(
+                user_id=int(ai_admin_id),
+                username=ai_admin.username if ai_admin else str(ai_admin_id),
+                action_type='ai_summary',
+                action_description=f'生成AI财务总结失败：HTTP {resp.status_code}（{scope_text}）',
+                target_type='ai_summary',
+                target_id=event_id,
+                target_name=scope_text,
+                event_id=event_id if event_id else None,
+                event_name=events[0].event_name if events and event_id else None,
+                detail={
+                    'scope': scope_text,
+                    'event_id': event_id,
+                    'model': model,
+                    'success': False,
+                    'http_status': resp.status_code
+                }
+            )
             return jsonify({
                 'code': 500,
                 'message': f'AI 总结请求失败 (HTTP {resp.status_code})',

@@ -41,6 +41,10 @@
           <span class="nav-icon">⚙️</span>
           <span class="nav-text">系统设置</span>
         </NuxtLink>
+        <NuxtLink v-if="isMounted && isAdmin" to="/operation-logs" class="nav-item" :class="{ active: $route.path.startsWith('/operation-logs') }" @click="mobileMenuOpen = false">
+          <span class="nav-icon">📋</span>
+          <span class="nav-text">操作日志</span>
+        </NuxtLink>
       </nav>
       <div class="sidebar-footer">
         <div class="user-info" @click="showSettingsModal = true">

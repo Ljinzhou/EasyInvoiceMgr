@@ -283,6 +283,37 @@ CREATE TABLE audit_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 2.12 操作日志表 (operation_logs)
+-- 记录所有用户的操作行为，便于追溯和审计
+CREATE TABLE operation_logs (
+    log_id BIGSERIAL PRIMARY KEY,
+    
+    -- 操作人信息
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    username VARCHAR(50) NOT NULL, -- 冗余存储，方便查询
+    
+    -- 操作类型
+    action_type VARCHAR(50) NOT NULL,
+    action_description TEXT NOT NULL, -- 操作描述中文名
+    
+    -- 关联实体信息
+    target_type VARCHAR(50), -- 目标实体类型: event/invoice/voucher/purchase_record/user/invitation_code/system_config/backup
+    target_id BIGINT, -- 目标实体ID
+    target_name VARCHAR(200), -- 目标名称冗余（如项目名称、发票号码等）
+    
+    -- 项目关联（如果操作与项目相关）
+    event_id BIGINT REFERENCES events(event_id),
+    event_name VARCHAR(200),
+    
+    -- 操作详情（JSON格式存储额外信息）
+    detail JSONB,
+    
+    -- 元数据
+    ip_address VARCHAR(45), -- 操作者IP地址
+    user_agent TEXT, -- 浏览器UA
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================
 -- 3. 索引设计 (性能优化)
 -- ============================================
@@ -339,6 +370,13 @@ CREATE INDEX idx_export_tasks_status ON export_tasks(status);
 -- 备份记录索引
 CREATE INDEX idx_backup_records_status ON backup_records(status);
 CREATE INDEX idx_backup_records_created_by ON backup_records(created_by);
+
+-- 操作日志索引
+CREATE INDEX idx_operation_logs_user ON operation_logs(user_id);
+CREATE INDEX idx_operation_logs_action ON operation_logs(action_type);
+CREATE INDEX idx_operation_logs_target ON operation_logs(target_type, target_id);
+CREATE INDEX idx_operation_logs_event ON operation_logs(event_id);
+CREATE INDEX idx_operation_logs_time ON operation_logs(created_at DESC);
 
 -- ============================================
 -- 4. 触发器设计 (自动维护 updated_at)

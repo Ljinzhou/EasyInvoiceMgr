@@ -14,12 +14,12 @@
           <div class="project-title-section">
             <h3 class="project-title">{{ event.event_name }}</h3>
             <span class="project-status" :class="event.status">
-              {{ event.status === 'ongoing' ? '进行中' : '已结束' }}
+              {{ event.status === 'ongoing' ? '进行中' : (event.status === 'finished' ? '已结束' : '已归档') }}
             </span>
           </div>
           <div class="action-buttons">
             <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 购买记录</button>
-            <button @click="toggleEventStatus(event)" v-if="event.status === 'ongoing'" class="action-btn end-btn">⏹ 结束</button>
+            <button @click="toggleEventStatus(event)" class="action-btn end-btn" :class="{ 'restart-btn': event.status === 'finished' }">{{ event.status === 'ongoing' ? '⏹ 结束' : '▶ 重新开启' }}</button>
             <button @click="viewMembers(event)" class="action-btn view-btn">📋 人员管理</button>
             <button v-if="canEditEvent(event)" @click="editEvent(event)" class="edit-button">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -124,7 +124,132 @@
           <div class="project-title-section">
             <h3 class="project-title">{{ event.event_name }}</h3>
             <span class="project-status" :class="event.status">
-              {{ event.status === 'ongoing' ? '进行中' : '已结束' }}
+              {{ event.status === 'ongoing' ? '进行中' : (event.status === 'finished' ? '已结束' : '已归档') }}
+            </span>
+            <span class="not-member-badge">您未加入该比赛</span>
+          </div>
+          <div class="action-buttons">
+            <button @click="$router.push(`/purchases/${event.event_id}`)" class="action-btn preview-btn">👁 预览</button>
+          </div>
+        </div>
+
+        <div class="project-body">
+          <div class="budget-overview">
+            <div class="budget-item total">
+              <span class="b-label">总预算</span>
+              <span class="b-value">¥ {{ formatMoney(event.total_budget) }}</span>
+            </div>
+            <div class="budget-item spent">
+              <span class="b-label">已用金额</span>
+              <span class="b-value">¥ {{ formatMoney(event.spent_amount) }}</span>
+            </div>
+            <div class="budget-item remaining">
+              <span class="b-label">剩余预算</span>
+              <span class="b-value">¥ {{ formatMoney(getRemainingBudget(event)) }}</span>
+            </div>
+            <div class="budget-item count">
+              <span class="b-label">记录数</span>
+              <span class="b-value">{{ event.voucher_count || 0 }} 条</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- 已结束的比赛（已加入） -->
+    <div v-if="joinedFinishedEvents.length > 0" class="projects-section finished-section">
+      <h2 class="section-label finished-label">🏁 已结束的比赛 ({{ joinedFinishedEvents.length }})</h2>
+      <div class="projects-list">
+      <div v-for="event in joinedFinishedEvents" :key="event.event_id" class="project-card finished-project">
+        <div class="project-header finished-project-header">
+          <div class="project-title-section">
+            <h3 class="project-title">{{ event.event_name }}</h3>
+            <span class="project-status finished">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              已结束
+            </span>
+          </div>
+          <div class="action-buttons">
+            <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 购买记录</button>
+            <button @click="toggleEventStatus(event)" class="action-btn restart-btn">▶ 重新开启</button>
+            <button @click="viewMembers(event)" class="action-btn view-btn">📋 人员管理</button>
+            <button v-if="canEditEvent(event)" @click="editEvent(event)" class="edit-button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              编辑
+            </button>
+            <button v-if="canEditEvent(event)" @click="confirmDelete(event)" class="delete-button">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              删除
+            </button>
+          </div>
+        </div>
+
+        <div class="project-body">
+          <div class="budget-overview">
+            <div class="budget-item total">
+              <span class="b-label">总预算</span>
+              <span class="b-value">¥ {{ formatMoney(event.total_budget) }}</span>
+            </div>
+            <div class="budget-item spent">
+              <span class="b-label">已用金额</span>
+              <span class="b-value">¥ {{ formatMoney(event.spent_amount) }}</span>
+              <div class="mini-progress">
+                <div class="mini-fill spent-fill" :style="{ width: getBudgetUsagePercent(event) + '%' }"></div>
+              </div>
+            </div>
+            <div class="budget-item invoice">
+              <span class="b-label">发票总额</span>
+              <span class="b-value">¥ {{ formatMoney(event.invoice_total_amount) }}</span>
+            </div>
+            <div class="budget-item reimbursed">
+              <span class="b-label">已报销</span>
+              <span class="b-value">¥ {{ formatMoney(event.reimbursed_amount) }}</span>
+            </div>
+            <div class="budget-item remaining">
+              <span class="b-label">剩余预算</span>
+              <span class="b-value">¥ {{ formatMoney(getRemainingBudget(event)) }}</span>
+            </div>
+            <div class="budget-item count">
+              <span class="b-label">记录数</span>
+              <span class="b-value">{{ event.voucher_count || 0 }} 条</span>
+            </div>
+          </div>
+
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label">开始时间</span>
+              <span class="info-value">{{ formatDateTime(event.event_start_time) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">结束时间</span>
+              <span class="info-value">{{ formatDateTime(event.event_end_time) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">总预算</span>
+              <span class="info-value budget">¥{{ formatMoney(event.total_budget) }}</span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">已用金额</span>
+              <span class="info-value spent">¥{{ formatMoney(event.spent_amount) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- 已结束的比赛（未加入） -->
+    <div v-if="notJoinedFinishedEvents.length > 0" class="projects-section finished-section">
+      <h2 class="section-label finished-not-joined-label">🏁 已结束的比赛 - 未加入 ({{ notJoinedFinishedEvents.length }})</h2>
+      <div class="projects-list">
+      <div v-for="event in notJoinedFinishedEvents" :key="event.event_id" class="project-card finished-project not-joined-project">
+        <div class="project-header finished-project-header not-joined-project-header">
+          <div class="project-title-section">
+            <h3 class="project-title">{{ event.event_name }}</h3>
+            <span class="project-status finished">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              已结束
             </span>
             <span class="not-member-badge">您未加入该比赛</span>
           </div>
@@ -406,8 +531,10 @@ onMounted(async () => {
   syncFromStore()
 })
 
-const joinedEvents = computed(() => events.value.filter(e => isEventMember(e)))
-const notJoinedEvents = computed(() => events.value.filter(e => !isEventMember(e)))
+const joinedEvents = computed(() => events.value.filter(e => isEventMember(e) && e.status === 'ongoing'))
+const notJoinedEvents = computed(() => events.value.filter(e => !isEventMember(e) && e.status === 'ongoing'))
+const joinedFinishedEvents = computed(() => events.value.filter(e => isEventMember(e) && e.status === 'finished'))
+const notJoinedFinishedEvents = computed(() => events.value.filter(e => !isEventMember(e) && e.status === 'finished'))
 
 const canEditEvent = (event) => {
   if (!currentUser.value) return false
@@ -525,21 +652,36 @@ const goToInvoiceManage = (event) => {
 }
 
 const toggleEventStatus = async (event) => {
-  if (!confirm(`确定要将比赛 "${event.event_name}" 结束吗？`)) return
+  // 如果项目进行中，询问是否结束；如果已结束，询问是否重新开启
+  // 注意: 数据库枚举值为 'ongoing' 和 'finished'
+  const newStatus = event.status === 'ongoing' ? 'finished' : 'ongoing'
+  const confirmMsg = event.status === 'ongoing'
+    ? `确定要将比赛 "${event.event_name}" 结束吗？结束后将无法添加新的购买记录。`
+    : `确定要将比赛 "${event.event_name}" 重新开启吗？`
+
+  if (!confirm(confirmMsg)) return
 
   try {
     const token = localStorage.getItem('token')
-    const response = await $api.put(`/events/${event.event_id}`, { status: 'finished' }, {
+    const eventId = Number(event.event_id)
+    console.log(`[结束项目] event_id=${eventId}, newStatus=${newStatus}`)
+    const response = await $api.put(`/events/${eventId}`, { status: newStatus }, {
       headers: { Authorization: `Bearer ${token}` }
     })
+    console.log(`[结束项目] 响应:`, response.data)
 
     if (response.data.code === 200) {
-      alert('比赛已结束')
-      await eventStore.invalidateAndRefresh({ eventId: event.event_id })
+      const successMsg = newStatus === 'finished' ? '比赛已结束' : '比赛已重新开启'
+      alert(successMsg)
+      await eventStore.invalidateAndRefresh({ eventId })
       syncFromStore()
+    } else {
+      alert(response.data.message || '操作失败，请稍后重试')
     }
   } catch (error) {
-    alert('操作失败，请稍后重试')
+    console.error('操作失败:', error)
+    const errorMsg = error.response?.data?.message || error.message || '操作失败，请稍后重试'
+    alert(`操作失败: ${errorMsg}`)
   }
 }
 
@@ -691,7 +833,11 @@ const deleteEvent = async () => {
 }
 
 .project-status.finished {
-  background: #e74c3c;
+  background: #95a5a6;
+}
+
+.project-status.archived {
+  background: #7f8c8d;
 }
 
 .not-member-badge {
@@ -714,6 +860,11 @@ const deleteEvent = async () => {
 .projects-section {
   margin-bottom: 2rem;
 }
+.finished-section {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 2px dashed #d1d5db;
+}
 .section-label {
   font-size: 1.1rem;
   font-weight: 600;
@@ -723,11 +874,33 @@ const deleteEvent = async () => {
 }
 .section-label.joined-label { color: #16a34a; border-bottom-color: #bbf7d0; }
 .section-label.not-joined-label { color: #94a3b8; border-bottom-color: #e2e8f0; }
+.section-label.finished-label { color: #6b7280; border-bottom-color: #d1d5db; display: flex; align-items: center; gap: 8px; }
+.section-label.finished-not-joined-label { color: #9ca3af; border-bottom-color: #e5e7eb; }
 
 /* Not-joined project card */
 .project-card.not-joined-project { opacity: 0.7; }
 .project-card.not-joined-project:hover { opacity: 0.85; }
 .not-joined-project-header { background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%) !important; }
+
+/* Finished project card */
+.project-card.finished-project {
+  opacity: 0.85;
+  border: 1px solid #e5e7eb;
+}
+.project-card.finished-project:hover {
+  opacity: 1;
+  border-color: #d1d5db;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.finished-project-header {
+  background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%) !important;
+}
+.project-status.finished {
+  background: #6b7280;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 
 .edit-button {
   padding: 0.45rem 0.9rem;
@@ -1720,6 +1893,8 @@ const deleteEvent = async () => {
 
 .end-btn { background: #e67e22; }
 .end-btn:hover { background: #d35400; }
+.restart-btn { background: #3498db; }
+.restart-btn:hover { background: #2980b9; }
 
 .view-btn { background: #1abc9c; }
 .view-btn:hover { background: #16a085; }

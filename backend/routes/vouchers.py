@@ -10,6 +10,71 @@ import urllib.parse
 logger = logging.getLogger(__name__)
 vouchers_bp = Blueprint('vouchers', __name__)
 
+
+def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
+    """记录操作日志"""
+    try:
+        from utils.operation_log import LogService
+        LogService.log(
+            user_id=user_id,
+            username=username,
+            action_type=action_type,
+            action_description=action_description,
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            event_id=event_id,
+            event_name=event_name,
+            detail=detail
+        )
+    except Exception as e:
+        logger.warning(f'记录操作日志失败: {str(e)}')
+
+
+# 字段中文标签（用于操作日志的 description）
+VOUCHER_FIELD_LABELS = {
+    'item_name': '物品名称',
+    'voucher_type': '凭证类型',
+    'purchase_channel': '购买渠道',
+    'purchase_date': '购入日期',
+    'amount': '金额',
+    'remarks': '备注',
+}
+
+
+def _format_voucher_value(field, value):
+    """将字段值格式化为人类可读的描述文本片段。"""
+    if value is None or value == '':
+        return '空'
+    if field == 'amount':
+        try:
+            return f'{float(value):.2f}'
+        except (TypeError, ValueError):
+            return str(value)
+    if field == 'purchase_date':
+        if hasattr(value, 'strftime') and value:
+            return value.strftime('%Y-%m-%d')
+    if field in ('item_name', 'voucher_type', 'purchase_channel', 'remarks'):
+        return f'"{value}"'
+    return str(value)
+
+
+def _voucher_values_equal(field, old_value, new_value):
+    """比较两个凭证字段值是否变更。"""
+    if field == 'amount':
+        try:
+            return float(old_value or 0) == float(new_value or 0)
+        except (TypeError, ValueError):
+            return str(old_value) == str(new_value)
+    if field == 'purchase_date':
+        old_str = old_value.strftime('%Y-%m-%d') if hasattr(old_value, 'strftime') and old_value else str(old_value or '')
+        new_str = str(new_value) if new_value else ''
+        return old_str == new_str
+    if old_value is None and (new_value is None or new_value == ''):
+        return True
+    return str(old_value if old_value is not None else '') == str(new_value if new_value is not None else '')
+
+
 @vouchers_bp.route('/vouchers', methods=['GET'])
 @jwt_required()
 def get_vouchers():
@@ -163,9 +228,22 @@ def create_voucher():
         event.voucher_total_amount += voucher.amount
         
         db.session.commit()
-        
+
         logger.info(f'凭证创建成功: voucher_id={voucher.voucher_id}')
-        
+
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='create_voucher',
+            action_description=f'上传凭证「{voucher.item_name}」',
+            target_type='voucher',
+            target_id=voucher.voucher_id,
+            target_name=voucher.item_name,
+            event_id=voucher.event_id,
+            event_name=event.event_name if event else None,
+            detail={'file_name': voucher.file_name, 'amount': float(voucher.amount), 'voucher_type': voucher.voucher_type}
+        )
+
         return jsonify({
             'code': 200,
             'message': '凭证上传成功',
@@ -205,9 +283,22 @@ def delete_voucher(voucher_id):
         if event:
             event.voucher_count = max(0, event.voucher_count - 1)
             event.voucher_total_amount = max(0, event.voucher_total_amount - voucher.amount)
-        
+
         db.session.commit()
-        
+
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='delete_voucher',
+            action_description=f'删除凭证「{voucher.item_name}」',
+            target_type='voucher',
+            target_id=voucher_id,
+            target_name=voucher.item_name,
+            event_id=voucher.event_id,
+            event_name=event.event_name if event else None,
+            detail={'file_name': voucher.file_name, 'amount': float(voucher.amount)}
+        )
+
         return jsonify({
             'code': 200,
             'message': '凭证删除成功',
@@ -263,14 +354,23 @@ def update_voucher(voucher_id):
     logger.info(f'=== 更新凭证: voucher_id={voucher_id} ===')
     try:
         current_user_id = get_jwt_identity()
-        
+        user = User.query.get(current_user_id)
+
         voucher = Voucher.query.filter_by(voucher_id=voucher_id, is_deleted=False).first()
         if not voucher:
             return jsonify({'code': 3001, 'message': '凭证不存在', 'data': None}), 404
-        
+
         data = request.get_json()
         from decimal import Decimal
-        
+
+        # 在 commit 前获取旧值，用于日志记录变更详情
+        old_item_name = voucher.item_name
+        old_voucher_type = voucher.voucher_type
+        old_purchase_channel = voucher.purchase_channel
+        old_purchase_date = voucher.purchase_date
+        old_amount = float(voucher.amount) if voucher.amount is not None else None
+        old_remarks = voucher.remarks
+
         if 'item_name' in data and data['item_name']:
             voucher.item_name = data['item_name']
         if 'voucher_type' in data:
@@ -280,17 +380,69 @@ def update_voucher(voucher_id):
         if 'purchase_date' in data and data['purchase_date']:
             voucher.purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
         if 'amount' in data:
-            old_amount = voucher.amount
+            old_amount_dec = voucher.amount
             new_amount = Decimal(str(data['amount']))
             event = Event.query.get(voucher.event_id)
             if event:
-                event.voucher_total_amount = event.voucher_total_amount - old_amount + new_amount
+                event.voucher_total_amount = event.voucher_total_amount - old_amount_dec + new_amount
             voucher.amount = new_amount
         if 'remarks' in data:
             voucher.remarks = data['remarks']
-        
+
+        # 在 commit 前构造变更字典
+        changes = {}
+        if 'item_name' in data and not _voucher_values_equal('item_name', old_item_name, data['item_name']):
+            changes['item_name'] = {'old': old_item_name, 'new': data['item_name']}
+        if 'voucher_type' in data and not _voucher_values_equal('voucher_type', old_voucher_type, data['voucher_type']):
+            changes['voucher_type'] = {'old': old_voucher_type, 'new': data['voucher_type']}
+        if 'purchase_channel' in data and not _voucher_values_equal('purchase_channel', old_purchase_channel, data['purchase_channel']):
+            changes['purchase_channel'] = {'old': old_purchase_channel, 'new': data['purchase_channel']}
+        if 'purchase_date' in data and data['purchase_date']:
+            new_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
+            if not _voucher_values_equal('purchase_date', old_purchase_date, new_date):
+                changes['purchase_date'] = {'old': old_purchase_date, 'new': new_date}
+        if 'amount' in data:
+            try:
+                new_amount_val = float(Decimal(str(data['amount'])))
+            except Exception:
+                new_amount_val = data['amount']
+            if not _voucher_values_equal('amount', old_amount, new_amount_val):
+                changes['amount'] = {'old': old_amount, 'new': new_amount_val}
+        if 'remarks' in data and not _voucher_values_equal('remarks', old_remarks, data['remarks']):
+            changes['remarks'] = {'old': old_remarks, 'new': data['remarks']}
+
+        # 构造 action_description（在 commit 前完成）
+        related_event = Event.query.get(voucher.event_id)
+        event_name_str = related_event.event_name if related_event else None
+        if changes:
+            change_parts = []
+            for field in ['item_name', 'voucher_type', 'purchase_channel',
+                          'purchase_date', 'amount', 'remarks']:
+                if field in changes:
+                    label = VOUCHER_FIELD_LABELS.get(field, field)
+                    old_part = _format_voucher_value(field, changes[field]['old'])
+                    new_part = _format_voucher_value(field, changes[field]['new'])
+                    change_parts.append(f'{label} {old_part}→{new_part}')
+            change_text = '、'.join(change_parts)
+            action_desc = f'修改凭证「{voucher.item_name}」: {change_text}'
+        else:
+            action_desc = f'修改凭证「{voucher.item_name}」'
+
         db.session.commit()
-        
+
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username if user else '',
+            action_type='update_voucher',
+            action_description=action_desc,
+            target_type='voucher',
+            target_id=voucher_id,
+            target_name=voucher.item_name,
+            event_id=voucher.event_id,
+            event_name=event_name_str,
+            detail={'changes': changes}
+        )
+
         return jsonify({
             'code': 200,
             'message': '凭证信息更新成功',
@@ -383,21 +535,43 @@ def batch_reimburse_vouchers():
             return jsonify({'code': 400, 'message': '请选择要报销的凭证', 'data': None}), 400
         
         count = 0
+        reimbursed_vouchers = []
         for vid in voucher_ids:
             voucher = Voucher.query.filter_by(voucher_id=vid, is_deleted=False).first()
             if voucher and not voucher.is_reimbursed:
                 voucher.is_reimbursed = True
                 voucher.reimbursed_at = datetime.utcnow()
-                
+
                 event = Event.query.get(voucher.event_id)
                 if event:
                     event.reimbursed_amount += voucher.amount
                     event.remaining_budget = event.total_budget - event.reimbursed_amount
-                
+
+                reimbursed_vouchers.append({
+                    'voucher_id': voucher.voucher_id,
+                    'item_name': voucher.item_name,
+                    'amount': float(voucher.amount),
+                    'event_id': voucher.event_id
+                })
                 count += 1
-        
+
         db.session.commit()
-        
+
+        total_amount = sum(v['amount'] for v in reimbursed_vouchers)
+        _log_operation(
+            user_id=int(current_user_id),
+            username=user.username,
+            action_type='batch_reimburse_vouchers',
+            action_description=f'批量报销凭证 {count} 张，金额合计 ¥{total_amount:.2f}',
+            target_type='voucher',
+            event_id=reimbursed_vouchers[0]['event_id'] if reimbursed_vouchers else None,
+            detail={
+                'count': count,
+                'total_amount': total_amount,
+                'voucher_ids': [v['voucher_id'] for v in reimbursed_vouchers]
+            }
+        )
+
         return jsonify({
             'code': 200,
             'message': f'成功报销 {count} 张凭证',

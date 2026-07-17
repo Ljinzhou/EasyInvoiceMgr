@@ -29,6 +29,26 @@ logger = logging.getLogger(__name__)
 purchase_records_bp = Blueprint('purchase_records', __name__)
 
 
+def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
+    """记录操作日志"""
+    try:
+        from utils.operation_log import LogService
+        LogService.log(
+            user_id=user_id,
+            username=username,
+            action_type=action_type,
+            action_description=action_description,
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            event_id=event_id,
+            event_name=event_name,
+            detail=detail
+        )
+    except Exception as e:
+        logger.warning(f'记录操作日志失败: {str(e)}')
+
+
 def get_presigned_url(file_key: str, expires: int = 3600 * 24) -> str:
     """获取文件预签名URL"""
     if not file_key:
@@ -209,6 +229,27 @@ def create_purchase_record(event_id):
 
         logger.info(f'购买记录创建成功: record_id={record.record_id}')
 
+        _log_operation(
+            user_id=current_user_id,
+            username=user.real_name or user.username,
+            action_type='create_record',
+            action_description=f'创建购买记录：{record.item_name}（金额：{record.amount}）',
+            target_type='purchase_record',
+            target_id=record.record_id,
+            target_name=record.item_name,
+            event_id=event_id,
+            event_name=event.event_name,
+            detail={
+                'item_name': record.item_name,
+                'purchase_platform': record.purchase_platform,
+                'purchase_date': record.purchase_date.isoformat() if record.purchase_date else None,
+                'amount': float(record.amount),
+                'has_invoice': record.has_invoice,
+                'cannot_invoice': record.cannot_invoice,
+                'total_amount': float(record.total_amount or 0)
+            }
+        )
+
         return jsonify({
             'code': 200,
             'message': '购买记录创建成功',
@@ -254,6 +295,19 @@ def update_purchase_record(record_id):
         # 自动检查并添加赛事成员
         if is_admin_or_teacher:
             ensure_event_membership(record.event_id, int(current_user_id))
+
+        # 在更新前保存旧值
+        old_values = {
+            'item_name': record.item_name,
+            'purchase_platform': record.purchase_platform,
+            'purchase_date': record.purchase_date.strftime('%Y-%m-%d') if record.purchase_date else None,
+            'amount': float(record.amount) if record.amount else 0,
+            'remarks': record.remarks,
+            'invoice_type': record.invoice_type,
+            'invoice_number': record.invoice_number,
+            'total_amount': float(record.total_amount) if record.total_amount else 0,
+            'invoice_date': record.invoice_date.strftime('%Y-%m-%d') if record.invoice_date else None
+        }
 
         if 'item_name' in data and data['item_name'] is not None:
             record.item_name = data['item_name']
@@ -319,9 +373,87 @@ def update_purchase_record(record_id):
             record.uploader_id = new_uploader_id
 
         db.session.commit()
-        
+
         logger.info(f'购买记录更新成功: record_id={record_id}')
-        
+
+        event = Event.query.get(record.event_id)
+
+        # 构造变更详情（记录修改的字段及新旧值）
+        changes = {}
+        for key in ['item_name', 'purchase_platform', 'purchase_date', 'amount', 'remarks',
+                     'invoice_type', 'invoice_number', 'total_amount', 'invoice_date']:
+            # 只处理前端明确发送且有实际内容的值
+            raw = data.get(key)
+            # 过滤：None、空字符串、"null"、数字0、空列表/字典、布尔值
+            if raw is None or raw == '' or raw == 'null' or raw == 'NULL':
+                continue
+            if isinstance(raw, (int, float)) and raw == 0:
+                continue
+            if isinstance(raw, (list, dict, bool)):
+                continue
+
+            old_val = old_values.get(key)
+            new_val = raw
+
+            if key == 'purchase_date':
+                new_val = raw[:10] if isinstance(raw, str) else str(raw)
+            elif key == 'amount' or key == 'total_amount':
+                new_val = float(raw) if raw else 0
+
+            # 规范化比较：None 和空字符串视为等价
+            old_norm = old_val if old_val is not None else ''
+            new_norm = new_val if new_val is not None else ''
+            if str(old_norm).strip() != str(new_norm).strip():
+                changes[key] = {'old': old_val, 'new': new_val}
+
+        # 中文字段名映射
+        field_labels = {
+            'item_name': '物品名称',
+            'purchase_platform': '购买平台',
+            'purchase_date': '购买日期',
+            'amount': '金额',
+            'remarks': '备注',
+            'invoice_type': '发票类型',
+            'invoice_number': '发票号码',
+            'total_amount': '价税合计',
+            'invoice_date': '开票日期'
+        }
+
+        def fmt_value(val):
+            if val is None or val == '':
+                return '（空）'
+            return f'"{val}"'
+
+        if changes:
+            change_parts = []
+            for k in changes.keys():
+                label = field_labels.get(k, k)
+                old_str = fmt_value(changes[k]['old'])
+                new_str = fmt_value(changes[k]['new'])
+                change_parts.append(f'{label}: {old_str} → {new_str}')
+            action_desc = f'修改购买记录「{record.item_name}」: ' + '；'.join(change_parts)
+        else:
+            action_desc = f'修改购买记录「{record.item_name}」'
+
+        _log_operation(
+            user_id=current_user_id,
+            username=user.real_name or user.username,
+            action_type='update_record',
+            action_description=action_desc,
+            target_type='purchase_record',
+            target_id=record.record_id,
+            target_name=record.item_name,
+            event_id=record.event_id,
+            event_name=event.event_name if event else None,
+            detail={
+                'record_id': record.record_id,
+                'item_name': record.item_name,
+                'changes': changes,
+                'has_invoice': record.has_invoice,
+                'is_reimbursed': record.is_reimbursed
+            }
+        )
+
         return jsonify({
             'code': 200,
             'message': '更新成功',
@@ -395,6 +527,27 @@ def transfer_purchase_record(record_id):
 
         logger.info(f'购买记录转移成功: record_id={record_id}, {old_event_id} -> {target_event_id}')
 
+        source_event = Event.query.get(old_event_id)
+        _log_operation(
+            user_id=current_user_id,
+            username=user.real_name or user.username,
+            action_type='transfer_record',
+            action_description=f'转移购买记录：{record.item_name}（从「{source_event.event_name if source_event else old_event_id}」到「{target_event.event_name}」）',
+            target_type='purchase_record',
+            target_id=record.record_id,
+            target_name=record.item_name,
+            event_id=target_event_id,
+            event_name=target_event.event_name,
+            detail={
+                'source_event_id': old_event_id,
+                'source_event_name': source_event.event_name if source_event else None,
+                'target_event_id': target_event_id,
+                'target_event_name': target_event.event_name,
+                'amount': float(record.amount or 0),
+                'has_invoice': record.has_invoice
+            }
+        )
+
         return jsonify({
             'code': 200,
             'message': '转移成功',
@@ -442,9 +595,29 @@ def delete_purchase_record(record_id):
 
         record.is_deleted = True
         db.session.commit()
-        
+
         logger.info(f'购买记录删除成功: record_id={record_id}')
-        
+
+        event = Event.query.get(record.event_id)
+        _log_operation(
+            user_id=current_user_id,
+            username=user.real_name or user.username,
+            action_type='delete_record',
+            action_description=f'删除购买记录：{record.item_name}',
+            target_type='purchase_record',
+            target_id=record.record_id,
+            target_name=record.item_name,
+            event_id=record.event_id,
+            event_name=event.event_name if event else None,
+            detail={
+                'item_name': record.item_name,
+                'amount': float(record.amount or 0),
+                'has_invoice': record.has_invoice,
+                'total_amount': float(record.total_amount or 0),
+                'is_reimbursed': record.is_reimbursed
+            }
+        )
+
         return jsonify({
             'code': 200,
             'message': '删除成功',
@@ -489,7 +662,26 @@ def reimburse_purchase_record(record_id):
             event.remaining_budget = event.total_budget - event.reimbursed_amount
         
         db.session.commit()
-        
+
+        _log_operation(
+            user_id=current_user_id,
+            username=user.real_name or user.username,
+            action_type='reimburse_record',
+            action_description=f'报销购买记录：{record.item_name}（金额：{record.total_amount or record.amount}）',
+            target_type='purchase_record',
+            target_id=record.record_id,
+            target_name=record.item_name,
+            event_id=record.event_id,
+            event_name=event.event_name if event else None,
+            detail={
+                'item_name': record.item_name,
+                'amount': float(record.amount or 0),
+                'total_amount': float(record.total_amount or 0),
+                'has_invoice': record.has_invoice,
+                'reimbursed_at': record.reimbursed_at.isoformat() if record.reimbursed_at else None
+            }
+        )
+
         return jsonify({
             'code': 200,
             'message': '报销成功',
