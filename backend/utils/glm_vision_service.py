@@ -199,6 +199,7 @@ class GLMVisionService:
 3. **价税合计/总金额**（total_amount）：发票的总金额，只返回数字
 4. **商品名称**（project_name）：发票上的商品或服务名称（即货物或应税劳务、服务名称）
 5. **发票类型**（invoice_type）：如餐饮、交通、住宿、办公用品等
+6. **发票税号/纳税人识别号**（invoice_tax_number）：发票上的纳税人识别号，通常是15-20位数字和字母组合
 
 请严格按照以下JSON格式返回结果，不要添加任何其他文字：
 ```json
@@ -207,14 +208,16 @@ class GLMVisionService:
   "invoice_date": "YYYY-MM-DD格式日期或空字符串",
   "total_amount": 数字金额或0,
   "project_name": "项目名称或空字符串",
-  "invoice_type": "发票类型或空字符串"
+  "invoice_type": "发票类型或空字符串",
+  "invoice_tax_number": "纳税人识别号或空字符串"
 }
 ```
 
 注意：
 - 如果某个字段无法识别，请返回空字符串或0
 - 金额字段必须返回纯数字，不要包含¥符号或其他字符
-- 日期必须是YYYY-MM-DD格式"""
+- 日期必须是YYYY-MM-DD格式
+- 税号通常标注为"纳税人识别号"或"统一社会信用代码"""
 
     def _parse_response(self, content: str, model: str = '') -> Dict[str, Any]:
         """解析GLM模型的响应内容"""
@@ -237,7 +240,8 @@ class GLMVisionService:
                 'amount': float(extracted_data.get('total_amount', 0)),
                 'total_amount': float(extracted_data.get('total_amount', 0)),
                 'project_name': extracted_data.get('project_name', ''),
-                'invoice_type': extracted_data.get('invoice_type', '')
+                'invoice_type': extracted_data.get('invoice_type', ''),
+                'invoice_tax_number': extracted_data.get('invoice_tax_number', '')
             }
 
             logger.info(f'{model}提取成功: {invoice_data}')
@@ -249,7 +253,7 @@ class GLMVisionService:
                 'raw_text': content,
                 'extraction_method': 'glm_vision',
                 'field_permissions': {
-                    'readonly': ['invoice_number', 'invoice_date', 'total_amount'],
+                    'readonly': ['invoice_number', 'invoice_date', 'total_amount', 'invoice_tax_number'],
                     'editable': ['project_name', 'invoice_type']
                 }
             }

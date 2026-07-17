@@ -74,7 +74,7 @@ class InvoiceParser:
                     'raw_text': text,
                     'extraction_method': 'pdf_direct',
                     'field_permissions': {
-                        'readonly': ['invoice_number', 'invoice_date', 'total_amount'],
+                        'readonly': ['invoice_number', 'invoice_date', 'total_amount', 'invoice_tax_number'],
                         'editable': ['project_name', 'invoice_type']
                     }
                 }
@@ -169,7 +169,8 @@ class InvoiceParser:
             'tax_amount': 0.0,
             'total_amount': 0.0,
             'project_name': '',
-            'remarks': ''
+            'remarks': '',
+            'invoice_tax_number': ''
         }
         
         logger.debug(f'原始文本(前500字符): {text[:500]}')
@@ -215,6 +216,12 @@ class InvoiceParser:
                 r'货物或应税劳务[、,]?服务名称[：:\s]*[\n\r]*([^\n\r\s]{2,50})',
                 r'服务名称[：:\s]*[\n\r]*([^\n\r\s]{2,50})',
                 r'商品名称[：:\s]*[\n\r]*([^\n\r\s]{2,50})'
+            ],
+            'invoice_tax_number': [
+                r'纳税人识别号[：:\s]*[\n\r]*([0-9A-Za-z]{15,20})',
+                r'统一社会信用代码[：:\s]*[\n\r]*([0-9A-Za-z]{18})',
+                r'税号[：:\s]*[\n\r]*([0-9A-Za-z]{15,20})',
+                r'识别号[：:\s]*[\n\r]*([0-9A-Za-z]{15,20})'
             ]
         }
         

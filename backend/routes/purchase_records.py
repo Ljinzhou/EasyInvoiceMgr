@@ -99,6 +99,7 @@ def get_purchase_records(event_id):
                 'invoice_original_filename': record.invoice_original_filename,
                 'invoice_type': record.invoice_type,
                 'invoice_number': record.invoice_number,
+                'invoice_tax_number': record.invoice_tax_number or '',
                 'total_amount': float(record.total_amount) if record.total_amount else 0,
                 'invoice_date': record.invoice_date.isoformat() if record.invoice_date else None,
                 'is_reimbursed': record.is_reimbursed,
@@ -188,6 +189,7 @@ def create_purchase_record(event_id):
             invoice_md5=data.get('invoice_md5'),
             invoice_type=data.get('invoice_type'),
             invoice_number=data.get('invoice_number'),
+            invoice_tax_number=data.get('invoice_tax_number'),
             total_amount=invoice_total,
             invoice_date=datetime.strptime(data['invoice_date'], '%Y-%m-%d').date() if data.get('invoice_date') else None,
             remarks=data.get('remarks')
@@ -274,6 +276,7 @@ def update_purchase_record(record_id):
                 record.invoice_md5 = None
                 record.invoice_type = None
                 record.invoice_number = None
+                record.invoice_tax_number = None
                 record.total_amount = 0
                 record.invoice_date = None
 
@@ -292,6 +295,8 @@ def update_purchase_record(record_id):
             record.invoice_type = data['invoice_type']
         if 'invoice_number' in data:
             record.invoice_number = data['invoice_number']
+        if 'invoice_tax_number' in data:
+            record.invoice_tax_number = data['invoice_tax_number']
         if 'total_amount' in data and data['total_amount'] is not None:
             record.total_amount = float(data['total_amount']) if data['total_amount'] else 0
         if 'invoice_date' in data and data['invoice_date']:
@@ -643,6 +648,7 @@ def re_parse_invoice(record_id):
                 parsed_info = {
                     'item_name': raw_data.get('project_name', '') or raw_data.get('item_name', ''),
                     'invoice_number': raw_data.get('invoice_number', ''),
+                    'invoice_tax_number': raw_data.get('invoice_tax_number', '') or raw_data.get('tax_number', ''),
                     'amount': raw_data.get('total_amount', 0) or raw_data.get('amount', 0),
                     'date': raw_data.get('invoice_date', '')
                 }

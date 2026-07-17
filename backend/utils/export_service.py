@@ -50,6 +50,9 @@ class ExportService:
                 task.progress_message = '正在获取数据...'
                 db.session.commit()
 
+                columns_config = task.columns_config or {}
+                options = self._normalize_options(columns_config.get('options', {}))
+
                 uploader_id = task.requester_id if options.get('only_mine') else None
                 records, snapshot_time = self._fetch_data(task.event_id, uploader_id)
                 task.data_snapshot_time = snapshot_time
@@ -74,7 +77,6 @@ class ExportService:
 
                 columns_config = task.columns_config or {}
                 selected_columns = columns_config.get('columns', [])
-                options = self._normalize_options(columns_config.get('options', {}))
 
                 logger.info(f'导出配置: columns={selected_columns}, options={options}')
 
@@ -183,6 +185,7 @@ class ExportService:
                 'invoice_date': record.invoice_date.strftime('%Y-%m-%d') if record.invoice_date else '',
                 'uploader_name': uploader.real_name if uploader else '未知',
                 'invoice_tax_number': record.invoice_tax_number or '',
+                'invoice_number': record.invoice_number or '',
                 'has_invoice': record.has_invoice or False,
                 'invoice_file_key': record.invoice_file_key or '',
                 'invoice_preview_key': record.invoice_preview_key or '',
@@ -211,6 +214,7 @@ class ExportService:
                 'invoice_date': invoice.invoice_date.strftime('%Y-%m-%d') if invoice.invoice_date else '',
                 'uploader_name': uploader.real_name if uploader else '未知',
                 'invoice_tax_number': '',  # Invoice model has no tax_number field
+                'invoice_number': invoice.invoice_number or '',
                 'has_invoice': True,
                 'invoice_file_key': invoice.image_url or '',
                 'invoice_original_filename': invoice.file_name or '',
@@ -436,7 +440,7 @@ class ExportService:
         elif col_key == 'invoice_tax_number':
             if not record.get('has_invoice', False):
                 return '无发票信息'
-            tax = record.get('invoice_tax_number', '')
+            tax = record.get('invoice_tax_number', '') or record.get('invoice_number', '')
             return tax if tax else '无'
         return ''
 
@@ -540,6 +544,10 @@ class ExportService:
                 if not original:
                     filename = f'发票_{idx + 1}.pdf'
                 else:
+                    # Strip URL query params and sanitize for filesystem
+                    original = original.split('?')[0]
+                    # Remove characters invalid on Windows/Linux
+                    original = "".join(c for c in original if c not in '<>:"/\\|?*')
                     name, ext = os.path.splitext(original)
                     filename = f'{name}.pdf' if ext.lower() != '.pdf' else original
 
@@ -591,6 +599,7 @@ class ExportService:
             download_count += 1
             original_name = record.get('receipt_image_name', '')
             if original_name:
+                original_name = original_name.split('?')[0]
                 ext = os.path.splitext(original_name)[1] or '.jpg'
                 safe_name = "".join(c for c in record.get("item_name", "凭证") if c.isalnum() or c in (' ', '-', '_')).strip()
                 filename = f'{safe_name}_{idx + 1}{ext}'

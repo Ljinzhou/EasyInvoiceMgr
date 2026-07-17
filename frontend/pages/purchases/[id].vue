@@ -491,6 +491,12 @@
                           </div>
                         </div>
                         <div class="form-group">
+                          <label>发票税号</label>
+                          <div class="input-shell">
+                            <input v-model="form.invoice_tax_number" type="text" placeholder="自动提取或手动填写" />
+                          </div>
+                        </div>
+                        <div class="form-group">
                           <label>价税合计（元）</label>
                           <div class="input-shell">
                             <span class="input-prefix">&yen;</span>
@@ -977,6 +983,7 @@ const form = ref({
   invoice_number: '',
   total_amount: null,
   invoice_date: '',
+  invoice_tax_number: '',
   uploader_id: null
 })
 
@@ -1309,6 +1316,7 @@ const editRecord = (record) => {
     invoice_number: record.invoice_number || '',
     total_amount: record.total_amount || null,
     invoice_date: record.invoice_date || '',
+    invoice_tax_number: record.invoice_tax_number || '',
     uploader_id: record.uploader_id || null
   }
 
@@ -1430,6 +1438,7 @@ const resetForm = () => {
     invoice_number: '',
     total_amount: null,
     invoice_date: '',
+    invoice_tax_number: '',
     uploader_id: null
   }
   // 重置上传人搜索状态
@@ -1869,11 +1878,13 @@ const autoParseLocalInvoice = async () => {
       invoiceParseResult.value = {
         item_name: info.item_name || '',
         invoice_number: info.invoice_number || '',
+        invoice_tax_number: info.invoice_tax_number || '',
         amount: info.amount ? String(info.amount) : '',
         date: info.date || ''
       }
       if (info.item_name) form.value.item_name_from_invoice = info.item_name
       if (info.invoice_number) form.value.invoice_number = info.invoice_number
+      if (info.invoice_tax_number) form.value.invoice_tax_number = info.invoice_tax_number
       if (info.amount) {
         form.value.total_amount = parseFloat(info.amount)
         form.value.amount = parseFloat(info.amount)
@@ -1929,12 +1940,14 @@ const parseInvoiceFromUrl = async () => {
       invoiceParseResult.value = {
         item_name: info.item_name || '',
         invoice_number: info.invoice_number || '',
+        invoice_tax_number: info.invoice_tax_number || '',
         amount: info.amount ? String(info.amount) : '',
         date: info.date || ''
       }
 
       if (info.item_name) form.value.item_name_from_invoice = info.item_name
       if (info.invoice_number) form.value.invoice_number = info.invoice_number
+      if (info.invoice_tax_number) form.value.invoice_tax_number = info.invoice_tax_number
       if (info.amount) {
         form.value.total_amount = parseFloat(info.amount)
         form.value.amount = parseFloat(info.amount)
@@ -2026,6 +2039,7 @@ const saveRecord = async () => {
             if (info.item_name && !payload.item_name) payload.item_name = info.item_name
             if (info.item_name) payload.item_name_from_invoice = info.item_name
             if (info.invoice_number) payload.invoice_number = info.invoice_number
+            if (info.invoice_tax_number) payload.invoice_tax_number = info.invoice_tax_number
             if (info.amount) {
               payload.total_amount = parseFloat(info.amount)
               payload.amount = parseFloat(info.amount)

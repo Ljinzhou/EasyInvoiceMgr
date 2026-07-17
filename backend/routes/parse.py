@@ -290,6 +290,7 @@ def parse_image():
                 parsed_info = {
                     'item_name': raw.get('project_name', '') or raw.get('item_name', ''),
                     'invoice_number': raw.get('invoice_number', ''),
+                    'invoice_tax_number': raw.get('invoice_tax_number', '') or raw.get('tax_number', ''),
                     'amount': raw.get('total_amount', 0) or raw.get('amount', 0),
                     'date': raw.get('invoice_date', '')
                 }
@@ -458,6 +459,7 @@ def parse_invoice():
                     parsed_info = {
                         'item_name': parsed_info.get('project_name', '') or parsed_info.get('item_name', ''),
                         'invoice_number': parsed_info.get('invoice_number', ''),
+                        'invoice_tax_number': parsed_info.get('invoice_tax_number', '') or parsed_info.get('tax_number', ''),
                         'amount': parsed_info.get('total_amount', 0) or parsed_info.get('amount', 0),
                         'date': parsed_info.get('invoice_date', '')
                     }
