@@ -1,7 +1,11 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Event, User, Invoice, PurchaseRecord, EventMember
+from utils.operation_log import log_operation
+from utils.permissions import ensure_event_membership
+from utils.event_stats import recalc_event_stats
 from datetime import datetime
+from sqlalchemy import func
 import logging
 
 logger = logging.getLogger(__name__)
@@ -344,8 +348,6 @@ def update_event(event_id):
                     db.session.add(leader_member)
         if 'total_budget' in data:
             event.total_budget = data['total_budget']
-            reimbursed = float(event.reimbursed_amount or 0)
-            event.remaining_budget = float(data['total_budget']) - reimbursed
         if 'status' in data and data['status'] is not None:
             # 数据库枚举值: 'ongoing', 'finished'
             valid_statuses = ['ongoing', 'finished']
@@ -406,6 +408,10 @@ def update_event(event_id):
             action_desc = f'修改项目「{event.event_name}」: {change_text}'
         else:
             action_desc = f'修改项目「{event.event_name}」'
+
+        # 预算变更会影响剩余额度，统一重算
+        if 'total_budget' in data:
+            recalc_event_stats(event_id)
 
         db.session.commit()
         logger.info(f'赛事更新成功: event_id={event_id}, event_name={event.event_name}, status={event.status}')
@@ -852,8 +858,6 @@ def update_event_member(event_id, user_id):
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
-from sqlalchemy import func
-from utils.operation_log import log_operation
 
 @events_bp.route('/events/stats/user-summary', methods=['GET'])
 @jwt_required()

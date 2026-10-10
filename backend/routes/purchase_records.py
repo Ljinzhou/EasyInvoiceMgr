@@ -10,6 +10,7 @@ from utils.pdf_converter import PDFConverter
 import logging
 import os
 from utils.operation_log import log_operation
+from utils.event_stats import recalc_event_stats
 
 
 logger = logging.getLogger(__name__)
@@ -202,12 +203,8 @@ def create_purchase_record(event_id):
         db.session.add(record)
         db.session.flush()  # Get record_id before commit
 
-        # 更新赛事统计：记录数量和发票总额
-        from decimal import Decimal
-        event.purchase_record_count = (event.purchase_record_count or 0) + 1
-        record_amount = Decimal(str(record.total_amount or 0))
-        if record.has_invoice:
-            event.invoice_total_amount = (event.invoice_total_amount or 0) + record_amount
+        # 更新赛事统计（统一按明细表重算）
+        recalc_event_stats(record.event_id)
 
         db.session.commit()
 
@@ -355,6 +352,8 @@ def update_purchase_record(record_id):
             if not new_uploader or new_uploader.is_deleted:
                 return jsonify({'code': 400, 'message': '目标上传用户不存在', 'data': None}), 400
             record.uploader_id = new_uploader_id
+
+        recalc_event_stats(record.event_id)
 
         db.session.commit()
 
@@ -507,6 +506,10 @@ def transfer_purchase_record(record_id):
         record.is_reimbursed = False
         record.reimbursed_at = None
 
+        # 源项目与目标项目的统计都要重算
+        recalc_event_stats(old_event_id)
+        recalc_event_stats(target_event_id)
+
         db.session.commit()
 
         logger.info(f'购买记录转移成功: record_id={record_id}, {old_event_id} -> {target_event_id}')
@@ -593,6 +596,7 @@ def batch_transfer_purchase_records():
             return jsonify({'code': 404, 'message': '目标比赛项目不存在', 'data': None}), 404
 
         is_admin_or_teacher = user.user_type in ['admin', 'teacher', 'student_admin']
+        touched_event_ids = {target_event_id}
 
         # 检查用户是否有目标项目的操作权限
         if not check_student_event_access(target_event_id, user):
@@ -644,6 +648,7 @@ def batch_transfer_purchase_records():
             # 清除报销状态
             record.is_reimbursed = False
             record.reimbursed_at = None
+            touched_event_ids.add(old_event_id)
 
             # 获取源项目信息
             source_event = Event.query.get(old_event_id)
@@ -678,6 +683,10 @@ def batch_transfer_purchase_records():
                     'batch_transfer': True
                 }
             )
+
+        # 源项目与目标项目的统计都要重算
+        for eid in touched_event_ids:
+            recalc_event_stats(eid)
 
         db.session.commit()
 
@@ -792,10 +801,8 @@ def reimburse_purchase_record(record_id):
         record.reimbursed_at = datetime.now(timezone.utc)
         
         event = Event.query.get(record.event_id)
-        if event:
-            event.reimbursed_amount += record.total_amount or record.amount
-            event.remaining_budget = event.total_budget - event.reimbursed_amount
-        
+        recalc_event_stats(record.event_id)
+
         db.session.commit()
 
         log_operation(

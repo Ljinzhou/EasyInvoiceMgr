@@ -7,6 +7,7 @@ import logging
 import hashlib
 import urllib.parse
 from utils.operation_log import log_operation
+from utils.event_stats import recalc_event_stats
 
 logger = logging.getLogger(__name__)
 vouchers_bp = Blueprint('vouchers', __name__)
@@ -204,10 +205,10 @@ def create_voucher():
         )
         
         db.session.add(voucher)
-        
-        event.voucher_count += 1
-        event.voucher_total_amount += voucher.amount
-        
+        db.session.flush()
+
+        recalc_event_stats(voucher.event_id)
+
         db.session.commit()
 
         logger.info(f'凭证创建成功: voucher_id={voucher.voucher_id}')
@@ -260,10 +261,7 @@ def delete_voucher(voucher_id):
         event = Event.query.get(voucher.event_id)
         
         voucher.is_deleted = True
-        
-        if event:
-            event.voucher_count = max(0, event.voucher_count - 1)
-            event.voucher_total_amount = max(0, event.voucher_total_amount - voucher.amount)
+        recalc_event_stats(voucher.event_id)
 
         db.session.commit()
 
@@ -361,12 +359,7 @@ def update_voucher(voucher_id):
         if 'purchase_date' in data and data['purchase_date']:
             voucher.purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
         if 'amount' in data:
-            old_amount_dec = voucher.amount
-            new_amount = Decimal(str(data['amount']))
-            event = Event.query.get(voucher.event_id)
-            if event:
-                event.voucher_total_amount = event.voucher_total_amount - old_amount_dec + new_amount
-            voucher.amount = new_amount
+            voucher.amount = Decimal(str(data['amount']))
         if 'remarks' in data:
             voucher.remarks = data['remarks']
 
@@ -408,6 +401,9 @@ def update_voucher(voucher_id):
             action_desc = f'修改凭证「{voucher.item_name}」: {change_text}'
         else:
             action_desc = f'修改凭证「{voucher.item_name}」'
+
+        if 'amount' in data:
+            recalc_event_stats(voucher.event_id)
 
         db.session.commit()
 
@@ -517,16 +513,14 @@ def batch_reimburse_vouchers():
         
         count = 0
         reimbursed_vouchers = []
+        touched_event_ids = set()
         for vid in voucher_ids:
             voucher = Voucher.query.filter_by(voucher_id=vid, is_deleted=False).first()
             if voucher and not voucher.is_reimbursed:
                 voucher.is_reimbursed = True
                 voucher.reimbursed_at = datetime.utcnow()
 
-                event = Event.query.get(voucher.event_id)
-                if event:
-                    event.reimbursed_amount += voucher.amount
-                    event.remaining_budget = event.total_budget - event.reimbursed_amount
+                touched_event_ids.add(voucher.event_id)
 
                 reimbursed_vouchers.append({
                     'voucher_id': voucher.voucher_id,
@@ -535,6 +529,9 @@ def batch_reimburse_vouchers():
                     'event_id': voucher.event_id
                 })
                 count += 1
+
+        for eid in touched_event_ids:
+            recalc_event_stats(eid)
 
         db.session.commit()
 

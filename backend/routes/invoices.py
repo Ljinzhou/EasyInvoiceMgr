@@ -4,6 +4,7 @@ from models import db, Invoice, Event, User, EventMember
 from utils.storage import storage_manager
 from datetime import datetime
 from utils.permissions import ensure_event_membership, check_student_event_access
+from utils.event_stats import recalc_event_stats
 from models import EventMember, Event
 import logging
 
@@ -257,10 +258,10 @@ def create_invoice():
         invoice.review_time = datetime.utcnow()
         
         db.session.add(invoice)
-        
-        event.invoice_count += 1
-        event.invoice_total_amount += invoice.amount
-        
+        db.session.flush()
+
+        recalc_event_stats(invoice.event_id)
+
         db.session.commit()
 
         log_operation(
@@ -332,11 +333,8 @@ def delete_invoice(invoice_id):
         event = Event.query.get(invoice.event_id)
         
         invoice.is_deleted = True
-        
-        if event:
-            event.invoice_count = max(0, event.invoice_count - 1)
-            event.invoice_total_amount = max(0, event.invoice_total_amount - invoice.amount)
-        
+        recalc_event_stats(invoice.event_id)
+
         if storage_manager.is_available() and invoice.image_url:
             storage_manager.delete_file(invoice.image_url)
         
@@ -414,13 +412,9 @@ def approve_invoice(invoice_id):
         invoice.reviewer_id = int(current_user_id)
         invoice.review_time = datetime.utcnow()
         invoice.rejection_reason = rejection_reason
-        
-        if status == 'approved':
-            event = Event.query.get(invoice.event_id)
-            if event:
-                event.reimbursed_amount += invoice.amount
-                event.remaining_budget = event.total_budget - event.reimbursed_amount
-        
+
+        recalc_event_stats(invoice.event_id)
+
         db.session.commit()
 
         event = Event.query.get(invoice.event_id)
@@ -656,13 +650,6 @@ def update_invoice(invoice_id):
             invoice.project_name = data['project_name']
         if 'amount' in data:
             new_amount = Decimal(str(data['amount']))
-            old_amount_dec = invoice.amount
-            event = Event.query.get(invoice.event_id)
-            if event:
-                event.invoice_total_amount = event.invoice_total_amount - old_amount_dec + new_amount
-                if invoice.status == 'approved':
-                    event.reimbursed_amount = event.reimbursed_amount - old_amount_dec + new_amount
-                    event.remaining_budget = event.total_budget - event.reimbursed_amount
             invoice.amount = new_amount
         if 'invoice_date' in data and data['invoice_date']:
             invoice.invoice_date = datetime.strptime(data['invoice_date'], '%Y-%m-%d').date()
@@ -711,6 +698,10 @@ def update_invoice(invoice_id):
         else:
             action_desc = f'修改发票「{target_name}」，项目「{invoice.project_name or event_name_str}」'
 
+        # 金额等字段可能影响赛事汇总，统一重算
+        if 'amount' in data:
+            recalc_event_stats(invoice.event_id)
+
         db.session.commit()
 
         log_operation(
@@ -756,17 +747,16 @@ def batch_reimburse_invoices():
         
         count = 0
         reimbursed_invoices = []
+        touched_event_ids = set()
         for iid in invoice_ids:
             invoice = Invoice.query.filter_by(invoice_id=iid, is_deleted=False).first()
             if invoice and invoice.status == 'approved' and not invoice.is_reimbursed:
                 invoice.is_reimbursed = True
                 invoice.reimbursed_at = datetime.utcnow()
-                
+
+                touched_event_ids.add(invoice.event_id)
                 event = Event.query.get(invoice.event_id)
-                if event:
-                    event.reimbursed_amount += invoice.amount
-                    event.remaining_budget = event.total_budget - event.reimbursed_amount
-                
+
                 reimbursed_invoices.append({
                     'invoice_id': invoice.invoice_id,
                     'invoice_number': invoice.invoice_number,
@@ -778,6 +768,9 @@ def batch_reimburse_invoices():
                 })
                 count += 1
         
+        for eid in touched_event_ids:
+                recalc_event_stats(eid)
+
         db.session.commit()
 
         event_ids = {item['event_id'] for item in reimbursed_invoices}
@@ -839,12 +832,10 @@ def reimburse_invoice(invoice_id):
         
         invoice.is_reimbursed = True
         invoice.reimbursed_at = datetime.utcnow()
-        
+
         event = Event.query.get(invoice.event_id)
-        if event:
-            event.reimbursed_amount += invoice.amount
-            event.remaining_budget = event.total_budget - event.reimbursed_amount
-        
+        recalc_event_stats(invoice.event_id)
+
         db.session.commit()
 
         log_operation(
