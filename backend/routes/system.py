@@ -7,6 +7,7 @@ from flask_cors import cross_origin
 from config import CORS_ORIGINS
 from models import db, SystemConfig, User, BackupRecord
 from utils.crypto_utils import encrypt_value, decrypt_value
+from utils.operation_log import log_operation
 
 logger = logging.getLogger(__name__)
 
@@ -14,26 +15,6 @@ system_bp = Blueprint('system', __name__)
 
 # 需要加密存储的配置键
 ENCRYPTED_KEYS = {'ai_api_key'}
-
-
-def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
-    """记录操作日志"""
-    try:
-        from utils.operation_log import LogService
-        LogService.log(
-            user_id=user_id,
-            username=username,
-            action_type=action_type,
-            action_description=action_description,
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            event_id=event_id,
-            event_name=event_name,
-            detail=detail
-        )
-    except Exception as e:
-        logger.warning(f'记录操作日志失败: {str(e)}')
 
 
 def _get_version():
@@ -217,7 +198,7 @@ def update_system_config():
         logger.info(f'管理员 {admin_id} 更新了系统配置: {updated_keys}')
 
         admin_user = db.session.get(User, admin_id)
-        _log_operation(
+        log_operation(
             user_id=int(admin_id),
             username=admin_user.username if admin_user else str(admin_id),
             action_type='update_config',
@@ -376,7 +357,7 @@ def manual_backup():
     thread.start()
 
     backup_admin = db.session.get(User, admin_id)
-    _log_operation(
+    log_operation(
         user_id=int(admin_id),
         username=backup_admin.username if backup_admin else str(admin_id),
         action_type='backup',
@@ -495,7 +476,7 @@ def delete_backup(backup_id):
 
     del_admin_id = get_jwt_identity()
     del_admin = db.session.get(User, del_admin_id)
-    _log_operation(
+    log_operation(
         user_id=int(del_admin_id),
         username=del_admin.username if del_admin else str(del_admin_id),
         action_type='delete_backup',
@@ -552,7 +533,7 @@ def restore_backup(backup_id):
     logger.warning(f'管理员 {admin_id} 发起数据恢复: 备份id={backup_id}')
 
     restore_admin = db.session.get(User, admin_id)
-    _log_operation(
+    log_operation(
         user_id=int(admin_id),
         username=restore_admin.username if restore_admin else str(admin_id),
         action_type='restore_backup',
@@ -790,7 +771,7 @@ def test_model():
                 reply = body['choices'][0].get('message', {}).get('content', '')
                 tm_admin_id = get_jwt_identity()
                 tm_admin = db.session.get(User, tm_admin_id)
-                _log_operation(
+                log_operation(
                     user_id=int(tm_admin_id),
                     username=tm_admin.username if tm_admin else str(tm_admin_id),
                     action_type='test_model',
@@ -816,7 +797,7 @@ def test_model():
             else:
                 tm_admin_id = get_jwt_identity()
                 tm_admin = db.session.get(User, tm_admin_id)
-                _log_operation(
+                log_operation(
                     user_id=int(tm_admin_id),
                     username=tm_admin.username if tm_admin else str(tm_admin_id),
                     action_type='test_model',
@@ -841,7 +822,7 @@ def test_model():
             logger.error(f'Model test failed: HTTP {resp.status_code}: {error_detail}')
             tm_admin_id = get_jwt_identity()
             tm_admin = db.session.get(User, tm_admin_id)
-            _log_operation(
+            log_operation(
                 user_id=int(tm_admin_id),
                 username=tm_admin.username if tm_admin else str(tm_admin_id),
                 action_type='test_model',

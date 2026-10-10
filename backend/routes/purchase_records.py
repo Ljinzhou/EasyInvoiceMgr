@@ -9,30 +9,11 @@ from utils.permissions import ensure_event_membership, check_student_event_acces
 from utils.pdf_converter import PDFConverter
 import logging
 import os
+from utils.operation_log import log_operation
 
 
 logger = logging.getLogger(__name__)
 purchase_records_bp = Blueprint('purchase_records', __name__)
-
-
-def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
-    """记录操作日志"""
-    try:
-        from utils.operation_log import LogService
-        LogService.log(
-            user_id=user_id,
-            username=username,
-            action_type=action_type,
-            action_description=action_description,
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            event_id=event_id,
-            event_name=event_name,
-            detail=detail
-        )
-    except Exception as e:
-        logger.warning(f'记录操作日志失败: {str(e)}')
 
 
 def get_presigned_url(file_key: str, expires: int = 3600 * 24) -> str:
@@ -232,7 +213,7 @@ def create_purchase_record(event_id):
 
         logger.info(f'购买记录创建成功: record_id={record.record_id}')
 
-        _log_operation(
+        log_operation(
             user_id=current_user_id,
             username=user.real_name or user.username,
             action_type='create_record',
@@ -438,7 +419,7 @@ def update_purchase_record(record_id):
         else:
             action_desc = f'修改购买记录「{record.item_name}」'
 
-        _log_operation(
+        log_operation(
             user_id=current_user_id,
             username=user.real_name or user.username,
             action_type='update_record',
@@ -531,7 +512,7 @@ def transfer_purchase_record(record_id):
         logger.info(f'购买记录转移成功: record_id={record_id}, {old_event_id} -> {target_event_id}')
 
         source_event = Event.query.get(old_event_id)
-        _log_operation(
+        log_operation(
             user_id=current_user_id,
             username=user.real_name or user.username,
             action_type='transfer_record',
@@ -677,7 +658,7 @@ def batch_transfer_purchase_records():
                 'target_event_name': target_event.event_name
             })
 
-            _log_operation(
+            log_operation(
                 user_id=current_user_id,
                 username=user.real_name or user.username,
                 action_type='transfer_record',
@@ -753,7 +734,7 @@ def delete_purchase_record(record_id):
         logger.info(f'购买记录删除成功: record_id={record_id}')
 
         event = Event.query.get(record.event_id)
-        _log_operation(
+        log_operation(
             user_id=current_user_id,
             username=user.real_name or user.username,
             action_type='delete_record',
@@ -817,7 +798,7 @@ def reimburse_purchase_record(record_id):
         
         db.session.commit()
 
-        _log_operation(
+        log_operation(
             user_id=current_user_id,
             username=user.real_name or user.username,
             action_type='reimburse_record',

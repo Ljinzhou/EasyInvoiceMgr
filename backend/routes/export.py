@@ -5,31 +5,12 @@ from datetime import datetime, timezone
 import threading
 import os
 import logging
+from utils.operation_log import log_operation
 
 logger = logging.getLogger(__name__)
 export_bp = Blueprint('export', __name__)
 
 export_service = None
-
-
-def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
-    """记录操作日志"""
-    try:
-        from utils.operation_log import LogService
-        LogService.log(
-            user_id=user_id,
-            username=username,
-            action_type=action_type,
-            action_description=action_description,
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            event_id=event_id,
-            event_name=event_name,
-            detail=detail
-        )
-    except Exception as e:
-        logger.warning(f'记录操作日志失败: {str(e)}')
 
 
 def init_export_service(app):
@@ -90,7 +71,7 @@ def start_export(event_id):
 
         logger.info(f'导出任务已创建: task_id={task.task_id}, event_id={event_id}')
 
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='start_export',

@@ -195,3 +195,31 @@ class LogService:
             {"value": "test_model", "label": "测试模型"},
             {"value": "start_export", "label": "发起导出"},
         ]
+
+
+def log_operation(user_id: int, username: str, action_type: str, action_description: str,
+                  target_type: Optional[str] = None, target_id: Optional[int] = None,
+                  target_name: Optional[str] = None, event_id: Optional[int] = None,
+                  event_name: Optional[str] = None, detail: Optional[Dict[str, Any]] = None):
+    """记录操作日志的公共入口。
+
+    原先各路由文件各自复制了一份 `_log_operation` 私有函数（8 份，分两种变体：
+    except 分支分别用 `import logging` 与模块级 logger），改日志调用方式需同步 8 处，
+    漏改则因该函数吞掉所有异常而静默失效。现统一到本函数。
+    """
+    try:
+        LogService.log(
+            user_id=user_id,
+            username=username,
+            action_type=action_type,
+            action_description=action_description,
+            target_type=target_type,
+            target_id=target_id,
+            target_name=target_name,
+            event_id=event_id,
+            event_name=event_name,
+            detail=detail
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f'记录操作日志失败: {str(e)}')

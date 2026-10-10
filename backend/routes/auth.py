@@ -7,30 +7,11 @@ from config import CORS_ORIGINS
 from datetime import datetime, timezone
 import logging
 import re
+from utils.operation_log import log_operation
 
 logger = logging.getLogger(__name__)
 auth_bp = Blueprint('auth', __name__)
 
-
-def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
-    """记录操作日志"""
-    try:
-        from utils.operation_log import LogService
-        LogService.log(
-            user_id=user_id,
-            username=username,
-            action_type=action_type,
-            action_description=action_description,
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            event_id=event_id,
-            event_name=event_name,
-            detail=detail
-        )
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f'记录操作日志失败: {str(e)}')
 
 @auth_bp.route('/register', methods=['POST', 'OPTIONS'])
 @cross_origin(origins=CORS_ORIGINS, supports_credentials=True)
@@ -100,7 +81,7 @@ def register():
         db.session.commit()
         logger.info(f'用户注册成功: {user.username} (ID: {user.user_id})')
 
-        _log_operation(
+        log_operation(
             user_id=user.user_id,
             username=user.username,
             action_type='create_user',
@@ -164,7 +145,7 @@ def login():
         logger.info(f'用户登录成功: {user.username} (ID: {user.user_id})')
 
         # 记录登录日志
-        _log_operation(
+        log_operation(
             user_id=user.user_id,
             username=user.username,
             action_type='login',

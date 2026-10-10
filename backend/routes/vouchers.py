@@ -6,29 +6,10 @@ from datetime import datetime
 import logging
 import hashlib
 import urllib.parse
+from utils.operation_log import log_operation
 
 logger = logging.getLogger(__name__)
 vouchers_bp = Blueprint('vouchers', __name__)
-
-
-def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
-    """记录操作日志"""
-    try:
-        from utils.operation_log import LogService
-        LogService.log(
-            user_id=user_id,
-            username=username,
-            action_type=action_type,
-            action_description=action_description,
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            event_id=event_id,
-            event_name=event_name,
-            detail=detail
-        )
-    except Exception as e:
-        logger.warning(f'记录操作日志失败: {str(e)}')
 
 
 # 字段中文标签（用于操作日志的 description）
@@ -231,7 +212,7 @@ def create_voucher():
 
         logger.info(f'凭证创建成功: voucher_id={voucher.voucher_id}')
 
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='create_voucher',
@@ -286,7 +267,7 @@ def delete_voucher(voucher_id):
 
         db.session.commit()
 
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='delete_voucher',
@@ -430,7 +411,7 @@ def update_voucher(voucher_id):
 
         db.session.commit()
 
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username if user else '',
             action_type='update_voucher',
@@ -558,7 +539,7 @@ def batch_reimburse_vouchers():
         db.session.commit()
 
         total_amount = sum(v['amount'] for v in reimbursed_vouchers)
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='batch_reimburse_vouchers',

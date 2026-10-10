@@ -5,29 +5,10 @@ from datetime import datetime, timedelta, timezone
 import logging
 import secrets
 import string
+from utils.operation_log import log_operation
 
 logger = logging.getLogger(__name__)
 invitation_codes_bp = Blueprint('invitation_codes', __name__)
-
-
-def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
-    """记录操作日志"""
-    try:
-        from utils.operation_log import LogService
-        LogService.log(
-            user_id=user_id,
-            username=username,
-            action_type=action_type,
-            action_description=action_description,
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            event_id=event_id,
-            event_name=event_name,
-            detail=detail
-        )
-    except Exception as e:
-        logger.warning(f'记录操作日志失败: {str(e)}')
 
 
 def generate_invitation_code(target_user_type: str) -> str:
@@ -172,7 +153,7 @@ def create_invitation_code():
 
         logger.info(f'成功创建 {quantity} 个邀请码')
 
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='create_code',
@@ -275,7 +256,7 @@ def toggle_invitation_code(code_id):
         code.is_active = not code.is_active
         db.session.commit()
 
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='toggle_code',
@@ -319,7 +300,7 @@ def delete_invitation_code(code_id):
         db.session.delete(code)
         db.session.commit()
 
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='delete_code',

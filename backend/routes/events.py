@@ -8,26 +8,6 @@ logger = logging.getLogger(__name__)
 events_bp = Blueprint('events', __name__)
 
 
-def _log_operation(user_id, username, action_type, action_description, target_type=None, target_id=None, target_name=None, event_id=None, event_name=None, detail=None):
-    """记录操作日志"""
-    try:
-        from utils.operation_log import LogService
-        LogService.log(
-            user_id=user_id,
-            username=username,
-            action_type=action_type,
-            action_description=action_description,
-            target_type=target_type,
-            target_id=target_id,
-            target_name=target_name,
-            event_id=event_id,
-            event_name=event_name,
-            detail=detail
-        )
-    except Exception as e:
-        logger.warning(f'记录操作日志失败: {str(e)}')
-
-
 # 字段中文标签（用于操作日志的 description）
 EVENT_FIELD_LABELS = {
     'event_name': '项目名称',
@@ -163,7 +143,7 @@ def create_event():
         db.session.commit()
 
         # 记录日志
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='create_event',
@@ -431,7 +411,7 @@ def update_event(event_id):
         logger.info(f'赛事更新成功: event_id={event_id}, event_name={event.event_name}, status={event.status}')
 
         # 记录日志
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='update_event',
@@ -593,7 +573,7 @@ def delete_event(event_id):
         logger.info(f'赛事删除成功: event_id={event_id}, event_name={event.event_name}')
 
         # 记录日志
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='delete_event',
@@ -718,7 +698,7 @@ def add_event_member(event_id):
         logger.info(f'赛事成员添加成功: event_id={event_id}, user_id={user_id}, role={role_in_event}')
 
         # 记录日志
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='add_member',
@@ -779,7 +759,7 @@ def remove_event_member(event_id, user_id):
 
         # 记录日志
         removed_user = User.query.get(user_id)
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='remove_member',
@@ -845,7 +825,7 @@ def update_event_member(event_id, user_id):
 
         # 记录日志
         target_user = User.query.get(user_id)
-        _log_operation(
+        log_operation(
             user_id=int(current_user_id),
             username=user.username,
             action_type='update_member_role',
@@ -873,6 +853,7 @@ def update_event_member(event_id, user_id):
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
 from sqlalchemy import func
+from utils.operation_log import log_operation
 
 @events_bp.route('/events/stats/user-summary', methods=['GET'])
 @jwt_required()
