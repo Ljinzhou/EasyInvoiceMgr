@@ -3,24 +3,11 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, Invoice, Event, User, EventMember
 from utils.storage import storage_manager
 from datetime import datetime
-from routes.events import ensure_event_membership
+from utils.permissions import ensure_event_membership, check_student_event_access
 from models import EventMember, Event
 import logging
 
 
-def _check_student_event_access(event_id: int, user) -> bool:
-    """Check if a student user can access (modify) an event. Admin/teacher/student_admin always pass."""
-    if user.user_type in ['admin', 'teacher', 'student_admin']:
-        return True
-    if user.user_type == 'student':
-        is_member = EventMember.query.filter_by(
-            event_id=event_id, user_id=user.user_id, is_deleted=False
-        ).first()
-        event = Event.query.get(event_id)
-        if event and event.creator_id == user.user_id:
-            return True
-        return is_member is not None
-    return False
 import hashlib
 import io
 import os
@@ -254,7 +241,7 @@ def create_invoice():
             }), 400
 
         # 检查学生是否有权限访问该项目
-        if not _check_student_event_access(int(event_id), user):
+        if not check_student_event_access(int(event_id), user):
             return jsonify({'code': 403, 'message': '您未加入该项目，无法上传发票', 'data': None}), 403
 
         # 自动检查并添加赛事成员
@@ -355,7 +342,7 @@ def delete_invoice(invoice_id):
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
 
         # 学生权限检查：必须是项目成员
-        if not _check_student_event_access(invoice.event_id, user):
+        if not check_student_event_access(invoice.event_id, user):
             return jsonify({'code': 403, 'message': '您未加入该项目，无法删除发票', 'data': None}), 403
 
         # 自动检查并添加赛事成员（特权用户）

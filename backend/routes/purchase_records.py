@@ -5,25 +5,10 @@ from datetime import datetime, timezone
 from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
 from utils.glm_vision_service import glm_vision_service
-from routes.events import ensure_event_membership
+from utils.permissions import ensure_event_membership, check_student_event_access
 import logging
 import os
 
-
-def _check_student_event_access(event_id: int, user) -> bool:
-    """Check if a student user can access (modify) an event. Admin/teacher/student_admin always pass."""
-    if user.user_type in ['admin', 'teacher', 'student_admin']:
-        return True
-    # Student: must be creator or member
-    if user.user_type == 'student':
-        is_member = EventMember.query.filter_by(
-            event_id=event_id, user_id=user.user_id, is_deleted=False
-        ).first()
-        event = Event.query.get(event_id)
-        if event and event.creator_id == user.user_id:
-            return True
-        return is_member is not None
-    return False
 
 logger = logging.getLogger(__name__)
 purchase_records_bp = Blueprint('purchase_records', __name__)
@@ -192,7 +177,7 @@ def create_purchase_record(event_id):
             return jsonify({'code': 400, 'message': '必须上传购物凭证图片', 'data': None}), 400
 
         # 检查学生是否有权限访问该项目
-        if not _check_student_event_access(event_id, user):
+        if not check_student_event_access(event_id, user):
             return jsonify({'code': 403, 'message': '您未加入该项目，无法上传记录', 'data': None}), 403
 
         # 自动检查并添加赛事成员
@@ -306,7 +291,7 @@ def update_purchase_record(record_id):
             return jsonify({'code': 403, 'message': '只能修改自己的购买记录', 'data': None}), 403
 
         # 学生权限检查：必须是项目成员
-        if not _check_student_event_access(record.event_id, user):
+        if not check_student_event_access(record.event_id, user):
             return jsonify({'code': 403, 'message': '您未加入该项目，无法修改记录', 'data': None}), 403
 
         # 自动检查并添加赛事成员
@@ -521,11 +506,11 @@ def transfer_purchase_record(record_id):
             return jsonify({'code': 403, 'message': '只能转移自己的购买记录', 'data': None}), 403
 
         # 学生权限检查：必须是源项目成员
-        if not _check_student_event_access(record.event_id, user):
+        if not check_student_event_access(record.event_id, user):
             return jsonify({'code': 403, 'message': '您未加入源项目，无法转移记录', 'data': None}), 403
 
         # 检查用户是否有目标项目的操作权限
-        if not _check_student_event_access(target_event_id, user):
+        if not check_student_event_access(target_event_id, user):
             return jsonify({'code': 403, 'message': '您未加入目标比赛项目，无法转移记录', 'data': None}), 403
 
         # 自动检查并添加赛事成员（管理员/教师）
@@ -628,7 +613,7 @@ def batch_transfer_purchase_records():
         is_admin_or_teacher = user.user_type in ['admin', 'teacher', 'student_admin']
 
         # 检查用户是否有目标项目的操作权限
-        if not _check_student_event_access(target_event_id, user):
+        if not check_student_event_access(target_event_id, user):
             return jsonify({'code': 403, 'message': '您未加入目标比赛项目，无法转移记录', 'data': None}), 403
 
         # 获取所有要转移的记录
@@ -645,7 +630,7 @@ def batch_transfer_purchase_records():
             for record in records:
                 if record.uploader_id != int(current_user_id):
                     return jsonify({'code': 403, 'message': '只能转移自己的购买记录', 'data': None}), 403
-                if not _check_student_event_access(record.event_id, user):
+                if not check_student_event_access(record.event_id, user):
                     return jsonify({'code': 403, 'message': '您未加入部分记录所在的项目，无法转移', 'data': None}), 403
 
         # 执行转移
@@ -664,7 +649,7 @@ def batch_transfer_purchase_records():
                 continue
 
             # 学生权限检查：必须是源项目成员
-            if not is_admin_or_teacher and not _check_student_event_access(record.event_id, user):
+            if not is_admin_or_teacher and not check_student_event_access(record.event_id, user):
                 failed_records.append({
                     'record_id': record.record_id,
                     'item_name': record.item_name,
@@ -754,7 +739,7 @@ def delete_purchase_record(record_id):
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
 
         # 学生权限检查：必须是项目成员
-        if not _check_student_event_access(record.event_id, user):
+        if not check_student_event_access(record.event_id, user):
             return jsonify({'code': 403, 'message': '您未加入该项目，无法删除记录', 'data': None}), 403
 
         # 自动检查并添加赛事成员
