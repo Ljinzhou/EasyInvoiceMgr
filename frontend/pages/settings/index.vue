@@ -88,72 +88,6 @@
           </form>
         </section>
 
-        <!-- Summary AI Configuration -->
-        <section class="config-card">
-          <div class="card-header">
-            <span class="card-icon">✨</span>
-            <div>
-              <h2>AI 总结配置</h2>
-              <p class="card-desc">配置财务总结与自然语言查询的 LLM 模型（支持 DeepSeek、OpenAI 兼容接口）</p>
-            </div>
-            <span v-if="summaryAiSaved" class="status-pill saved">已配置</span>
-            <span v-else class="status-pill empty">未配置</span>
-          </div>
-
-          <form @submit.prevent="saveSummaryAiConfig" class="config-form">
-            <div class="field">
-              <label class="field-label">模型名称</label>
-              <input v-model="summaryAiForm.model" type="text" class="field-input" placeholder="deepseek-chat" />
-              <span class="field-hint">输入模型 ID，如 deepseek-chat、gpt-4o-mini 或其他 OpenAI 兼容模型</span>
-            </div>
-
-            <div class="field">
-              <label class="field-label">API 密钥</label>
-              <div class="input-password-wrapper">
-                <input
-                  v-model="summaryAiForm.apiKey"
-                  :type="summaryShowKey ? 'text' : 'password'"
-                  class="field-input"
-                  placeholder="输入 API 密钥"
-                  autocomplete="off"
-                />
-                <button type="button" class="toggle-btn" @click="summaryShowKey = !summaryShowKey" :title="summaryShowKey ? '隐藏' : '显示'">
-                  <svg v-if="!summaryShowKey" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                </button>
-              </div>
-              <span class="field-hint">当前密钥：{{ summaryAiStatus.maskedKey || '未设置' }}</span>
-            </div>
-
-            <div class="field">
-              <label class="field-label">API 地址</label>
-              <input v-model="summaryAiForm.apiUrl" type="text" class="field-input" placeholder="https://api.deepseek.com/v1/chat/completions" />
-              <span class="field-hint">支持 OpenAI 兼容接口，留空使用 DeepSeek 默认地址</span>
-            </div>
-
-            <transition name="msg-fade">
-              <div v-if="summaryAiMsg" class="form-msg" :class="summaryAiMsgType">{{ summaryAiMsg }}</div>
-            </transition>
-
-            <div class="form-actions-row">
-              <button type="submit" class="save-btn" :disabled="summaryAiSaving">
-                <span v-if="summaryAiSaving" class="btn-spinner"></span>
-                {{ summaryAiSaving ? '保存中...' : '保存配置' }}
-              </button>
-              <button type="button" class="test-btn" :disabled="summaryTesting || summaryAiSaving" @click="testSummaryModel">
-                <span v-if="summaryTesting" class="btn-spinner"></span>
-                {{ summaryTesting ? '测试中...' : '测试连接' }}
-              </button>
-            </div>
-
-            <transition name="msg-fade">
-              <div v-if="summaryTestResult" class="form-msg" :class="summaryTestResult?.success ? 'success' : 'error'">
-                {{ summaryTestResult?.text }}
-              </div>
-            </transition>
-          </form>
-        </section>
-
         <!-- Update Check -->
         <section class="config-card">
           <div class="card-header">
@@ -605,92 +539,6 @@ async function testModel() {
   }
 }
 
-// ---- Summary AI Config ----
-const summaryAiForm = reactive({ model: 'deepseek-chat', apiKey: '', apiUrl: '' })
-const summaryAiStatus = reactive({ maskedKey: '' })
-const summaryShowKey = ref(false)
-const summaryAiSaving = ref(false)
-const summaryAiSaved = ref(false)
-const summaryAiMsg = ref('')
-const summaryAiMsgType = ref('success')
-let summaryAiMsgTimer: ReturnType<typeof setTimeout> | null = null
-
-function showSummaryAiMsg(text: string, type: 'success' | 'error') {
-  summaryAiMsg.value = text
-  summaryAiMsgType.value = type
-  if (summaryAiMsgTimer) clearTimeout(summaryAiMsgTimer)
-  summaryAiMsgTimer = setTimeout(() => { summaryAiMsg.value = '' }, 4000)
-}
-
-async function loadSummaryAiConfig() {
-  try {
-    const { data } = await $api.get('/system/config')
-    if (data.code === 200) {
-      const cfg = data.data
-      summaryAiForm.model = cfg.summary_ai_model?.value || 'deepseek-chat'
-      summaryAiForm.apiUrl = cfg.summary_ai_api_url?.value || ''
-      summaryAiStatus.maskedKey = cfg.summary_ai_api_key?.has_value ? cfg.summary_ai_api_key.value : ''
-      summaryAiSaved.value = !!(cfg.summary_ai_model?.has_value || cfg.summary_ai_api_key?.has_value)
-    }
-  } catch (e) {
-    // silent
-  }
-}
-
-async function saveSummaryAiConfig() {
-  summaryAiSaving.value = true
-  try {
-    const configs: Record<string, string> = {}
-    if (summaryAiForm.model) configs.summary_ai_model = summaryAiForm.model
-    if (summaryAiForm.apiKey) configs.summary_ai_api_key = summaryAiForm.apiKey
-    if (summaryAiForm.apiUrl) configs.summary_ai_api_url = summaryAiForm.apiUrl
-
-    const { data } = await $api.put('/system/config', { configs })
-    if (data.code === 200) {
-      showSummaryAiMsg('AI 总结配置保存成功', 'success')
-      summaryAiForm.apiKey = ''
-      summaryAiSaved.value = true
-      await loadSummaryAiConfig()
-    } else {
-      showSummaryAiMsg(data.message || '保存失败', 'error')
-    }
-  } catch (e: any) {
-    showSummaryAiMsg(e.response?.data?.message || '保存失败，请稍后重试', 'error')
-  } finally {
-    summaryAiSaving.value = false
-  }
-}
-
-// ---- Test Summary Model ----
-const summaryTesting = ref(false)
-const summaryTestResult = ref<{ success: boolean; text: string } | null>(null)
-let summaryTestMsgTimer: ReturnType<typeof setTimeout> | null = null
-
-async function testSummaryModel() {
-  summaryTesting.value = true
-  summaryTestResult.value = null
-  try {
-    const { data } = await $api.post('/system/test-summary-model')
-    if (data.code === 200) {
-      summaryTestResult.value = {
-        success: true,
-        text: `测试通过 · 模型 ${data.data.model} · 延迟 ${data.data.latency_ms}ms`
-      }
-    } else {
-      summaryTestResult.value = { success: false, text: data.message || '测试失败' }
-    }
-  } catch (e: any) {
-    summaryTestResult.value = {
-      success: false,
-      text: e.response?.data?.message || '测试请求失败'
-    }
-  } finally {
-    summaryTesting.value = false
-    if (summaryTestMsgTimer) clearTimeout(summaryTestMsgTimer)
-    summaryTestMsgTimer = setTimeout(() => { summaryTestResult.value = null }, 6000)
-  }
-}
-
 // ---- Update Check ----
 const currentVersion = ref('1.0.0')
 const latestVersion = ref('')
@@ -1118,7 +966,6 @@ onMounted(() => {
   if (isAdmin.value) {
     loadCurrentVersion()
     loadAiConfig()
-    loadSummaryAiConfig()
     loadBackups()
     loadScheduleConfig()
   }

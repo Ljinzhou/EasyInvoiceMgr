@@ -41,6 +41,14 @@
 - **权限细分**：细化角色权限，支持更灵活的权限配置
 - **API限流与防护**：防止恶意请求，保障服务稳定性
 
+## 本地开发（调试）一键启动
+
+```powershell
+.\dev.ps1        # 或双击 dev.bat
+```
+
+依次拉起三个服务：PostgreSQL（Docker，仅数据库）→ 后端 Flask `:5000`（新窗口，`debug=True` 自动重载；优先使用 conda 环境 `py311`，conda 不可用时自动回退 venv，首次自动安装依赖）→ 前端 Nuxt `:3000`（新窗口，HMR 热更新，首次自动 `pnpm install`）。关闭对应窗口即停止该服务。API 地址默认 `http://localhost:5000/api`，账号 `admin` / `admin`。
+
 ## 部署指南
 
 ### 一键启动

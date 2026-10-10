@@ -175,7 +175,6 @@ class LogService:
             {"value": "restore_backup", "label": "恢复备份"},
             {"value": "delete_backup", "label": "删除备份"},
             {"value": "test_model", "label": "测试模型"},
-            {"value": "ai_summary", "label": "AI财务总结"},
             {"value": "start_export", "label": "发起导出"},
         ]
 

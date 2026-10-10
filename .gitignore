@@ -82,3 +82,5 @@ backend/exports/
 .reasonix
 .codegraph
 
+dev.bat
+dev.ps1
