@@ -6,6 +6,7 @@ from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
 from utils.glm_vision_service import glm_vision_service
 from utils.permissions import ensure_event_membership, check_student_event_access
+from utils.pdf_converter import PDFConverter
 import logging
 import os
 
@@ -973,7 +974,6 @@ def re_parse_invoice(record_id):
         # PDF文件：先转换为JPG图片再用GLM解析
         image_bytes_for_ai = file_bytes
         if is_pdf:
-            from routes.parse import PDFConverter
             jpg_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(file_bytes)
             if jpg_bytes:
                 image_bytes_for_ai = jpg_bytes
