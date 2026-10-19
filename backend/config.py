@@ -6,26 +6,27 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get(
     'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001'
 ).split(',')]
 
-def _normalize_database_url(url: str) -> str:
-    """统一使用项目已安装的 psycopg2 驱动。
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_DB_FILE = os.path.join(_BACKEND_DIR, 'data', 'easy_invoice_mgr.sqlite')
 
-    SQLAlchemy 2.1 会把裸 ``postgresql://`` 默认解析为 psycopg v3，
-    而 requirements 只安装了 psycopg2-binary，因此这里显式补上驱动名。
-    """
-    for prefix in ('postgresql://', 'postgres://'):
-        if url.startswith(prefix):
-            return 'postgresql+psycopg2://' + url[len(prefix):]
-    return url
+
+def _default_database_url() -> str:
+    """默认落在 backend/data 下的单文件 SQLite 库。"""
+    os.makedirs(os.path.dirname(_DEFAULT_DB_FILE), exist_ok=True)
+    return 'sqlite:///' + _DEFAULT_DB_FILE.replace('\\', '/')
 
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'easy-invoice-mgr-secret-key'
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'easy-invoice-mgr-jwt-secret'
-    SQLALCHEMY_DATABASE_URI = _normalize_database_url(
-        os.environ.get('DATABASE_URL', 'postgresql+psycopg2://postgres:root@localhost:5432/easy_invoice_mgr')
-    )
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or _default_database_url()
+    # 进程内有多线程写库（导出线程、备份线程、APScheduler），
+    # SQLite 需要放开线程检查并给足写锁等待时间
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'connect_args': {'check_same_thread': False, 'timeout': 30},
+    }
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_MIGRATE_REPO = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'migrations')
+    SQLALCHEMY_MIGRATE_REPO = os.path.join(_BACKEND_DIR, 'migrations')
     JWT_ACCESS_TOKEN_EXPIRES = 3600
 
     # 文件存储后端: 'local' | 'cos'
