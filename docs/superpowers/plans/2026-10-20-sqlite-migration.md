@@ -2031,6 +2031,38 @@ Expected: 临时验证脚本不出现在仓库里。
 6. 恢复完成后核对：用户数、赛事数、发票总数与金额合计、操作日志条数。
 7. 核对无误后，删除服务器上的 `pgdata` Docker 卷（`docker volume rm <project>_pgdata`）释放磁盘。
 
+## Task 11 验收记录（已用真实旧备份实测通过）
+
+**验收样本**：`backups/full_backup_20261020_005509.tar.gz`（由旧版 PG 程序产出，128 MB，内含 `db_dump.sql.gz` + `invoices/` + `avatars/` + `system_config.json`）。
+
+**验收方式**：`backend/scripts/verify_legacy_backup.py` 在临时目录建全新 SQLite 库，把归档交给 `BackupService.restore_from_file`（与「上传备份恢复」路由同一入口），随后逐表比对。
+
+**逐表行数比对（旧 dump vs 恢复后）**：
+
+| 表 | 旧 dump | 恢复后 | 结论 |
+| --- | --- | --- | --- |
+| users | 18 | 18 | 一致 |
+| events | 8 | 8 | 一致 |
+| event_members | 25 | 25 | 一致 |
+| purchase_records | 169 | 169 | 一致 |
+| operation_logs | 74 | 74 | 一致 |
+| system_configs | 6 | 6 | 一致 |
+| export_tasks | 1 | 1 | 一致 |
+| backup_records | 2 | 2（+1 条新的恢复记录） | 一致 |
+| invoices / vouchers / invitation_codes | 0 | 0 | 一致（源库本身为空） |
+| alembic_version / audit_logs | 1 / 0 | 跳过 | 按设计忽略 |
+
+- `PRAGMA foreign_key_check` 返回 0 行，恢复后没有悬空外键。
+- `admin` 账号存在且 `user_type=admin`，恢复记录 `status=completed`、`progress_message=恢复完成`。
+
+**验收期间发现并修复的真实缺陷**：
+
+1. Windows 下恢复必失败：恢复线程替换 SQLite 文件时，请求线程的会话仍持有句柄，`os.remove` 抛 `PermissionError: [WinError 32]`，整个恢复静默失败（旧记录被标记 failed，数据一条没进）。
+   - 修复：新版快照恢复改用 **SQLite 在线备份 API**（`source.backup(destination)`）直接覆盖目标库，不删除、不替换文件；旧版 dump 恢复改为**原地 DROP 全部表再重建**。两条路径都不再触碰文件系统句柄，因此不受 Windows 文件锁影响。
+   - 回归测试：`backend/tests/test_backup_service.py::test_restore_from_file_survives_open_engine_handles`，故意在恢复前保留一个已检出连接的会话；去掉修复时该测试以 `WinError 32` 失败。
+2. 启动测试 `backend/tests/test_app_startup.py` 用 `text=True` 捕获子进程输出，Windows 默认按 gbk 解码，中文日志触发 `UnicodeDecodeError`。修复：显式 `encoding='utf-8', errors='replace'`。
+3. 新版快照备份 → 恢复往返实测通过（标记用户先备份、删除、再恢复后重新出现，恢复记录 `completed`）。
+
 ## Self-Review 结论
 
 - **Spec 覆盖**：评估文档第三节 P0-1→Task 2、P0-2→Task 3、P0-3→Task 5/7、P1-4→Task 4、P1-5→Task 4（`foreign_keys=ON`）+ Task 8（记录为已知差异）、P2-6→Task 4、P2-7→Task 8；第五节数据搬迁→Task 6/7/11；第六节阶段 1→Task 4、阶段 2→Task 6、阶段 3→Task 5、阶段 4→Task 9、阶段 5→Task 10。第七节决策（彻底切 SQLite）→Task 8。
