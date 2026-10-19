@@ -86,3 +86,50 @@ def test_restore_legacy_pg_dump_rebuilds_database(app, service, db_path):
         assert User.query.count() == 3
         versions = db.session.execute(text('SELECT version_num FROM alembic_version')).fetchall()
         assert versions, '恢复后必须写入 alembic_version，否则下次启动会重复建表'
+
+
+def test_restore_from_file_survives_open_engine_handles(app, service, db_path):
+    """恢复线程替换数据库文件时，调用方会话可能仍持有 SQLite 句柄。
+
+    Windows 上删除被占用的库文件会抛 WinError 32，恢复必须照常成功。
+    """
+    import shutil
+    import tarfile
+    from pathlib import Path
+
+    from sqlalchemy import text
+
+    from models import BackupRecord, db
+
+    work_dir = Path(db_path).parent
+    staging = work_dir / 'legacy_staging'
+    staging.mkdir(exist_ok=True)
+    shutil.copyfile(
+        Path(__file__).parent / 'fixtures' / 'legacy_dump_sample.sql',
+        staging / 'db_dump.sql',
+    )
+
+    archive_path = str(work_dir / 'legacy_restore.tar.gz')
+    with tarfile.open(archive_path, 'w:gz') as tar:
+        tar.add(str(staging / 'db_dump.sql'), arcname='db_dump.sql')
+
+    with app.app_context():
+        record = BackupRecord(backup_type='restore', backup_scope='full', status='pending')
+        db.session.add(record)
+        db.session.commit()
+        record_id = record.id
+
+        # 故意保留一个已检出连接的会话，模拟发起恢复的请求线程持有句柄
+        db.session.execute(text('SELECT count(*) FROM users')).fetchone()
+
+        service.restore_from_file(record_id, archive_path)
+
+        db.session.remove()
+        usernames = [
+            row[0] for row in db.session.execute(text('SELECT username FROM users ORDER BY user_id'))
+        ]
+        assert usernames == ['admin', '张三', 'tab\tname']
+        completed = db.session.execute(
+            text("SELECT count(*) FROM backup_records WHERE backup_type='restore' AND status='completed'")
+        ).scalar()
+        assert completed == 1, '恢复完成后必须留下一条 completed 的恢复记录'

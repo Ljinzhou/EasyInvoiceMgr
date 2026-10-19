@@ -7,6 +7,7 @@ import logging
 import platform
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -486,14 +487,40 @@ class BackupService:
 
         raise RuntimeError(f'无法识别的数据库备份文件: {os.path.basename(dump_path)}')
 
+    def _release_sqlite_handles(self, target_path):
+        """释放本进程对 SQLite 文件的句柄（WAL/SHM 边车一并清理）。
+
+        Windows 上只要有任一连接未关闭，删除主库文件就会抛 WinError 32。
+        恢复流程运行在独立线程，请求线程的会话可能仍持有连接，所以这里
+        先丢弃会话、释放连接池，再用短重试等待系统真正关闭句柄。
+        """
+        from models import db
+
+        db.session.remove()
+        db.engine.dispose()
+
+        last_error = None
+        for _ in range(10):
+            try:
+                for suffix in ('', '-wal', '-shm'):
+                    sidecar = target_path + suffix
+                    if os.path.exists(sidecar):
+                        os.remove(sidecar)
+                return True
+            except PermissionError as error:
+                last_error = error
+                time.sleep(0.2)
+
+        logger.warning(f'数据库文件仍被占用，改用原地清空: {last_error}')
+        return False
+
     def _replace_database_file(self, target_path, source_path):
         """断开连接后整体替换数据库文件。
 
         WAL/SHM 边车文件必须一起清理，否则旧 WAL 会被应用到新库上。
+        文件被其它会话占用（Windows 常见）时退化为把快照里的表逐张拷进目标库。
         """
         import sqlite3
-
-        from models import db
 
         probe = sqlite3.connect(source_path)
         try:
@@ -501,30 +528,64 @@ class BackupService:
         finally:
             probe.close()
 
-        db.session.remove()
-        db.engine.dispose()
-
-        for suffix in ('', '-wal', '-shm'):
-            sidecar = target_path + suffix
-            if os.path.exists(sidecar):
-                os.remove(sidecar)
+        if not self._release_sqlite_handles(target_path):
+            self._copy_sqlite_tables(source_path, target_path)
+            logger.info(f'数据库文件已被占用，改用快照覆盖: {target_path}')
+            return
 
         shutil.copyfile(source_path, target_path)
         logger.info(f'数据库文件已替换: {target_path}')
 
+    def _copy_sqlite_tables(self, source_path, target_path):
+        """在无法替换文件时，把快照中的表逐张覆盖到目标库。"""
+        import sqlite3
+
+        connection = sqlite3.connect(target_path, timeout=30)
+        try:
+            connection.execute('ATTACH DATABASE ? AS snapshot', (source_path,))
+            tables = [
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM snapshot.sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            ]
+            connection.execute('PRAGMA foreign_keys=OFF')
+            for table in tables:
+                connection.execute(f'DROP TABLE IF EXISTS main."{table}"')
+                ddl = connection.execute(
+                    'SELECT sql FROM snapshot.sqlite_master WHERE type=? AND name=?',
+                    ('table', table),
+                ).fetchone()
+                if not ddl or not ddl[0]:
+                    continue
+                connection.execute(ddl[0].replace(
+                    f'CREATE TABLE "{table}"', f'CREATE TABLE main."{table}"')
+                    .replace(f'CREATE TABLE {table}', f'CREATE TABLE main."{table}"'))
+                connection.execute(
+                    f'INSERT INTO main."{table}" SELECT * FROM snapshot."{table}"'
+                )
+            connection.execute('DETACH DATABASE snapshot')
+            connection.commit()
+        finally:
+            connection.close()
+
     def _import_legacy_pg_dump(self, target_path, sql_path):
         """把旧版 PostgreSQL dump 恢复成全新的 SQLite 数据库。"""
         from models import db
+        from sqlalchemy import text
+
         from utils.legacy_pg_dump import import_pg_dump_file
         from utils.schema_init import ensure_schema
 
-        db.session.remove()
-        db.engine.dispose()
-
-        for suffix in ('', '-wal', '-shm'):
-            sidecar = target_path + suffix
-            if os.path.exists(sidecar):
-                os.remove(sidecar)
+        reset_mode = 'replaced'
+        if not self._release_sqlite_handles(target_path):
+            # 文件删不掉时，退化为原地清空所有表：同样是一个干净的空库
+            reset_mode = 'truncated'
+            with db.engine.begin() as connection:
+                for table in reversed(db.metadata.sorted_tables):
+                    connection.execute(text(f'DROP TABLE IF EXISTS "{table.name}"'))
+                connection.execute(text('DROP TABLE IF EXISTS alembic_version'))
 
         # 先按模型建出空库（旧 dump 里的 DDL 一律不执行）
         db.create_all()
@@ -535,7 +596,7 @@ class BackupService:
         # 建表后没有 alembic_version，ensure_schema 会标记为 head
         ensure_schema()
 
-        logger.info(f'旧版备份恢复完成: {report.summary()}')
+        logger.info(f'旧版备份恢复完成({reset_mode}): {report.summary()}')
         return report
 
     def _import_system_config(self, json_path):
