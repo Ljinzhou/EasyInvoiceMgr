@@ -1,7 +1,8 @@
 from flask import request
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from models import db, BigIntPK
+from utils.db_types import UTCDateTime
 import json
 
 
@@ -22,7 +23,7 @@ class OperationLog(db.Model):
     detail = db.Column(db.JSON)
     ip_address = db.Column(db.String(45))
     user_agent = db.Column(db.Text)
-    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now())
+    created_at = db.Column(UTCDateTime(), default=lambda: datetime.now(timezone.utc))
 
     user = db.relationship('User', foreign_keys=[user_id], backref='operation_logs')
     event = db.relationship('Event', foreign_keys=[event_id], backref='operation_logs')
