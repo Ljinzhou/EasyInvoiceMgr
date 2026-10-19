@@ -1,7 +1,7 @@
 from flask import request
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from models import db
+from models import db, BigIntPK
 import json
 
 
@@ -9,7 +9,7 @@ class OperationLog(db.Model):
     """操作日志模型"""
     __tablename__ = 'operation_logs'
 
-    log_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    log_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     user_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
     username = db.Column(db.String(50), nullable=False)
     action_type = db.Column(db.String(50), nullable=False)

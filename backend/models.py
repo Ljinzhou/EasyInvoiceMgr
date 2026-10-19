@@ -9,10 +9,16 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 
+# SQLite 只有声明为 INTEGER 的单列主键才会成为 rowid 别名并自动赋值；
+# BIGINT 主键在 SQLite 上不会自增，插入会因主键列 NOT NULL 而失败。
+# 这里做方言变体：PostgreSQL 侧保持 BIGINT，SQLite 侧退化为 INTEGER。
+BigIntPK = db.BigInteger().with_variant(db.Integer, 'sqlite')
+
+
 class User(db.Model):
     __tablename__ = 'users'
 
-    user_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    user_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     # 可逆加密后的密码，仅用于管理员在用户管理页查看；登录校验仍只使用 password_hash
@@ -36,7 +42,7 @@ class User(db.Model):
 class Event(db.Model):
     __tablename__ = 'events'
 
-    event_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    event_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     event_name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text)
     status = db.Column(db.String(20), nullable=False, default='ongoing')
@@ -66,7 +72,7 @@ class Event(db.Model):
 class EventMember(db.Model):
     __tablename__ = 'event_members'
 
-    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
     user_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
     role_in_event = db.Column(db.String(20), nullable=False)
@@ -84,7 +90,7 @@ class EventMember(db.Model):
 class Invoice(db.Model):
     __tablename__ = 'invoices'
 
-    invoice_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    invoice_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
     uploader_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
     file_name = db.Column(db.String(255), nullable=False)
@@ -117,7 +123,7 @@ class Invoice(db.Model):
 class Voucher(db.Model):
     __tablename__ = 'vouchers'
 
-    voucher_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    voucher_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
     uploader_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
     file_name = db.Column(db.String(255), nullable=False)
@@ -142,7 +148,7 @@ class Voucher(db.Model):
 class InvitationCode(db.Model):
     __tablename__ = 'invitation_codes'
 
-    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     code = db.Column(db.String(64), unique=True, nullable=False, index=True)
     target_user_type = db.Column(db.String(20), nullable=False)
     expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
@@ -158,7 +164,7 @@ class InvitationCode(db.Model):
 class PurchaseRecord(db.Model):
     __tablename__ = 'purchase_records'
 
-    record_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    record_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
     uploader_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
 
@@ -200,7 +206,7 @@ class SystemConfig(db.Model):
     """系统配置键值存储，敏感值加密保存"""
     __tablename__ = 'system_configs'
 
-    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     config_key = db.Column(db.String(128), unique=True, nullable=False, index=True)
     config_value = db.Column(db.Text, nullable=False, default='')
     is_encrypted = db.Column(db.Boolean, default=False)
@@ -215,7 +221,7 @@ class SystemConfig(db.Model):
 class ExportTask(db.Model):
     __tablename__ = 'export_tasks'
 
-    task_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    task_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
     requester_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='pending')
@@ -240,7 +246,7 @@ class BackupRecord(db.Model):
     """备份记录 - 跟踪手动/定时/恢复备份任务状态"""
     __tablename__ = 'backup_records'
 
-    id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
     backup_type = db.Column(db.String(20), nullable=False, default='manual')  # 手动 / 定时 / 恢复
     backup_scope = db.Column(db.String(20), nullable=False, default='full')  # 数据库 / 全量
     status = db.Column(db.String(20), nullable=False, default='pending')  # 待处理 / 运行中 / 已完成 / 失败
