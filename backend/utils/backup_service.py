@@ -300,7 +300,7 @@ class BackupService:
         创建一条新的 BackupRecord 作为恢复日志。
         返回新记录的 id。
         """
-        from models import db, BackupRecord
+        from models import db, BackupRecord, User
 
         # 在数据库恢复前保存必要信息（之后 record 会失效）
         created_by = record.created_by
@@ -355,7 +355,13 @@ class BackupService:
         if os.path.exists(config_json_path):
             self._import_system_config(config_json_path)
 
-        # 创建恢复完成记录（旧 record 已随 schema 销毁）
+        # 旧 dump 里可能没有这个用户，SQLite 已开启外键强制，必须回退为 NULL
+        creator_id = created_by
+        if creator_id is not None and db.session.get(User, creator_id) is None:
+            logger.warning(f'恢复记录的原创建者 id={creator_id} 不在恢复后的数据库中，改为 NULL')
+            creator_id = None
+
+        # 创建恢复完成记录（旧 record 已随数据库替换销毁）
         restore_record = BackupRecord(
             backup_type='restore',
             backup_scope='full',
@@ -363,7 +369,7 @@ class BackupService:
             progress=100,
             progress_message='恢复完成',
             completed_at=datetime.now(timezone.utc),
-            created_by=created_by,
+            created_by=creator_id,
         )
         db.session.add(restore_record)
         db.session.commit()
@@ -505,6 +511,32 @@ class BackupService:
 
         shutil.copyfile(source_path, target_path)
         logger.info(f'数据库文件已替换: {target_path}')
+
+    def _import_legacy_pg_dump(self, target_path, sql_path):
+        """把旧版 PostgreSQL dump 恢复成全新的 SQLite 数据库。"""
+        from models import db
+        from utils.legacy_pg_dump import import_pg_dump_file
+        from utils.schema_init import ensure_schema
+
+        db.session.remove()
+        db.engine.dispose()
+
+        for suffix in ('', '-wal', '-shm'):
+            sidecar = target_path + suffix
+            if os.path.exists(sidecar):
+                os.remove(sidecar)
+
+        # 先按模型建出空库（旧 dump 里的 DDL 一律不执行）
+        db.create_all()
+        db.session.commit()
+
+        report = import_pg_dump_file(target_path, sql_path)
+
+        # 建表后没有 alembic_version，ensure_schema 会标记为 head
+        ensure_schema()
+
+        logger.info(f'旧版备份恢复完成: {report.summary()}')
+        return report
 
     def _import_system_config(self, json_path):
         """从 JSON 文件恢复系统配置"""

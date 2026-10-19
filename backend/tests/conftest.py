@@ -25,6 +25,8 @@ def db_path(tmp_path):
 @pytest.fixture()
 def app(db_path):
     """最小 Flask 应用：只初始化数据库并按模型建表。"""
+    from flask_migrate import Migrate
+
     from models import db
 
     flask_app = Flask(__name__)
@@ -35,6 +37,8 @@ def app(db_path):
         JWT_SECRET_KEY='test-jwt-secret',
     )
     db.init_app(flask_app)
+    # 与 app.py 一致：ensure_schema() 靠 flask_migrate 读取/写入 alembic_version
+    Migrate(flask_app, db, directory=os.path.join(BACKEND_DIR, 'migrations'))
     with flask_app.app_context():
         db.create_all()
         yield flask_app
