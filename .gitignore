@@ -101,3 +101,6 @@ rs-backend/
 
 # 本地 agent 记忆目录
 .workbuddy/
+
+# pytest 缓存
+.pytest_cache/
