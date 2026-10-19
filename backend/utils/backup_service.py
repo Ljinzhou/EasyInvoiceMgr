@@ -51,7 +51,7 @@ class BackupService:
                     db_url = self.app.config.get('SQLALCHEMY_DATABASE_URI')
                     db_dump_path = self._dump_database(db_url, staging_dir)
                     if not db_dump_path:
-                        raise RuntimeError('数据库备份失败，请检查 pg_dump 是否可用')
+                        raise RuntimeError('数据库备份失败，请检查数据库文件是否可读')
 
                     record.progress = 30
                     record.progress_message = '数据库备份完成'
@@ -294,13 +294,13 @@ class BackupService:
     def _do_restore(self, record, archive_path, staging_dir):
         """从 tar.gz 压缩包恢复数据。
 
-        重要：_restore_database 会执行 DROP SCHEMA public CASCADE，
+        重要：_restore_database 会整体替换数据库文件（含全部数据表），
         导致所有表（包括 backup_records）被销毁。因此 record 对象在
         数据库恢复后将变为无效，不可再提交。本方法会在恢复完成后
         创建一条新的 BackupRecord 作为恢复日志。
         返回新记录的 id。
         """
-        from models import db, BackupRecord
+        from models import db, BackupRecord, User
 
         # 在数据库恢复前保存必要信息（之后 record 会失效）
         created_by = record.created_by
@@ -313,11 +313,13 @@ class BackupService:
         with tarfile.open(archive_path, 'r:gz') as tar:
             tar.extractall(staging_dir)
 
-        # 查找数据库备份文件
+        # 查找数据库备份文件：新版为 db_dump.sqlite3，旧版为 db_dump.sql(.gz)
         db_dump_path = None
-        for f in os.listdir(staging_dir):
-            if f.startswith('db_dump') and (f.endswith('.sql') or f.endswith('.sql.gz')):
-                db_dump_path = os.path.join(staging_dir, f)
+        for file_name in sorted(os.listdir(staging_dir)):
+            if not file_name.startswith('db_dump'):
+                continue
+            if file_name.endswith(('.sqlite3', '.sqlite', '.db', '.sql', '.sql.gz')):
+                db_dump_path = os.path.join(staging_dir, file_name)
                 break
 
         if not db_dump_path:
@@ -353,7 +355,13 @@ class BackupService:
         if os.path.exists(config_json_path):
             self._import_system_config(config_json_path)
 
-        # 创建恢复完成记录（旧 record 已随 schema 销毁）
+        # 旧 dump 里可能没有这个用户，SQLite 已开启外键强制，必须回退为 NULL
+        creator_id = created_by
+        if creator_id is not None and db.session.get(User, creator_id) is None:
+            logger.warning(f'恢复记录的原创建者 id={creator_id} 不在恢复后的数据库中，改为 NULL')
+            creator_id = None
+
+        # 创建恢复完成记录（旧 record 已随数据库替换销毁）
         restore_record = BackupRecord(
             backup_type='restore',
             backup_scope='full',
@@ -361,7 +369,7 @@ class BackupService:
             progress=100,
             progress_message='恢复完成',
             completed_at=datetime.now(timezone.utc),
-            created_by=created_by,
+            created_by=creator_id,
         )
         db.session.add(restore_record)
         db.session.commit()
@@ -431,70 +439,124 @@ class BackupService:
         logger.info(f'自动清理完成，删除了 {len(to_delete)} 个旧备份')
 
     def _dump_database(self, db_url, output_dir):
-        """调用 pg_dump 备份数据库到指定目录"""
-        is_windows = platform.system() == 'Windows'
+        """用 SQLite 在线备份 API 产出一致性快照（含 WAL 中未合并的内容）。"""
+        import sqlite3
 
-        if is_windows:
-            dump_path = os.path.join(output_dir, 'db_dump.sql')
-            cmd = ['pg_dump', '--no-owner', '--no-acl', '-f', dump_path, db_url]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f'pg_dump 失败: {result.stderr}')
-                return None
-        else:
-            dump_path = os.path.join(output_dir, 'db_dump.sql.gz')
-            cmd = f"pg_dump --no-owner --no-acl '{db_url}' | gzip > '{dump_path}'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f'pg_dump 失败: {result.stderr}')
-                return None
+        from utils.db_engine import database_file_path
 
+        source_path = database_file_path(db_url)
+        if not os.path.exists(source_path):
+            logger.error(f'数据库文件不存在，无法备份: {source_path}')
+            return None
+
+        dump_path = os.path.join(output_dir, 'db_dump.sqlite3')
+        source = sqlite3.connect(source_path, timeout=30)
+        destination = sqlite3.connect(dump_path)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+            source.close()
+
+        size_mb = os.path.getsize(dump_path) / (1024 * 1024)
+        logger.info(f'数据库快照完成: {dump_path} ({size_mb:.2f} MB)')
         return dump_path
 
     def _restore_database(self, db_url, dump_path, staging_dir):
-        """从备份文件恢复数据库"""
-        is_windows = platform.system() == 'Windows'
+        """用备份里的数据库文件整体替换当前数据库。"""
+        from utils.db_engine import database_file_path
 
-        # 先清空现有 schema
-        from sqlalchemy import text
+        if dump_path.endswith('.gz'):
+            import gzip
+
+            sql_path = dump_path[:-3]
+            with gzip.open(dump_path, 'rb') as source, open(sql_path, 'wb') as target:
+                shutil.copyfileobj(source, target)
+            dump_path = sql_path
+
+        target_path = database_file_path(db_url)
+
+        if dump_path.endswith(('.sqlite3', '.sqlite', '.db')):
+            self._replace_database_file(target_path, dump_path)
+            return
+
+        if dump_path.endswith('.sql'):
+            self._import_legacy_pg_dump(target_path, dump_path)
+            return
+
+        raise RuntimeError(f'无法识别的数据库备份文件: {os.path.basename(dump_path)}')
+
+    def _disconnect_database(self):
+        """丢弃会话并释放连接池，让 SQLite 文件句柄尽快归还给系统。"""
         from models import db
+
+        db.session.remove()
+        db.engine.dispose()
+
+    def _replace_database_file(self, target_path, source_path):
+        """用备份里的快照覆盖当前数据库。
+
+        走 SQLite 在线备份 API 而不是替换文件：Windows 上只要有任一连接
+        没关闭（恢复线程与请求线程并存时就会出现），删除或覆盖库文件都会
+        抛 WinError 32；备份 API 只是连接级操作，不会碰到文件占用问题。
+        """
+        import sqlite3
+
+        probe = sqlite3.connect(source_path)
         try:
-            db.session.execute(text('DROP SCHEMA public CASCADE'))
-            db.session.execute(text('CREATE SCHEMA public'))
-            db.session.commit()
-            logger.info('已清空数据库 schema')
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f'清空 schema 失败: {e}')
-            raise
+            probe.execute('SELECT count(*) FROM sqlite_master').fetchone()
+        finally:
+            probe.close()
 
-        # 执行恢复
-        if is_windows:
-            if dump_path.endswith('.sql.gz'):
-                # Windows 需要先解压
-                import gzip
-                sql_path = dump_path.replace('.sql.gz', '.sql')
-                with gzip.open(dump_path, 'rb') as f_in:
-                    with open(sql_path, 'wb') as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                dump_path = sql_path
+        self._disconnect_database()
 
-            cmd = ['psql', '-f', dump_path, db_url]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f'psql 恢复失败: {result.stderr}')
-                raise RuntimeError(f'数据库恢复失败: {result.stderr[:200]}')
-        else:
-            if dump_path.endswith('.sql.gz'):
-                cmd = f"gunzip -c '{dump_path}' | psql '{db_url}'"
-            else:
-                cmd = f"psql -f '{dump_path}' '{db_url}'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f'psql 恢复失败: {result.stderr}')
-                raise RuntimeError(f'数据库恢复失败: {result.stderr[:200]}')
+        source = sqlite3.connect(source_path, timeout=30)
+        destination = sqlite3.connect(target_path, timeout=30)
+        try:
+            source.backup(destination)
+        finally:
+            destination.close()
+            source.close()
 
-        logger.info('数据库恢复完成')
+        self._disconnect_database()
+        logger.info(f'数据库已由快照覆盖: {target_path}')
+
+    def _reset_sqlite_schema(self):
+        """原地清空数据库结构。
+
+        不删除库文件：文件被其它会话占用时删除会失败，而原地 DROP 所有表
+        同样能拿到一个干净的空库，且不受 Windows 文件锁影响。
+        """
+        from models import db
+        from sqlalchemy import text
+
+        self._disconnect_database()
+
+        # 数据库文件可能还不存在，先建出合法库再 DROP
+        db.create_all()
+        with db.engine.begin() as connection:
+            for table in reversed(db.metadata.sorted_tables):
+                connection.execute(text(f'DROP TABLE IF EXISTS "{table.name}"'))
+            connection.execute(text('DROP TABLE IF EXISTS alembic_version'))
+
+        # 建回空表；旧 dump 里的 DDL 一律不执行
+        db.create_all()
+        db.session.commit()
+
+    def _import_legacy_pg_dump(self, target_path, sql_path):
+        """把旧版 PostgreSQL dump 恢复成全新的 SQLite 数据库。"""
+        from utils.legacy_pg_dump import import_pg_dump_file
+        from utils.schema_init import ensure_schema
+
+        self._reset_sqlite_schema()
+
+        report = import_pg_dump_file(target_path, sql_path)
+
+        # 建表后没有 alembic_version，ensure_schema 会标记为 head
+        ensure_schema()
+
+        logger.info(f'旧版备份恢复完成: {report.summary()}')
+        return report
 
     def _import_system_config(self, json_path):
         """从 JSON 文件恢复系统配置"""

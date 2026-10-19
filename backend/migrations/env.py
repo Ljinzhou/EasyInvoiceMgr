@@ -73,10 +73,10 @@ def run_migrations_offline():
 
 
 def compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
-    """抑制 ENUM 与 String 之间的类型比较，避免误报。
+    """抑制类型比较，避免历史差异被误报成需要迁移。
 
-    base.sql 创建 PostgreSQL ENUM 类型，而 SQLAlchemy 模型使用 String。
-    此回调防止 autogenerate 产生多余的 alter_column 操作。
+    SQLite 下列类型改动必须走 batch 模式重建表（见下方 render_as_batch），
+    类型比较交给显式迁移脚本，不让 autogenerate 自动推断。
     """
     return False
 
@@ -101,6 +101,7 @@ def run_migrations_online():
     connectable = get_engine()
 
     with connectable.connect() as connection:
+        # render_as_batch 由 Flask-Migrate 默认注入到 conf_args（SQLite 必须批量重建表）
         context.configure(
             connection=connection,
             target_metadata=get_metadata(),

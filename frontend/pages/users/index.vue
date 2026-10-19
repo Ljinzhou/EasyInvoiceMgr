@@ -3,6 +3,14 @@
     <div class="page-header">
       <h1 class="page-title">学生管理</h1>
       <div class="header-actions">
+        <button
+          v-if="canViewPasswords"
+          @click="toggleAllPasswords"
+          class="action-button password-action"
+          :disabled="loadingPasswords || users.length === 0"
+        >
+          {{ allPasswordsRevealed ? '🙈 隐藏所有密码' : '👁 显示所有密码' }}
+        </button>
         <button 
           v-if="canManageUsers" 
           @click="showAddModal = true" 
@@ -55,6 +63,13 @@
       </select>
     </div>
 
+    <!-- 密码查看提示 -->
+    <div v-if="hasRevealedPasswords" class="password-warning">
+      <span>🔐 密码为敏感信息，仅管理员可见；本次查看已记录到操作日志。</span>
+      <button type="button" class="link-button" @click="hideAllPasswords">收起</button>
+    </div>
+    <div v-if="passwordError" class="error-message">⚠️ {{ passwordError }}</div>
+
     <!-- 用户列表 -->
     <div class="users-table-container">
       <table class="users-table">
@@ -66,6 +81,7 @@
             <th>邮箱</th>
             <th>角色</th>
             <th>学号/工号</th>
+            <th v-if="canViewPasswords">密码</th>
             <th>状态</th>
             <th>注册时间</th>
             <th v-if="canManageUsers">操作</th>
@@ -103,6 +119,31 @@
               </span>
             </td>
             <td>{{ user.student_or_staff_id || '-' }}</td>
+            <td v-if="canViewPasswords" class="password-cell">
+              <div class="password-cell-inner">
+                <code
+                  v-if="isPasswordRevealed(user.user_id)"
+                  class="password-text"
+                  :class="{ 'password-missing': !isPasswordAvailable(user.user_id) }"
+                  :title="isPasswordAvailable(user.user_id) ? '点击眼睛可隐藏' : '历史密码采用单向哈希，无法还原；可点击重置生成新密码'"
+                >{{ getPasswordDisplay(user.user_id) }}</code>
+                <span v-else class="password-mask">••••••</span>
+                <button
+                  type="button"
+                  class="btn-password-sm"
+                  :disabled="loadingPasswords"
+                  :title="isPasswordRevealed(user.user_id) ? '隐藏密码' : '查看密码'"
+                  @click="togglePassword(user.user_id)"
+                >{{ isPasswordRevealed(user.user_id) ? '🙈' : '👁' }}</button>
+                <button
+                  v-if="isPasswordRevealed(user.user_id) && !isPasswordAvailable(user.user_id) && user.user_type !== 'admin'"
+                  type="button"
+                  class="btn-reset-password"
+                  :disabled="resettingUserId === user.user_id"
+                  @click="resetUserPassword(user)"
+                >{{ resettingUserId === user.user_id ? '重置中...' : '重置' }}</button>
+              </div>
+            </td>
             <td>
               <span class="status-badge" :class="user.account_status">
                 {{ user.account_status === 'active' ? '正常' : '禁用' }}
@@ -134,7 +175,7 @@
             </td>
           </tr>
           <tr v-if="filteredUsersList.length === 0">
-            <td :colspan="canManageUsers ? 9 : 8" class="empty-row">暂无数据</td>
+            <td :colspan="tableColumnCount" class="empty-row">暂无数据</td>
           </tr>
         </tbody>
       </table>
@@ -448,6 +489,28 @@ const canManageUsers = computed(() => {
 
 const canChangeRole = computed(() => currentUser.value?.user_type === 'admin')
 
+const canViewPasswords = computed(() => currentUser.value?.user_type === 'admin')
+
+const passwordsById = ref({})
+const passwordsLoaded = ref(false)
+const loadingPasswords = ref(false)
+const passwordError = ref('')
+const revealedPasswords = ref(new Set())
+const resettingUserId = ref(null)
+
+const hasRevealedPasswords = computed(() => revealedPasswords.value.size > 0)
+
+const allPasswordsRevealed = computed(() => {
+  return users.value.length > 0 && users.value.every(u => revealedPasswords.value.has(u.user_id))
+})
+
+const tableColumnCount = computed(() => {
+  let count = 8
+  if (canViewPasswords.value) count += 1
+  if (canManageUsers.value) count += 1
+  return count
+})
+
 const adminCount = computed(() => users.value.filter(u => u.user_type === 'admin').length)
 const teacherCount = computed(() => users.value.filter(u => u.user_type === 'teacher').length)
 const studentAdminCount = computed(() => users.value.filter(u => u.user_type === 'student_admin').length)
@@ -472,6 +535,133 @@ const filteredUsersList = computed(() => {
   return result
 })
 
+const clearPasswordView = () => {
+  passwordsById.value = {}
+  passwordsLoaded.value = false
+  revealedPasswords.value = new Set()
+  passwordError.value = ''
+}
+
+// 密码只在管理员主动点击时按需加载，避免页面一打开就把全部明文拉到前端
+const loadPasswords = async () => {
+  if (passwordsLoaded.value) return true
+
+  loadingPasswords.value = true
+  passwordError.value = ''
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.get('/auth/users/passwords', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (response.data.code !== 200) {
+      passwordError.value = response.data.message || '加载用户密码失败'
+      return false
+    }
+
+    const items = response.data.data?.items
+    if (!Array.isArray(items)) {
+      passwordError.value = '密码数据格式异常'
+      return false
+    }
+
+    const map = {}
+    for (const item of items) {
+      map[item.user_id] = item
+    }
+    passwordsById.value = map
+    passwordsLoaded.value = true
+    return true
+  } catch (error) {
+    console.error('加载用户密码失败:', error)
+    passwordError.value = error.response?.status === 403
+      ? '权限不足，仅管理员可查看用户密码'
+      : '加载用户密码失败，请稍后重试'
+    return false
+  } finally {
+    loadingPasswords.value = false
+  }
+}
+
+const isPasswordRevealed = (userId) => revealedPasswords.value.has(userId)
+
+const isPasswordAvailable = (userId) => {
+  const entry = passwordsById.value[userId]
+  return !!(entry && entry.available && entry.password)
+}
+
+const getPasswordDisplay = (userId) => {
+  const entry = passwordsById.value[userId]
+  if (!entry) return '未加载'
+  if (!entry.available) return '不可恢复'
+  return entry.password
+}
+
+const togglePassword = async (userId) => {
+  if (!passwordsLoaded.value) {
+    const loaded = await loadPasswords()
+    if (!loaded) return
+  }
+
+  const next = new Set(revealedPasswords.value)
+  if (next.has(userId)) {
+    next.delete(userId)
+  } else {
+    next.add(userId)
+  }
+  revealedPasswords.value = next
+}
+
+const hideAllPasswords = () => {
+  revealedPasswords.value = new Set()
+}
+
+const toggleAllPasswords = async () => {
+  if (allPasswordsRevealed.value) {
+    hideAllPasswords()
+    return
+  }
+
+  const loaded = await loadPasswords()
+  if (!loaded) return
+  revealedPasswords.value = new Set(users.value.map(u => u.user_id))
+}
+
+const resetUserPassword = async (user) => {
+  if (!confirm(`确定要重置用户 "${user.real_name}"（@${user.username}）的密码吗？\n重置后该用户需使用新密码登录。`)) return
+
+  resettingUserId.value = user.user_id
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.post(`/auth/users/${user.user_id}/reset-password`, {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (response.data.code === 200) {
+      const data = response.data.data
+      passwordsById.value = {
+        ...passwordsById.value,
+        [user.user_id]: {
+          user_id: user.user_id,
+          username: user.username,
+          real_name: user.real_name,
+          password: data.password,
+          available: true
+        }
+      }
+      passwordsLoaded.value = true
+      revealedPasswords.value = new Set([...revealedPasswords.value, user.user_id])
+      alert(`✅ 已重置 ${user.real_name} 的密码\n\n新密码：${data.password}\n\n请妥善保管并转告用户。`)
+    } else {
+      alert(response.data.message || '重置密码失败')
+    }
+  } catch (error) {
+    alert(error.response?.data?.message || '重置密码失败，请稍后重试')
+  } finally {
+    resettingUserId.value = null
+  }
+}
+
 onMounted(async () => {
   const userStr = localStorage.getItem('user')
   currentUser.value = userStr ? JSON.parse(userStr) : null
@@ -488,9 +678,12 @@ onMounted(async () => {
 })
 
 const loadUsers = async () => {
+  clearPasswordView()
   try {
     const token = localStorage.getItem('token')
+    // 页面搜索/筛选在前端完成，这里一次性取全量用户，避免只显示默认第一页的 10 条
     const response = await $api.get('/auth/users', {
+      params: { page: 1, page_size: 1000 },
       headers: { Authorization: `Bearer ${token}` }
     })
     
@@ -968,6 +1161,12 @@ const deleteUser = async () => {
 }
 .action-button.primary:hover { transform: translateY(-1px); }
 
+.action-button.password-action {
+  background: linear-gradient(135deg, #34495e 0%, #5d6d7e 100%);
+}
+.action-button.password-action:hover:not(:disabled) { transform: translateY(-1px); }
+.action-button.password-action:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* 统计面板 */
 .stats-panel {
   display: grid;
@@ -1024,6 +1223,31 @@ const deleteUser = async () => {
   border-radius: 6px;
   font-size: 14px;
   background: white;
+  cursor: pointer;
+}
+
+.password-warning {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 1rem;
+  padding: 10px 14px;
+  background: #fff8e6;
+  border-left: 4px solid #f39c12;
+  border-radius: 6px;
+  color: #8a6d3b;
+  font-size: 13px;
+}
+
+.password-warning .link-button {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8a6d3b;
+  font-size: 13px;
+  text-decoration: underline;
   cursor: pointer;
 }
 
@@ -1105,6 +1329,55 @@ const deleteUser = async () => {
 }
 .status-badge.active { background: #eaffea; color: #27ae60; }
 .status-badge.inactive { background: #eee; color: #95a5a6; }
+
+.password-cell { min-width: 150px; }
+
+.password-cell-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.password-text {
+  max-width: 170px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f4f6f8;
+  color: #2c3e50;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.password-text.password-missing {
+  background: #fff5f5;
+  color: #c0392b;
+  font-family: inherit;
+}
+
+.password-mask {
+  color: #b0b8c1;
+  letter-spacing: 2px;
+}
+
+.btn-password-sm,
+.btn-reset-password {
+  padding: 3px 7px;
+  border: none;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-password-sm { background: #ecf0f1; color: #34495e; }
+.btn-password-sm:hover:not(:disabled) { background: #dfe6e9; }
+.btn-password-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-reset-password { background: #e67e22; color: white; }
+.btn-reset-password:hover:not(:disabled) { background: #d35400; }
+.btn-reset-password:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .row-actions {
   display: flex;
@@ -1378,7 +1651,8 @@ const deleteUser = async () => {
   .users-table th, .users-table td { padding: 10px 12px; font-size: 12px; }
   .users-table-container { border-radius: 8px; }
   .avatar-sm, .avatar-default-sm { width: 30px; height: 30px; }
-  .btn-edit-sm, .btn-delete-sm, .btn-enable-sm, .btn-disable-sm {
+  .btn-edit-sm, .btn-delete-sm, .btn-enable-sm, .btn-disable-sm,
+  .btn-password-sm, .btn-reset-password {
     min-width: 32px; min-height: 32px; padding: 4px 8px;
   }
   .row-actions { gap: 6px; }

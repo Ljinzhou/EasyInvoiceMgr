@@ -7,6 +7,9 @@ from config import CORS_ORIGINS
 from datetime import datetime, timezone
 import logging
 import re
+import secrets
+import string
+from utils.crypto_utils import encrypt_password, decrypt_password
 from utils.operation_log import log_operation
 
 logger = logging.getLogger(__name__)
@@ -61,9 +64,11 @@ def register():
             logger.warning(f'邮箱已被注册: {email}')
             return jsonify({'code': 1002, 'message': '邮箱已被注册', 'data': None}), 400
         
+        password = data['password']
         user = User(
             username=data['username'],
-            password_hash=generate_password_hash(data['password']),
+            password_hash=generate_password_hash(password),
+            password_encrypted=encrypt_password(password),
             real_name=data['real_name'],
             email=data.get('email'),
             phone=data.get('phone'),
@@ -245,6 +250,138 @@ def get_users():
         logger.error(f'获取用户列表异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
+
+def _generate_temp_password(length=12):
+    """生成包含大写字母、小写字母和数字的随机临时密码。"""
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        password = ''.join(secrets.choice(alphabet) for _ in range(length))
+        if (any(c.islower() for c in password)
+                and any(c.isupper() for c in password)
+                and any(c.isdigit() for c in password)):
+            return password
+
+
+@auth_bp.route('/users/passwords', methods=['GET'])
+@jwt_required()
+def get_user_passwords():
+    """管理员批量查看用户密码。
+
+    密码以可逆加密形式存储在 password_encrypted，仅在管理员主动查看时解密；
+    历史账号只有单向哈希，返回 available=False，无法还原。
+    """
+    logger.info('=== 管理员查看用户密码请求 ===')
+    try:
+        current_user = User.query.get(int(get_jwt_identity()))
+        if not current_user or current_user.user_type != 'admin' or current_user.is_deleted:
+            logger.warning('非管理员尝试查看用户密码')
+            return jsonify({'code': 403, 'message': '权限不足，仅管理员可查看用户密码', 'data': None}), 403
+
+        users = User.query.filter_by(is_deleted=False).order_by(User.user_id.asc()).all()
+        items = []
+        unavailable_count = 0
+        for user in users:
+            password = None
+            available = False
+            if user.password_encrypted:
+                try:
+                    password = decrypt_password(user.password_encrypted)
+                    available = bool(password)
+                except ValueError:
+                    logger.warning(f'用户密码密文无法解密: user_id={user.user_id}')
+            if not available:
+                unavailable_count += 1
+            items.append({
+                'user_id': user.user_id,
+                'username': user.username,
+                'real_name': user.real_name,
+                'password': password,
+                'available': available,
+            })
+
+        log_operation(
+            user_id=current_user.user_id,
+            username=current_user.username,
+            action_type='view_user_passwords',
+            action_description='查看用户密码',
+            target_type='user',
+            detail={'count': len(items), 'unavailable_count': unavailable_count}
+        )
+
+        response = jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'items': items,
+                'total': len(items),
+                'unavailable_count': unavailable_count,
+            }
+        })
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 200
+
+    except Exception as e:
+        logger.error(f'查看用户密码异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@auth_bp.route('/users/<int:user_id>/reset-password', methods=['POST'])
+@jwt_required()
+def reset_user_password(user_id):
+    """管理员为普通用户重置密码，返回新密码并同步写入可逆加密列。"""
+    logger.info(f'=== 管理员重置用户密码请求: user_id={user_id} ===')
+    try:
+        current_user = User.query.get(int(get_jwt_identity()))
+        if not current_user or current_user.user_type != 'admin' or current_user.is_deleted:
+            logger.warning('非管理员尝试重置用户密码')
+            return jsonify({'code': 403, 'message': '权限不足，仅管理员可重置用户密码', 'data': None}), 403
+
+        user = User.query.get(user_id)
+        if not user or user.is_deleted:
+            return jsonify({'code': 1003, 'message': '用户不存在', 'data': None}), 404
+
+        if user.user_type == 'admin':
+            return jsonify({
+                'code': 403,
+                'message': '不能重置管理员密码，请通过 ADMIN_PASSWORD 环境变量恢复',
+                'data': None
+            }), 403
+
+        new_password = _generate_temp_password()
+        user.password_hash = generate_password_hash(new_password)
+        user.password_encrypted = encrypt_password(new_password)
+        db.session.commit()
+        logger.info(f'用户密码已重置: user_id={user_id}')
+
+        log_operation(
+            user_id=current_user.user_id,
+            username=current_user.username,
+            action_type='reset_user_password',
+            action_description=f'重置用户密码: {user.username}',
+            target_type='user',
+            target_id=user.user_id,
+            target_name=user.username,
+            detail={'user_type': user.user_type}
+        )
+
+        response = jsonify({
+            'code': 200,
+            'message': '密码重置成功',
+            'data': {
+                'user_id': user.user_id,
+                'username': user.username,
+                'password': new_password,
+            }
+        })
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 200
+
+    except Exception as e:
+        logger.error(f'重置用户密码异常: {str(e)}', exc_info=True)
+        db.session.rollback()
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
 @auth_bp.route('/users/<int:user_id>', methods=['GET'])
 @jwt_required()
 def get_user(user_id):
@@ -409,6 +546,7 @@ def change_password(user_id):
             return jsonify({'code': 400, 'message': '新密码必须包含至少一个数字', 'data': None}), 400
 
         user.password_hash = generate_password_hash(new_password)
+        user.password_encrypted = encrypt_password(new_password)
         db.session.commit()
         logger.info(f'用户{user_id}密码修改成功')
 

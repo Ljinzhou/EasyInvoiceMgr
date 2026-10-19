@@ -25,7 +25,7 @@
 
 ## 技术栈
 
-**后端**：Flask + PostgreSQL
+**后端**：Flask + SQLite
 
 **前端**：Nuxt 3 + Vue 3
 
@@ -47,7 +47,7 @@
 .\dev.ps1        # 或双击 dev.bat
 ```
 
-依次拉起三个服务：PostgreSQL（Docker，仅数据库）→ 后端 Flask `:5000`（新窗口，`debug=True` 自动重载；优先使用 conda 环境 `py311`，conda 不可用时自动回退 venv，首次自动安装依赖）→ 前端 Nuxt `:3000`（新窗口，HMR 热更新，首次自动 `pnpm install`）。关闭对应窗口即停止该服务。API 地址默认 `http://localhost:5000/api`，账号 `admin` / `admin`。
+依次拉起两个服务：后端 Flask `:5000`（新窗口，`debug=True` 自动重载；优先使用 conda 环境 `py311`，conda 不可用时自动回退 venv，首次自动安装依赖；数据库为本地 SQLite 文件，首次启动自动建库）→ 前端 Nuxt `:3000`（新窗口，HMR 热更新，首次自动 `pnpm install`）。关闭对应窗口即停止该服务。API 地址默认 `http://localhost:5000/api`，账号 `admin` / `admin`。
 
 ## 部署指南
 
@@ -88,10 +88,11 @@ USE_CHINA_MIRROR=true              # 国内服务器启用镜像加速
 
 全部可用变量及默认值见下表：
 
+> 数据库已迁移到 SQLite，数据文件位于具名卷 dbdata（容器内 `/app/data`），不再需要数据库密码。
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `ADMIN_PASSWORD` | `admin` | 管理员初始密码 |
-| `DB_PASSWORD` | `root` | 数据库密码 |
 | `SECRET_KEY` | 内置值 | Flask 会话密钥 |
 | `JWT_SECRET_KEY` | 内置值 | JWT 签名密钥 |
 | `CORS_ORIGINS` | `http://localhost:3000` | 跨域白名单 |

@@ -32,15 +32,18 @@ APP_VERSION = _read_version()
 def _seed_admin_user(app):
     """确保存在有效的管理员用户，必要时更新密码哈希。"""
     from werkzeug.security import generate_password_hash
+    from utils.crypto_utils import encrypt_password
     with app.app_context():
         from models import User, db
         admin_password = os.environ.get('ADMIN_PASSWORD', 'admin')
         password_hash = generate_password_hash(admin_password)
+        password_encrypted = encrypt_password(admin_password)
         admin = User.query.filter_by(username='admin').first()
         if not admin:
             admin = User(
                 username='admin',
                 password_hash=password_hash,
+                password_encrypted=password_encrypted,
                 real_name='系统管理员',
                 email='admin@example.com',
                 user_type='admin',
@@ -51,6 +54,7 @@ def _seed_admin_user(app):
         else:
             # 每次部署都更新密码哈希，确保哈希值正确
             admin.password_hash = password_hash
+            admin.password_encrypted = password_encrypted
             logger.info('已更新管理员密码')
         db.session.commit()
 
@@ -187,39 +191,11 @@ def create_app():
     logger.info('静态文件路由配置完成')
     
     with app.app_context():
-        from flask_migrate import upgrade, stamp
-        from sqlalchemy import inspect
-        import time
+        from utils.db_engine import register_sqlite_pragmas
+        from utils.schema_init import ensure_schema
 
-        inspector = inspect(db.engine)
-        existing_tables = set(inspector.get_table_names())
-
-        if 'alembic_version' in existing_tables:
-            # Alembic 已管理 schema - 执行待定迁移
-            logger.info('检测到 Alembic 版本控制，执行待定迁移...')
-            upgrade()
-            logger.info('数据库迁移完成')
-        elif 'users' in existing_tables:
-            # 已有 v1.0.0 数据库但无 Alembic - 标记为当前 head
-            logger.info('检测到已有数据库（v1.0.0），标记为当前版本...')
-            stamp(revision='head')
-            logger.info('已标记数据库版本为当前 head')
-        else:
-            # 全新安装 - 等待 base.sql 完成初始化
-            logger.info('新安装检测：等待数据库初始化...')
-            for attempt in range(30):
-                time.sleep(1)
-                inspector = inspect(db.engine)
-                tables = set(inspector.get_table_names())
-                if 'users' in tables:
-                    logger.info(f'数据库已初始化 ({len(tables)} 张表)，标记版本...')
-                    stamp(revision='head')
-                    break
-            else:
-                logger.error('数据库初始化超时（30秒），base.sql 可能未执行')
-                db.create_all()
-                logger.info('使用 SQLAlchemy 创建表作为后备方案')
-                stamp(revision='head')
+        register_sqlite_pragmas(db.engine)
+        ensure_schema()
 
         _seed_admin_user(app)
 

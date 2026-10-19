@@ -13,19 +13,19 @@
 | 项目用途  | 武汉生物工程学院机器人实验室的**活动经费管理与发票报销系统**。以「项目（event）」为预算单元，管理购买记录（收据）、发票、凭证（voucher）的上传/OCR识别/审核/报销/批量导出                                                              |
 | 前端    | Nuxt 3.9+ / Vue 3.3 / Pinia 2 / TypeScript 5 / Tailwind-free 手写 CSS / pdfjs-dist / cropperjs / dayjs / file-saver / axios。**入口 `frontend/app.vue`，开发端口 3000** |
 | 后端    | Flask 3.1 + SQLAlchemy 3.1 + Flask-JWT-Extended 4.7 + Flask-Migrate（Alembic）+ APScheduler。**入口 `backend/app.py`（`create_app()` 工厂），开发端口 5000**                |
-| 数据库   | PostgreSQL 15（`easy_invoice_mgr`），ORM 模型集中在 `backend/models.py`；建库脚本 `backend/sql/base.sql`                                                                   |
+| 数据库   | SQLite（单文件 `backend/data/easy_invoice_mgr.sqlite`），ORM 模型集中在 `backend/models.py`；建表由 Alembic + `db.create_all()` 完成                          |
 | 对象存储  | 本地文件系统（默认，`backend/uploads`）或腾讯云 COS（`STORAGE_BACKEND=cos`），由 `backend/utils/storage.py` 做统一抽象                                                                |
 | AI 能力 | 智谱 GLM 视觉模型（默认 `GLM-4V-Flash`）做发票图片识别；PDF 文本兜底解析用 PyPDF2/PyMuPDF                                                                                              |
 | 导出    | openpyxl + pandas 生成 Excel，fpdf 合并 PDF，zip 打包，异步任务表 `export_tasks`                                                                                            |
-| 部署    | `docker-compose.yml` 三服务（postgres / backend / frontend）；生产建议 Nginx 反代 3000→/、5000→/api、/uploads                                                               |
-| 本地开发  | 根目录 `dev.ps1`（`dev.bat` 为双击入口）：PostgreSQL(Docker) → Flask:5000 → Nuxt:3000。后端优先 conda 环境 `py311`，不可用时回退 `backend/venv`                                        |
+| 部署    | `docker-compose.yml` 两服务（backend / frontend），数据落在具名卷 dbdata/uploads/exports；生产建议 Nginx 反代 3000→/、5000→/api、/uploads                                 |
+| 本地开发  | 根目录 `dev.ps1`（`dev.bat` 为双击入口）：Flask:5000 → Nuxt:3000（数据库为本地 SQLite 文件，无需外部服务）。后端优先 conda 环境 `py311`，不可用时回退 `backend/venv`                 |
 
 **核心依赖作用（后端 `backend/requirements.txt`）**
 
 | 包                                                    | 作用                                                   |
 | ---------------------------------------------------- | ---------------------------------------------------- |
 | Flask / flask-cors / flask_jwt_extended              | 路由、CORS、JWT 鉴权（token 支持 header 与 `?token=` 查询参数两种位置） |
-| flask_sqlalchemy / Flask-Migrate / psycopg2-binary   | ORM、数据库迁移、PG 驱动                                      |
+| flask_sqlalchemy / Flask-Migrate                   | ORM 与数据库迁移（SQLite 内置驱动，无需额外数据库驱动）        |
 | openpyxl / pandas / fpdf / PyPDF2 / PyMuPDF / Pillow | Excel 导出、PDF 合并/解析、PDF 渲染为图、图片处理                     |
 | cos-python-sdk-v5                                    | 腾讯云 COS 上传/预签名 URL                                   |
 | cryptography                                         | Fernet 加密系统敏感配置（`ai_api_key`）                        |
@@ -42,7 +42,6 @@ EasyInvoiceMgr/
 │   ├── app.py                 ★ 入口：create_app() 工厂、蓝图注册、静态文件路由、启动时自动迁移 + 种子管理员
 │   ├── config.py              ★ 环境变量 → Config 类（SECRET/JWT/DATABASE_URL/STORAGE_BACKEND/COS/GLM）
 │   ├── models.py              ★ 全部 ORM 模型（10 张表）
-│   ├── migrate.py             一次性脚本：建 operation_logs 表及索引（历史遗留，非 Alembic）
 │   ├── generate_password.py   小工具：生成 admin 密码 hash
 │   ├── requirements.txt / Dockerfile / VERSION
 │   ├── VERSION                版本号，app.py `_read_version()` 读取
@@ -64,14 +63,14 @@ EasyInvoiceMgr/
 │   │   ├── invoice_parser.py  PDF 文本兜底解析（InvoiceParser）
 │   │   ├── glm_vision_service.py GLM 视觉识别 + DB 配置优先的模型/密钥解析
 │   │   ├── export_service.py  异步导出：取数 → Excel → 图片嵌入 → PDF 合并 → zip
-│   │   ├── backup_service.py  备份/恢复（pg_dump + uploads + system_configs），APScheduler 定时
-│   │   ├── db_backup.py       pg_dump 底层封装
+│   │   ├── backup_service.py  备份/恢复（SQLite 在线备份 + uploads + system_configs），APScheduler 定时
+│   │   ├── legacy_pg_dump.py  旧版 PostgreSQL 备份包（db_dump.sql.gz）解析导入
 │   │   ├── operation_log.py   ★ OperationLog 模型 + LogService（实际被所有路由使用）
 │   │   ├── crypto_utils.py    Fernet encrypt_value / decrypt_value
 │   │   └── __init__.py        （空文件）
 │   ├── models/operation_log.py OperationLog+LogService 的**重复副本**，无任何引用（见「已知坑」）
-│   ├── migrations/            Alembic：env.py + versions/（基线 + 2 个增量）
-│   ├── sql/base.sql           ★ 建库全量 DDL（Docker 首次启动自动执行）
+│   ├── migrations/            Alembic：env.py + versions/（基线 + 3 个增量）
+│   ├── data/                  运行时目录：SQLite 数据库文件（gitignore）
 │   ├── uploads/  exports/     运行时目录（gitignore）
 │   └── test_image_access.py   独立诊断脚本（requests，非 pytest）
 ├── frontend/                   Nuxt 3 前端
@@ -87,13 +86,13 @@ EasyInvoiceMgr/
 │   ├── types/index.d.ts      $api 类型声明与 *.vue 模块声明
 │   ├── server/middleware/proxy-uploads.ts ★ Nitro 中间件：/uploads/** 原样反代后端
 │   └── Dockerfile / package.json / pnpm-lock.yaml
-├── docker-compose.yml        三服务编排
+├── docker-compose.yml        两服务编排（backend / frontend）
 ├── dev.ps1 / dev.bat          本地一键启动（注意：已在 .gitignore 中）
 ├── docs/PROJECT_GUIDE.md      本文件
 └── README.md                  项目说明与部署指南（权威）
 ```
 
-**主调用链路（读）**：浏览器 → `frontend/pages/**` → `plugins/axios.ts` 的 `$api` → `runtimeConfig.public.apiBase`（默认 `http://localhost:5000/api`）→ Flask 蓝图 `backend/routes/*.py` → `backend/models.py` → PostgreSQL；图片/文件 URL 走 `/uploads/**`，由 Nitro 中间件原样反代。
+**主调用链路（读）**：浏览器 → `frontend/pages/**` → `plugins/axios.ts` 的 `$api` → `runtimeConfig.public.apiBase`（默认 `http://localhost:5000/api`）→ Flask 蓝图 `backend/routes/*.py` → `backend/models.py` → SQLite；图片/文件 URL 走 `/uploads/**`，由 Nitro 中间件原样反代。
 
 **主调用链路（写/上传）**：`pages/purchases/[id].vue` → `POST /api/upload-file`（`routes/parse.py`）→ `storage_manager.upload_file()` 落盘 → `POST /api/parse-image`（GLM 视觉）或 `/api/parse-invoice`（PDF 文本）→ 返回结构化发票字段 → 用户确认后 `POST /api/events/<id>/records` 入库。
 
@@ -106,7 +105,7 @@ EasyInvoiceMgr/
 
 | 模块                                   | 职责                                                                                                                                                                                                                                                                         | 对外接口                                                           | 依赖                                                        |                                                       |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------- |
-| `app.py`                             | 应用工厂；CORS、JWT、Migrate 初始化；10 个蓝图注册；`/uploads/<path>` 与 `/api/uploads/<path>` 静态服务；启动时按 alembic_version 表存在与否自动 `upgrade / stamp / 等待 base.sql`；`_seed_admin_user()` 每次启动重置 admin 密码                                                                                        | `create_app()`                                                 | `config`、`models.db`、全部 `routes/*`、`utils.backup_service` |                                                       |
+| `app.py`                             | 应用工厂；CORS、JWT、Migrate 初始化；10 个蓝图注册；`/uploads/<path>` 与 `/api/uploads/<path>` 静态服务；启动时按 alembic_version 表存在与否自动 `upgrade / stamp`，由 `utils/schema_init.py: ensure_schema()` 统一处理（空库直接 `db.create_all()` 并 `stamp('head')`）；`_seed_admin_user()` 每次启动重置 admin 密码                                                                                        | `create_app()`                                                 | `config`、`models.db`、全部 `routes/*`、`utils.backup_service` |                                                       |
 | `routes/events.py`                   | 项目是全系统的聚合根：CRUD + 成员角色 + 预算变更后调用 `recalc_event_stats()` 重算；`ensure_event_membership` 已下沉至 `utils/permissions.py`；`_normalize_event_value`/`_format_event_value` 处理 `extra_fields` JSON 扩展字段                                                                                                                         | 见 §5 接口表                                                       | `models`、`utils.operation_log`、`utils.permissions`、`utils.event_stats`                            |                                                       |
 | `routes/purchase_records.py`         | 购买记录全链路；`transfer_purchase_record`/`batch_transfer_purchase_records` 在项目间迁移并重算预算；`re_parse_invoice` 触发二次 OCR；`get_presigned_url` 统一签发图片临时链接                                                                                                                                | 同上                                                             | `models`、`utils.storage`、`utils.operation_log`            |                                                       |
 | `routes/invoices.py` / `vouchers.py` | 结构几乎同构（列表/创建/删除/更新/批量报销/下载），发票额外有 `approve_invoice`、`generate_preview`；凭证额外有 `check_file_md5` 秒传                                                                                                                                                                           | 同上                                                             | 同上                                                        |                                                       |
@@ -116,7 +115,7 @@ EasyInvoiceMgr/
 | `utils/storage.py`                   | 导入即初始化单例 `storage_manager`，按 `STORAGE_BACKEND` 选择 `LocalStorageManager` 或 `cos_manager`。**两实现需保持同名方法**：`generate_file_key/generate_avatar_key/upload_file/upload_file_from_bytes/upload_bytes/upload_avatar/download_file/get_presigned_url/delete_file/check_file_exists` | `storage_manager`                                              | `local_storage` / `cos_manager`                           |                                                       |
 | `utils/glm_vision_service.py`        | 配置解析优先级：**DB(system_configs) > 环境变量**；`extract_invoice_info` 组装 base64 图 + prompt 调 GLM，`_parse_response` 归一化字段                                                                                                                                                            | `resolve_ai_model/api_key/api_url`、`GLMVisionService`          | `models.SystemConfig`、`utils.crypto_utils`                |                                                       |
 | `utils/export_service.py`            | `_fetch_data` 汇总三类记录 → `_generate_excel` → `_download_and_save_image` 把票据图片嵌入 Excel → 合并 PDF → `_create_zip`；`check_cache` 命中已有产物直接返回                                                                                                                                      | `ExportService(app).run_export(task_id)`                       | `utils.storage`、openpyxl、fpdf                             |                                                       |
-| `utils/backup_service.py`            | `BackupService`：`run_backup`（pg_dump + 打包 uploads + 导出 system_configs JSON）、`restore_backup`、`list_backups`；`init_backup_service` 注册 APScheduler 并读 `backup_schedule_*` 配置                                                                                                 | `init_backup_service`、`get_backup_service`、`reschedule_backup` | `utils.db_backup`、`crypto_utils`                          |                                                       |
+| `utils/backup_service.py`            | `BackupService`：`run_backup`（SQLite 在线备份 + 打包 uploads + 导出 system_configs JSON）、`restore_backup`、`list_backups`；`_import_legacy_pg_dump` 让旧版 PostgreSQL 备份包仍可恢复；`init_backup_service` 注册 APScheduler 并读 `backup_schedule_*` 配置                                                                                                 | `init_backup_service`、`get_backup_service`、`reschedule_backup` | `utils.legacy_pg_dump`、`crypto_utils`                          |                                                       |
 | `utils/operation_log.py`             | `OperationLog` 模型 + `LogService.log/get_logs/delete_log(s)/get_action_types`；所有路由通过本地 import 调用                                                                                                                                                                            | `LogService`                                                   | `models.db`                                               |                                                       |
 | `models.py`                          | `User/Event/EventMember/Invoice/Voucher/InvitationCode/PurchaseRecord/SystemConfig/ExportTask/BackupRecord`；统一约定：`is_deleted` 软删、`extra_fields` JSON 扩展、`created_at/updated_at` 带时区、`_utcnow()`                                                                            | `db`、各 Model                                                   | SQLAlchemy                                                |                                                       |
 
@@ -143,7 +142,7 @@ EasyInvoiceMgr/
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------ | ---------------------- | ----- |
 | `SECRET_KEY`                                                                   | `easy-invoice-mgr-secret-key`                                | Flask 签名密钥             |       |
 | `JWT_SECRET_KEY`                                                               | `easy-invoice-mgr-jwt-secret`                                | JWT 签名（生产必须改）          |       |
-| `DATABASE_URL`                                                                 | `postgresql://postgres:root@localhost:5432/easy_invoice_mgr` | 数据库连接串                 |       |
+| `DATABASE_URL`                                                                 | `sqlite:///<backend>/data/easy_invoice_mgr.sqlite`           | 数据库连接串；必须以 `sqlite:///` 开头，部署时由 `docker-compose.yml` 指向 `/app/data/...` |       |
 | `JWT_ACCESS_TOKEN_EXPIRES`                                                     | 3600（代码内固定）                                                  | token 有效期（秒）           |       |
 | `STORAGE_BACKEND`                                                              | `local`                                                      | `local`                | `cos` |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION`(ap-guangzhou) / `COS_BUCKET` | 空                                                            | COS 凭据，仅 cos 模式需要      |       |
@@ -151,6 +150,8 @@ EasyInvoiceMgr/
 | `CORS_ORIGINS`                                                                 | `http://localhost:3000,3001,127.0.0.1:3000,3001`             | 逗号分隔，`config.py` 解析为列表 |       |
 | `ADMIN_PASSWORD`                                                               | `admin`                                                      | 每次启动强制重置 admin 密码      |       |
 | `HOST_PROJECT_DIR`                                                             | 无                                                            | 容器内映射的项目目录，备份范围用       |       |
+
+> `FERNET_KEY` 不是 `config.py` 变量，由 `backend/utils/crypto_utils.py` 直接读取，用于加密 `system_configs.ai_api_key` 和用户 `password_encrypted`；未设置时从 `SECRET_KEY` 派生。生产环境应显式设置为随机值并妥善备份，更换密钥会导致既有密文无法解密。
 
 前端：`NUXT_PUBLIC_API_BASE`（`nuxt.config.ts` → `runtimeConfig.public.apiBase`，构建期注入，`docker-compose.yml` 作为 build arg 传入）。非本地部署必须设置，否则登录 Network Error。
 
@@ -172,7 +173,7 @@ EasyInvoiceMgr/
 | --------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------- |
 | 智谱 GLM（`https://open.bigmodel.cn/api/paas/v4/chat/completions`） | `backend/utils/glm_vision_service.py`            | 发票图片识别、`system/ai-summary`                            |
 | 腾讯云 COS                                                         | `backend/utils/cos_manager.py`                   | `STORAGE_BACKEND=cos` 时的文件存储                          |
-| `pg_dump` / `pg_restore`（子进程）                                   | `backend/utils/db_backup.py`、`backup_service.py` | 备份与恢复；依赖 `backend/Dockerfile` 安装的 `postgresql-client` |
+| sqlite3 备份 API（进程内）                                          | `backend/utils/backup_service.py`、`utils/legacy_pg_dump.py` | 备份与恢复；旧版 PostgreSQL 备份包仍可导入                        |
 | Docker CLI（子进程）                                                 | `backend/routes/system.py:check_update` 附近       | 仅返回命令文本供用户执行，不自动执行                                    |
 | Docker 守护进程                                                     | `docker-compose.yml` 挂载 `/var/run/docker.sock`   | 供容器内 docker CLI 使用                                    |
 
@@ -184,8 +185,8 @@ EasyInvoiceMgr/
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | 新增一个 API 接口                  | `backend/routes/<模块>.py`                                                                                                                     | 在对应蓝图加 `@xxx_bp.route(...)` + 处理函数；若属新模块，还需在 `backend/app.py` `create_app()` 中 import 并 `register_blueprint`       |
 | 修改已有接口的入参/出参                 | `backend/routes/<模块>.py` + `frontend/pages/<对应页>.vue`                                                                                        | 后端处理函数签名与 `jsonify` 载荷；前端调用处解构字段（**两端字段名必须同步，无类型校验**）                                                              |
-| 新增数据库字段                      | `backend/models.py`（模型）→ 新建 `backend/migrations/versions/<rev>_xxx.py`（`down_revision` 指向当前 head `c3d4e5f6a7b8`）→ 同步改 `backend/sql/base.sql` | 三处都要改：`base.sql` 服务全新安装，Alembic 服务存量库                                                                              |
-| 新增整张表                        | `backend/models.py` + `backend/sql/base.sql` + Alembic 迁移                                                                                    | 同上                                                                                                                 |
+| 新增数据库字段                      | `backend/models.py`（模型）→ 新建 `backend/migrations/versions/<rev>_xxx.py`（`down_revision` 指向当前 head `d4e5f6a7b8c9`） | 两处都要改：模型 + Alembic 迁移（SQLite 的 `ALTER COLUMN` 由 Flask-Migrate 默认的 `render_as_batch=True` 走批量重建表）                |
+| 新增整张表                        | `backend/models.py` + Alembic 迁移                                                                                    | 同上                                                                                                                 |
 | 改文件存储行为（key 规则、目录结构）         | `backend/utils/local_storage.py` **和** `backend/utils/cos_manager.py`                                                                        | 两边方法名必须一致，`utils/storage.py` 才能正常分派                                                                                |
 | 切换/接入对象存储                    | `backend/utils/storage.py: _init_storage()`                                                                                                  | 新后端实现同名方法并在 `_init_storage` 注册                                                                                     |
 | 改发票 AI 识别字段或 prompt          | `backend/utils/glm_vision_service.py`                                                                                                        | `_build_prompt()`、`_parse_response()`；文本兜底同步改 `utils/invoice_parser.py:_extract_invoice_data()`                    |
@@ -199,16 +200,19 @@ EasyInvoiceMgr/
 | 改图片访问路径                      | `frontend/server/middleware/proxy-uploads.ts` + `backend/app.py: serve_upload_file`                                                          | 前端中间件必须保留完整 `/uploads` 前缀                                                                                          |
 | 新增操作日志埋点                     | `backend/routes/<模块>.py`                                                                                                                    | 直接调用 `utils.operation_log.log_operation()`（已全局导入，8 个路由文件共 35 处调用）。**不要**再自定义 `_log_operation` 私有函数                                                    |
 | 改权限判定（学生能否操作某项目数据）           | `backend/utils/permissions.py`                                                                                                                 | `check_student_event_access(event_id, user)` 与 `ensure_event_membership(event_id, user_id)`；角色常量 `PRIVILEGED_USER_TYPES = ['admin','teacher','student_admin']`             |
-| 改初始管理员账号                     | `backend/app.py: _seed_admin_user()` + 环境变量 `ADMIN_PASSWORD`                                                                                 | 注意：**每次启动都会覆盖密码**                                                                                                  |
+| 改初始管理员账号                     | `backend/app.py: _seed_admin_user()` + 环境变量 `ADMIN_PASSWORD`                                                                                 | 注意：**每次启动都会覆盖密码哈希与 `password_encrypted`**                                                                                                  |
+| 改用户密码存储 / 管理员查看密码           | `backend/models.py`（`password_encrypted`）→ `backend/utils/crypto_utils.py`（`encrypt_password`/`decrypt_password`）→ `backend/routes/auth.py`（`register`、`change_password`、`get_user_passwords`、`reset_user_password`）→ `frontend/pages/users/index.vue` | 注册/改密/重置时同时写单向哈希与可逆密文；历史账号只能由管理员重置补密文；禁止把明文写入日志 |
 | 加依赖                          | 后端 `backend/requirements.txt`；前端 `frontend/package.json`（用 pnpm，勿混用 npm）                                                                     | —                                                                                                                  |
 
 ---
 
 ## 6. 接口全表（后端蓝图前缀见括号）
 
-> 鉴权：除 `/api/auth/register`、`/api/auth/login`、`/api/auth/users`（列表）外，均需 `Authorization: Bearer <token>`。
+> 鉴权：除 `/api/auth/register`、`/api/auth/login` 外，均需 `Authorization: Bearer <token>`。
 
-**auth（`/api/auth`）**：POST `/register`、`/login`｜GET `/users`、`/users/<id>`｜PUT `/users/<id>`、`/users/<id>/password`｜DELETE `/users/<id>`｜GET `/avatar`、POST `/avatar/upload`、DELETE `/avatar`
+**auth（`/api/auth`）**：POST `/register`、`/login`｜GET `/users`、`/users/<id>`、`/users/passwords`｜PUT `/users/<id>`、`/users/<id>/password`｜DELETE `/users/<id>`｜POST `/users/<id>/reset-password`｜GET `/avatar`、POST `/avatar/upload`、DELETE `/avatar`
+
+> 管理员密码相关：GET `/users/passwords` 与 POST `/users/<id>/reset-password` 仅 `admin` 可用；前者返回明文列表（历史无密文返回 `available=false`），后者生成 12 位随机密码并只返回一次，均写操作日志且响应带 `Cache-Control: no-store`。
 
 **events（`/api`）**：POST/GET `/events`｜GET/PUT/DELETE `/events/<id>`｜GET/POST `/events/<id>/members`｜PUT/DELETE `/events/<id>/members/<user_id>`｜GET `/events/stats/user-summary`
 
@@ -257,16 +261,18 @@ EasyInvoiceMgr/
 | 类别      | 内容                                                                                                                                                                                                                                             |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 重复文件    | `backend/models/operation_log.py` 与 `backend/utils/operation_log.py` 是同一实现的两份副本（前者少 `to_dict()` 与部分 action_types）。**全仓无任何模块 import `models.operation_log`**，实际生效的是 `utils/operation_log.py`。改日志逻辑请只改 utils 那份；`models/operation_log.py` 可视为死代码 |
-| 历史脚本    | `backend/migrate.py` 硬编码连接串 `postgresql://postgres:root@localhost:5432/easy_invoice_mgr`，绕过 ORM 与 Alembic，仅用于早期补建 `operation_logs`。新环境不需要执行                                                                                                    |
-| 启动副作用   | `app.py: _seed_admin_user()` **每次启动都用 `ADMIN_PASSWORD` 覆盖 admin 密码哈希**，手工改库会被覆盖                                                                                                                                                                |
-| 迁移语义    | Alembic 版本链为 基线 `5cd03e0a4de7` → `a1b2c3d4e5f6`（backup_records）→ `c3d4e5f6a7b8`（cannot_invoice 列，head）。全新安装走 `sql/base.sql` 并 `stamp('head')`；存量 v1.0.0 无 alembic 的库会被直接 `stamp('head')`                                                       |
-| 表定义漂移   | `sql/base.sql` 定义了 `audit_logs` 表，`models.py` 中**没有对应 ORM 模型**，代码未使用                                                                                                                                                                           |
+| 历史脚本    | `backend/migrate.py` 等 PostgreSQL 时代的硬编码连接串脚本已在 SQLite 迁移中删除；`utils/legacy_pg_dump.py` 保留只为解析旧备份包                                                                                                    |
+| 启动副作用   | `app.py: _seed_admin_user()` **每次启动都用 `ADMIN_PASSWORD` 覆盖 admin 的密码哈希与 `password_encrypted`**，手工改库会被覆盖                                                                                                                                                                |
+| 迁移语义    | Alembic 版本链为 基线 `5cd03e0a4de7` → `a1b2c3d4e5f6`（backup_records）→ `c3d4e5f6a7b8`（cannot_invoice 列）→ `d4e5f6a7b8c9`（password_encrypted，head）。空库启动时 `utils/schema_init.py: ensure_schema()` 走 `db.create_all()` + `stamp('head')`；已有 `alembic_version` 的库执行 `upgrade()`                                                       |
+| 表定义漂移   | `utils/legacy_pg_dump.py` 会忽略旧 dump 中模型不存在的表（如历史 `audit_logs`）和列，只灌模型已定义的字段，并打印跳过清单                                                                                                                                         |
 | 静态文件路由  | `app.py: serve_upload_file` 内使用了 `jsonify` 但该函数所在文件未 import `jsonify`（仅 import 了 `send_from_directory/send_file/request`）——错误分支会二次抛 `NameError`                                                                                                |
 | 上传路由鉴权  | `parse.py` 的 `/upload-file` 使用 `@cross_origin` 但**未加 `@jwt_required`**，是唯一免鉴权的写接口                                                                                                                                                              |
 | 前端代理    | `nuxt.config.ts` 的 `routeRules.proxy` 会剥掉 `/uploads` 前缀（注释已记录），故改用 `server/middleware/proxy-uploads.ts`；改代理时勿退回 routeRules                                                                                                                     |
 | 超大文件    | `pages/purchases/[id].vue` 4122 行、`pages/projects/index.vue` 1982 行、`pages/settings/index.vue` 2068 行，混合了列表/表单/弹窗/预览/上传逻辑。修改前先用 grep 定位，避免整文件重写                                                                                                |
 | 本地未入库文件 | `dev.ps1` / `dev.bat` 出现在 `.gitignore` 末尾，新克隆的仓库**拿不到本地启动脚本**，需按 README 手工起服务或 `docker compose up -d`                                                                                                                                          |
 | 产物目录    | `backend/exports/` 里存在历史导出 zip（`睿抗2026_6_20260630141740.zip`），已被 gitignore；`backend/uploads/` 同理                                                                                                                                               |
+| 密码可逆存储  | `users.password_encrypted` 使用 Fernet 可逆加密（`utils/crypto_utils.encrypt_password/decrypt_password`），密钥来自 `FERNET_KEY` 或 `SECRET_KEY`，更换密钥会导致旧密文全部无法解密；登录仍只校验 `password_hash`。历史账号（除由 `ADMIN_PASSWORD` 种子写入的 admin 外）该列为空，管理员查看时显示“不可恢复”，需用“重置”生成新密码后才能查看。`ADMIN_PASSWORD` 每次启动会同时覆盖 admin 的哈希与密文 |
+| 数据库驱动    | 项目已迁移到 SQLite（Python 内置驱动，无额外依赖）。`backend/config.py` 要求 `DATABASE_URL` 以 `sqlite:///` 开头，并统一注入 `SQLite PRAGMA`（WAL / `foreign_keys=ON` / busy_timeout）；SQLite 不支持 `ALTER COLUMN`，改字段必须走 Alembic batch 迁移 |
 
 ---
 
@@ -279,4 +285,4 @@ EasyInvoiceMgr/
 5. **复核而不改动**：若 HEAD 与上次统计一致且 `git status --porcelain` 源码区为空，只需把页脚「复核于」顺延，**不要重写内容**。
 6. 数字口径保持一致：行数用「实际行数（含末行）」脚本产出，勿手工估算。
 
-*统计于 2026-10-11（HEAD `fd8a456`）。复核于 2026-10-11。*
+*统计于 2026-10-11（HEAD `fd8a456`）。复核于 2026-10-20（管理员密码查看功能）。*
