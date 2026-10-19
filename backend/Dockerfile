@@ -7,7 +7,6 @@ RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
     fi \
     && apt-get update && apt-get install -y --no-install-recommends \
     mupdf-tools \
-    postgresql-client \
     gzip \
     git \
     ca-certificates \
