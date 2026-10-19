@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 
 # 使用专用密钥，或从 SECRET_KEY 派生，以便重启后仍可持久使用
 _fernet = None
+# 用户密码专用密钥：与通用 encrypt_value 做域分离，避免密文跨用途串用
+_password_fernet = None
 
 
 def _get_fernet() -> Fernet:
@@ -48,3 +50,39 @@ def decrypt_value(ciphertext: str) -> str:
     except Exception as e:
         logger.error(f'Decryption failed: {e}')
         raise ValueError(f'Failed to decrypt value: {e}')
+
+
+def _get_password_fernet() -> Fernet:
+    """初始化用户密码专用 Fernet（与通用配置值加密做域分离）。"""
+    global _password_fernet
+    if _password_fernet is not None:
+        return _password_fernet
+
+    key_material = os.environ.get('FERNET_KEY') or os.environ.get('SECRET_KEY') or 'easy-invoice-mgr-secret-key'
+    digest = hashlib.sha256(f'user-password:{key_material}'.encode('utf-8')).digest()
+    _password_fernet = Fernet(base64.urlsafe_b64encode(digest))
+    return _password_fernet
+
+
+def encrypt_password(plaintext: str) -> str:
+    """加密用户密码，仅用于管理员查看；登录校验仍使用 password_hash。"""
+    if not plaintext:
+        return ''
+    try:
+        token = _get_password_fernet().encrypt(plaintext.encode('utf-8'))
+        return token.decode('utf-8')
+    except Exception as e:
+        logger.error(f'Password encryption failed: {e}')
+        raise
+
+
+def decrypt_password(ciphertext: str) -> str:
+    """解密用户密码；密钥变更或密文损坏时抛出 ValueError。"""
+    if not ciphertext:
+        return ''
+    try:
+        plain = _get_password_fernet().decrypt(ciphertext.encode('utf-8'))
+        return plain.decode('utf-8')
+    except Exception as e:
+        logger.error(f'Password decryption failed: {e}')
+        raise ValueError(f'Failed to decrypt password: {e}')

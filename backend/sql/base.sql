@@ -25,7 +25,8 @@ CREATE TYPE event_role_enum AS ENUM ('teacher', 'student_admin', 'student');
 CREATE TABLE users (
     user_id BIGSERIAL PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL, -- 存储加密后的密码
+    password_hash VARCHAR(255) NOT NULL, -- 存储单向哈希后的密码（登录校验用）
+    password_encrypted TEXT, -- 可逆加密后的密码（仅管理员查看用，历史数据为空）
     real_name VARCHAR(50) NOT NULL,
     email VARCHAR(100) UNIQUE,
     phone VARCHAR(20),

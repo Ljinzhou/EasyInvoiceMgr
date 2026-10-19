@@ -15,6 +15,8 @@ class User(db.Model):
     user_id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    # 可逆加密后的密码，仅用于管理员在用户管理页查看；登录校验仍只使用 password_hash
+    password_encrypted = db.Column(db.Text)
     real_name = db.Column(db.String(50), nullable=False)
     email = db.Column(db.String(100), unique=True)
     phone = db.Column(db.String(20))

@@ -88,3 +88,16 @@ rs-backend/data/
 
 dev.bat
 dev.ps1
+
+# SQLite 数据文件与 WAL 暂存（*.sqlite / *.sqlite3 已在上方忽略）
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
+backend/data/
+
+# 独立 Rust 工程（自带 .git，不应进入主仓库）
+rs-backend/
+
+# 本地 agent 记忆目录
+.workbuddy/

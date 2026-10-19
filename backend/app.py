@@ -32,15 +32,18 @@ APP_VERSION = _read_version()
 def _seed_admin_user(app):
     """确保存在有效的管理员用户，必要时更新密码哈希。"""
     from werkzeug.security import generate_password_hash
+    from utils.crypto_utils import encrypt_password
     with app.app_context():
         from models import User, db
         admin_password = os.environ.get('ADMIN_PASSWORD', 'admin')
         password_hash = generate_password_hash(admin_password)
+        password_encrypted = encrypt_password(admin_password)
         admin = User.query.filter_by(username='admin').first()
         if not admin:
             admin = User(
                 username='admin',
                 password_hash=password_hash,
+                password_encrypted=password_encrypted,
                 real_name='系统管理员',
                 email='admin@example.com',
                 user_type='admin',
@@ -51,6 +54,7 @@ def _seed_admin_user(app):
         else:
             # 每次部署都更新密码哈希，确保哈希值正确
             admin.password_hash = password_hash
+            admin.password_encrypted = password_encrypted
             logger.info('已更新管理员密码')
         db.session.commit()
 

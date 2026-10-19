@@ -183,6 +183,8 @@ class LogService:
             {"value": "update_user", "label": "修改用户"},
             {"value": "delete_user", "label": "删除用户"},
             {"value": "change_password", "label": "修改密码"},
+            {"value": "view_user_passwords", "label": "查看用户密码"},
+            {"value": "reset_user_password", "label": "重置用户密码"},
             {"value": "upload_avatar", "label": "上传头像"},
             {"value": "delete_avatar", "label": "删除头像"},
             {"value": "create_code", "label": "创建邀请码"},

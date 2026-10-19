@@ -143,7 +143,7 @@ EasyInvoiceMgr/
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------ | ---------------------- | ----- |
 | `SECRET_KEY`                                                                   | `easy-invoice-mgr-secret-key`                                | Flask 签名密钥             |       |
 | `JWT_SECRET_KEY`                                                               | `easy-invoice-mgr-jwt-secret`                                | JWT 签名（生产必须改）          |       |
-| `DATABASE_URL`                                                                 | `postgresql://postgres:root@localhost:5432/easy_invoice_mgr` | 数据库连接串                 |       |
+| `DATABASE_URL`                                                                 | `postgresql+psycopg2://postgres:root@localhost:5432/easy_invoice_mgr` | 数据库连接串；裸 `postgresql://` 会自动补 psycopg2 |       |
 | `JWT_ACCESS_TOKEN_EXPIRES`                                                     | 3600（代码内固定）                                                  | token 有效期（秒）           |       |
 | `STORAGE_BACKEND`                                                              | `local`                                                      | `local`                | `cos` |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION`(ap-guangzhou) / `COS_BUCKET` | 空                                                            | COS 凭据，仅 cos 模式需要      |       |
@@ -151,6 +151,8 @@ EasyInvoiceMgr/
 | `CORS_ORIGINS`                                                                 | `http://localhost:3000,3001,127.0.0.1:3000,3001`             | 逗号分隔，`config.py` 解析为列表 |       |
 | `ADMIN_PASSWORD`                                                               | `admin`                                                      | 每次启动强制重置 admin 密码      |       |
 | `HOST_PROJECT_DIR`                                                             | 无                                                            | 容器内映射的项目目录，备份范围用       |       |
+
+> `FERNET_KEY` 不是 `config.py` 变量，由 `backend/utils/crypto_utils.py` 直接读取，用于加密 `system_configs.ai_api_key` 和用户 `password_encrypted`；未设置时从 `SECRET_KEY` 派生。生产环境应显式设置为随机值并妥善备份，更换密钥会导致既有密文无法解密。
 
 前端：`NUXT_PUBLIC_API_BASE`（`nuxt.config.ts` → `runtimeConfig.public.apiBase`，构建期注入，`docker-compose.yml` 作为 build arg 传入）。非本地部署必须设置，否则登录 Network Error。
 
@@ -184,7 +186,7 @@ EasyInvoiceMgr/
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | 新增一个 API 接口                  | `backend/routes/<模块>.py`                                                                                                                     | 在对应蓝图加 `@xxx_bp.route(...)` + 处理函数；若属新模块，还需在 `backend/app.py` `create_app()` 中 import 并 `register_blueprint`       |
 | 修改已有接口的入参/出参                 | `backend/routes/<模块>.py` + `frontend/pages/<对应页>.vue`                                                                                        | 后端处理函数签名与 `jsonify` 载荷；前端调用处解构字段（**两端字段名必须同步，无类型校验**）                                                              |
-| 新增数据库字段                      | `backend/models.py`（模型）→ 新建 `backend/migrations/versions/<rev>_xxx.py`（`down_revision` 指向当前 head `c3d4e5f6a7b8`）→ 同步改 `backend/sql/base.sql` | 三处都要改：`base.sql` 服务全新安装，Alembic 服务存量库                                                                              |
+| 新增数据库字段                      | `backend/models.py`（模型）→ 新建 `backend/migrations/versions/<rev>_xxx.py`（`down_revision` 指向当前 head `d4e5f6a7b8c9`）→ 同步改 `backend/sql/base.sql` | 三处都要改：`base.sql` 服务全新安装，Alembic 服务存量库                                                                              |
 | 新增整张表                        | `backend/models.py` + `backend/sql/base.sql` + Alembic 迁移                                                                                    | 同上                                                                                                                 |
 | 改文件存储行为（key 规则、目录结构）         | `backend/utils/local_storage.py` **和** `backend/utils/cos_manager.py`                                                                        | 两边方法名必须一致，`utils/storage.py` 才能正常分派                                                                                |
 | 切换/接入对象存储                    | `backend/utils/storage.py: _init_storage()`                                                                                                  | 新后端实现同名方法并在 `_init_storage` 注册                                                                                     |
@@ -199,16 +201,19 @@ EasyInvoiceMgr/
 | 改图片访问路径                      | `frontend/server/middleware/proxy-uploads.ts` + `backend/app.py: serve_upload_file`                                                          | 前端中间件必须保留完整 `/uploads` 前缀                                                                                          |
 | 新增操作日志埋点                     | `backend/routes/<模块>.py`                                                                                                                    | 直接调用 `utils.operation_log.log_operation()`（已全局导入，8 个路由文件共 35 处调用）。**不要**再自定义 `_log_operation` 私有函数                                                    |
 | 改权限判定（学生能否操作某项目数据）           | `backend/utils/permissions.py`                                                                                                                 | `check_student_event_access(event_id, user)` 与 `ensure_event_membership(event_id, user_id)`；角色常量 `PRIVILEGED_USER_TYPES = ['admin','teacher','student_admin']`             |
-| 改初始管理员账号                     | `backend/app.py: _seed_admin_user()` + 环境变量 `ADMIN_PASSWORD`                                                                                 | 注意：**每次启动都会覆盖密码**                                                                                                  |
+| 改初始管理员账号                     | `backend/app.py: _seed_admin_user()` + 环境变量 `ADMIN_PASSWORD`                                                                                 | 注意：**每次启动都会覆盖密码哈希与 `password_encrypted`**                                                                                                  |
+| 改用户密码存储 / 管理员查看密码           | `backend/models.py`（`password_encrypted`）→ `backend/utils/crypto_utils.py`（`encrypt_password`/`decrypt_password`）→ `backend/routes/auth.py`（`register`、`change_password`、`get_user_passwords`、`reset_user_password`）→ `frontend/pages/users/index.vue` | 注册/改密/重置时同时写单向哈希与可逆密文；历史账号只能由管理员重置补密文；禁止把明文写入日志 |
 | 加依赖                          | 后端 `backend/requirements.txt`；前端 `frontend/package.json`（用 pnpm，勿混用 npm）                                                                     | —                                                                                                                  |
 
 ---
 
 ## 6. 接口全表（后端蓝图前缀见括号）
 
-> 鉴权：除 `/api/auth/register`、`/api/auth/login`、`/api/auth/users`（列表）外，均需 `Authorization: Bearer <token>`。
+> 鉴权：除 `/api/auth/register`、`/api/auth/login` 外，均需 `Authorization: Bearer <token>`。
 
-**auth（`/api/auth`）**：POST `/register`、`/login`｜GET `/users`、`/users/<id>`｜PUT `/users/<id>`、`/users/<id>/password`｜DELETE `/users/<id>`｜GET `/avatar`、POST `/avatar/upload`、DELETE `/avatar`
+**auth（`/api/auth`）**：POST `/register`、`/login`｜GET `/users`、`/users/<id>`、`/users/passwords`｜PUT `/users/<id>`、`/users/<id>/password`｜DELETE `/users/<id>`｜POST `/users/<id>/reset-password`｜GET `/avatar`、POST `/avatar/upload`、DELETE `/avatar`
+
+> 管理员密码相关：GET `/users/passwords` 与 POST `/users/<id>/reset-password` 仅 `admin` 可用；前者返回明文列表（历史无密文返回 `available=false`），后者生成 12 位随机密码并只返回一次，均写操作日志且响应带 `Cache-Control: no-store`。
 
 **events（`/api`）**：POST/GET `/events`｜GET/PUT/DELETE `/events/<id>`｜GET/POST `/events/<id>/members`｜PUT/DELETE `/events/<id>/members/<user_id>`｜GET `/events/stats/user-summary`
 
@@ -258,8 +263,8 @@ EasyInvoiceMgr/
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 重复文件    | `backend/models/operation_log.py` 与 `backend/utils/operation_log.py` 是同一实现的两份副本（前者少 `to_dict()` 与部分 action_types）。**全仓无任何模块 import `models.operation_log`**，实际生效的是 `utils/operation_log.py`。改日志逻辑请只改 utils 那份；`models/operation_log.py` 可视为死代码 |
 | 历史脚本    | `backend/migrate.py` 硬编码连接串 `postgresql://postgres:root@localhost:5432/easy_invoice_mgr`，绕过 ORM 与 Alembic，仅用于早期补建 `operation_logs`。新环境不需要执行                                                                                                    |
-| 启动副作用   | `app.py: _seed_admin_user()` **每次启动都用 `ADMIN_PASSWORD` 覆盖 admin 密码哈希**，手工改库会被覆盖                                                                                                                                                                |
-| 迁移语义    | Alembic 版本链为 基线 `5cd03e0a4de7` → `a1b2c3d4e5f6`（backup_records）→ `c3d4e5f6a7b8`（cannot_invoice 列，head）。全新安装走 `sql/base.sql` 并 `stamp('head')`；存量 v1.0.0 无 alembic 的库会被直接 `stamp('head')`                                                       |
+| 启动副作用   | `app.py: _seed_admin_user()` **每次启动都用 `ADMIN_PASSWORD` 覆盖 admin 的密码哈希与 `password_encrypted`**，手工改库会被覆盖                                                                                                                                                                |
+| 迁移语义    | Alembic 版本链为 基线 `5cd03e0a4de7` → `a1b2c3d4e5f6`（backup_records）→ `c3d4e5f6a7b8`（cannot_invoice 列）→ `d4e5f6a7b8c9`（password_encrypted，head）。全新安装走 `sql/base.sql` 并 `stamp('head')`；存量 v1.0.0 无 alembic 的库会被直接 `stamp('head')`                                                       |
 | 表定义漂移   | `sql/base.sql` 定义了 `audit_logs` 表，`models.py` 中**没有对应 ORM 模型**，代码未使用                                                                                                                                                                           |
 | 静态文件路由  | `app.py: serve_upload_file` 内使用了 `jsonify` 但该函数所在文件未 import `jsonify`（仅 import 了 `send_from_directory/send_file/request`）——错误分支会二次抛 `NameError`                                                                                                |
 | 上传路由鉴权  | `parse.py` 的 `/upload-file` 使用 `@cross_origin` 但**未加 `@jwt_required`**，是唯一免鉴权的写接口                                                                                                                                                              |
@@ -267,6 +272,8 @@ EasyInvoiceMgr/
 | 超大文件    | `pages/purchases/[id].vue` 4122 行、`pages/projects/index.vue` 1982 行、`pages/settings/index.vue` 2068 行，混合了列表/表单/弹窗/预览/上传逻辑。修改前先用 grep 定位，避免整文件重写                                                                                                |
 | 本地未入库文件 | `dev.ps1` / `dev.bat` 出现在 `.gitignore` 末尾，新克隆的仓库**拿不到本地启动脚本**，需按 README 手工起服务或 `docker compose up -d`                                                                                                                                          |
 | 产物目录    | `backend/exports/` 里存在历史导出 zip（`睿抗2026_6_20260630141740.zip`），已被 gitignore；`backend/uploads/` 同理                                                                                                                                               |
+| 密码可逆存储  | `users.password_encrypted` 使用 Fernet 可逆加密（`utils/crypto_utils.encrypt_password/decrypt_password`），密钥来自 `FERNET_KEY` 或 `SECRET_KEY`，更换密钥会导致旧密文全部无法解密；登录仍只校验 `password_hash`。历史账号（除由 `ADMIN_PASSWORD` 种子写入的 admin 外）该列为空，管理员查看时显示“不可恢复”，需用“重置”生成新密码后才能查看。`ADMIN_PASSWORD` 每次启动会同时覆盖 admin 的哈希与密文 |
+| 数据库驱动    | SQLAlchemy 2.1 把裸 `postgresql://` 默认解析为 psycopg v3，而 `requirements.txt` 只有 `psycopg2-binary`；`backend/config.py: _normalize_database_url()` 已统一改写为 `postgresql+psycopg2://`，不要删掉该兼容层 |
 
 ---
 
@@ -279,4 +286,4 @@ EasyInvoiceMgr/
 5. **复核而不改动**：若 HEAD 与上次统计一致且 `git status --porcelain` 源码区为空，只需把页脚「复核于」顺延，**不要重写内容**。
 6. 数字口径保持一致：行数用「实际行数（含末行）」脚本产出，勿手工估算。
 
-*统计于 2026-10-11（HEAD `fd8a456`）。复核于 2026-10-11。*
+*统计于 2026-10-11（HEAD `fd8a456`）。复核于 2026-10-20（管理员密码查看功能）。*
