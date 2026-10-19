@@ -1,8 +1,8 @@
 /**
- * Proxy /uploads/** to the backend preserving the full path.
+ * 将 /uploads/** 代理到后端，并保留完整路径。
  *
- * Replaces routeRules.proxy which auto-strips /uploads via _proxyStripBase
- * causing the backend to receive /avatars/... instead of /uploads/avatars/...
+ * 替代 routeRules.proxy —— 后者会通过 _proxyStripBase 自动去掉 /uploads，
+ * 导致后端收到的是 /avatars/... 而非 /uploads/avatars/...
  */
 export default defineEventHandler(async (event) => {
   if (!event.path.startsWith('/uploads/')) return

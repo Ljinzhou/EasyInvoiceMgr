@@ -68,7 +68,7 @@ def get_vouchers():
         if not event_id:
             return jsonify({'code': 400, 'message': '缺少event_id参数', 'data': None}), 400
 
-        # Check event membership for non-admin/teacher users
+        # 对非 admin/teacher 用户检查赛事成员身份
         user = User.query.get(current_user_id)
         if user and user.user_type not in ['admin', 'teacher']:
             event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()

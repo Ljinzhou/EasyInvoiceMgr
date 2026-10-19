@@ -288,11 +288,11 @@
         <button @click="goToCreate" class="create-button">创建第一个比赛</button>
       </div>
 
-    <!-- 编辑弹窗 (Warm Editorial Design) -->
+    <!-- 编辑弹窗（暖色编辑风设计） -->
     <transition name="editorial-modal">
       <div v-if="showEditModal" class="edit-modal-overlay" @mousedown.self="showEditModal = false">
         <div class="edit-modal">
-          <!-- Header -->
+          <!-- 头部 -->
           <div class="edit-modal__header">
             <div class="edit-modal__header-content">
               <div class="edit-modal__icon">
@@ -308,9 +308,9 @@
             </button>
           </div>
 
-          <!-- Form -->
+          <!-- 表单 -->
           <form @submit.prevent="updateEvent" class="edit-modal__body">
-            <!-- Section: Basic Info -->
+            <!-- 区块：基本信息 -->
             <div class="form-section">
               <h3 class="form-section__title">基本信息</h3>
               <div class="form-group">
@@ -323,7 +323,7 @@
               </div>
             </div>
 
-            <!-- Section: Time Settings -->
+            <!-- 区块：时间设置 -->
             <div class="form-section">
               <h3 class="form-section__title">时间设置</h3>
               <div class="form-grid">
@@ -351,7 +351,7 @@
               </div>
             </div>
 
-            <!-- Section: Budget & Leader -->
+            <!-- 区块：预算与负责人 -->
             <div class="form-section">
               <h3 class="form-section__title">预算与负责人</h3>
               <div class="form-grid">
@@ -390,7 +390,7 @@
               </div>
             </div>
 
-            <!-- Footer -->
+            <!-- 底部 -->
             <div class="edit-modal__footer">
               <button type="button" @click="showEditModal = false" class="btn-edit-cancel">取消</button>
               <button type="submit" class="btn-edit-save" :disabled="updating">
@@ -404,11 +404,11 @@
       </div>
     </transition>
 
-    <!-- 删除确认弹窗 (Dramatic Dark Theme) -->
+    <!-- 删除确认弹窗（戏剧暗黑风格） -->
     <transition name="delete-modal">
       <div v-if="showDeleteModal" class="delete-modal-overlay" @mousedown.self="showDeleteModal = false">
         <div class="delete-modal">
-          <!-- Danger Header -->
+          <!-- 危险提示头部 -->
           <div class="delete-modal__header">
             <div class="delete-modal__danger-indicator">
               <div class="delete-modal__danger-ring delete-modal__danger-ring--1"></div>
@@ -425,7 +425,7 @@
             </button>
           </div>
 
-          <!-- Content -->
+          <!-- 内容 -->
           <div class="delete-modal__content">
             <h2 class="delete-modal__title">确认删除项目</h2>
             <p class="delete-modal__desc">此操作不可撤销，删除后所有相关数据将永久移除。</p>
@@ -437,7 +437,7 @@
               <span class="delete-modal__project-name">{{ deletingEvent?.event_name }}</span>
             </div>
 
-            <!-- Confirmation Input -->
+            <!-- 确认输入框 -->
             <div class="delete-modal__verify">
               <label class="delete-modal__verify-label">请输入项目名称以确认删除</label>
               <input
@@ -449,14 +449,14 @@
               />
             </div>
 
-            <!-- Warning -->
+            <!-- 警告 -->
             <div class="delete-modal__warning-box">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               <span>删除后，该项目下的所有采购记录、发票数据和成员信息将一并删除。</span>
             </div>
           </div>
 
-          <!-- Actions -->
+          <!-- 操作按钮 -->
           <div class="delete-modal__actions">
             <button type="button" @click="showDeleteModal = false; confirmName = ''" class="btn-delete-cancel">取消</button>
             <button
@@ -490,7 +490,7 @@ const { $api } = useNuxtApp()
 const { getUploadUrl } = useUploadUrl()
 const eventStore = useEventStore()
 
-// Events from the unified store (reactive)
+// 来自统一 store 的比赛数据（响应式）
 const currentUser = ref(null)
 const events = ref([])
 
@@ -547,21 +547,21 @@ const canEditEvent = (event) => {
 const isEventMember = (event) => {
   if (!currentUser.value) return false
   const userType = currentUser.value.user_type
-  // admin/teacher/student_admin can always operate
+  // 管理员/老师/学生管理员始终可以操作
   if (['admin', 'teacher', 'student_admin'].includes(userType)) return true
-  // Use the is_member flag from the API response
+  // 使用 API 响应中的 is_member 标记
   if (event.is_member !== undefined) return event.is_member
-  // Fallback: check if user is creator
+  // 兜底：检查用户是否为创建者
   if (event.creator_id === currentUser.value.user_id) return true
   return false
 }
 
-// Keep local events in sync with store (reactive binding)
+// 保持本地比赛数据与 store 同步（响应式绑定）
 const syncFromStore = () => {
   events.value = [...eventStore.events]
 }
 
-// Watch store data version to sync when data changes
+// 监听 store 数据版本，数据变化时同步
 watch(() => eventStore.dataVersion, () => {
   syncFromStore()
 })
@@ -856,7 +856,7 @@ const deleteEvent = async () => {
   color: white !important;
 }
 
-/* Section labels */
+/* 分区标题 */
 .projects-section {
   margin-bottom: 2rem;
 }
@@ -877,12 +877,12 @@ const deleteEvent = async () => {
 .section-label.finished-label { color: #6b7280; border-bottom-color: #d1d5db; display: flex; align-items: center; gap: 8px; }
 .section-label.finished-not-joined-label { color: #9ca3af; border-bottom-color: #e5e7eb; }
 
-/* Not-joined project card */
+/* 未加入的比赛卡片 */
 .project-card.not-joined-project { opacity: 0.7; }
 .project-card.not-joined-project:hover { opacity: 0.85; }
 .not-joined-project-header { background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%) !important; }
 
-/* Finished project card */
+/* 已结束的比赛卡片 */
 .project-card.finished-project {
   opacity: 0.85;
   border: 1px solid #e5e7eb;
@@ -1021,7 +1021,7 @@ const deleteEvent = async () => {
   margin-bottom: 1.5rem;
 }
 
-/* ===== EDIT MODAL (Warm Editorial) ===== */
+/* ===== 编辑弹窗（暖色编辑风） ===== */
 .edit-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1215,7 +1215,7 @@ const deleteEvent = async () => {
   color: #c4b5a5;
 }
 
-/* Leader Autocomplete */
+/* 负责人自动补全 */
 .leader-autocomplete {
   position: relative;
 }
@@ -1285,7 +1285,7 @@ const deleteEvent = async () => {
   margin-top: 2px;
 }
 
-/* Toggle Switch */
+/* 开关 */
 .toggle-row {
   display: flex;
   align-items: center;
@@ -1356,7 +1356,7 @@ const deleteEvent = async () => {
   transform: translateX(22px);
 }
 
-/* Edit Modal Footer */
+/* 编辑弹窗底部 */
 .edit-modal__footer {
   display: flex;
   justify-content: flex-end;
@@ -1451,7 +1451,7 @@ const deleteEvent = async () => {
   to { transform: rotate(360deg); }
 }
 
-/* Edit Modal Transition */
+/* 编辑弹窗过渡动画 */
 .editorial-modal-enter-active {
   transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1471,7 +1471,7 @@ const deleteEvent = async () => {
   opacity: 0;
 }
 
-/* Dropdown Slide Transition */
+/* 下拉滑入过渡动画 */
 .dropdown-slide-enter-active {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1484,7 +1484,7 @@ const deleteEvent = async () => {
   transform: translateY(-6px);
 }
 
-/* ===== DELETE MODAL (Dramatic Dark) ===== */
+/* ===== 删除弹窗（戏剧暗黑风） ===== */
 .delete-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1693,7 +1693,7 @@ const deleteEvent = async () => {
   margin-top: 1px;
 }
 
-/* Delete Modal Actions */
+/* 删除弹窗操作按钮 */
 .delete-modal__actions {
   display: flex;
   justify-content: flex-end;
@@ -1750,7 +1750,7 @@ const deleteEvent = async () => {
   box-shadow: none;
 }
 
-/* Delete Modal Transition */
+/* 删除弹窗过渡动画 */
 .delete-modal-enter-active {
   transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1961,7 +1961,7 @@ const deleteEvent = async () => {
   background: linear-gradient(90deg, #e74c3c, #f39c12);
 }
 
-/* Checkbox group styles */
+/* 复选框组样式 */
 .checkbox-group {
   display: flex;
   align-items: center;

@@ -17,7 +17,7 @@ except ImportError:
 
 
 def _glm_available() -> bool:
-    """Check GLM availability dynamically (not at import time)."""
+    """动态检查 GLM 可用性（不在导入时检查）。"""
     if not GLM_IMPORTED or _glm_svc is None:
         return False
     return _glm_svc.is_available()

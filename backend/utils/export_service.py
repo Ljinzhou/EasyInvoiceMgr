@@ -24,10 +24,10 @@ COLUMN_DEFINITIONS = {
     'invoice_image': {'label': '发票图片', 'width': 20},
 }
 
-# Image column keys that require file download + embedding
+# 需要下载文件并嵌入的图片列键
 IMAGE_COLUMNS = {'receipt_image', 'invoice_image'}
 
-# Target pixel size for embedded images in Excel
+# 在 Excel 中嵌入图片的目标像素尺寸
 IMG_TARGET_WIDTH_PX = 160
 IMG_TARGET_HEIGHT_PX = 100
 
@@ -61,7 +61,7 @@ class ExportService:
                 task.progress_message = f'已获取 {len(records)} 条记录'
                 db.session.commit()
 
-                # Verify and log export order for PDF-Excel consistency
+                # 校验并记录导出顺序，保证 PDF 与 Excel 一致
                 logger.info(f'导出顺序验证: 共 {len(records)} 条记录, 按创建时间排序')
                 for i, rec in enumerate(records):
                     logger.debug(f'  [{i}] id={rec["id"]} type={rec["type"]} '
@@ -139,7 +139,7 @@ class ExportService:
                     pass
 
     def _normalize_options(self, options):
-        """Normalize camelCase frontend keys to snake_case backend keys."""
+        """将前端 camelCase 键转换为后端 snake_case 键。"""
         mapping = {
             'mergedPdf': 'merged_pdf',
             'individualInvoices': 'individual_invoices',
@@ -213,7 +213,7 @@ class ExportService:
                 'purchase_date': invoice.invoice_date.strftime('%Y-%m-%d') if invoice.invoice_date else '',
                 'invoice_date': invoice.invoice_date.strftime('%Y-%m-%d') if invoice.invoice_date else '',
                 'uploader_name': uploader.real_name if uploader else '未知',
-                'invoice_tax_number': '',  # Invoice model has no tax_number field
+                'invoice_tax_number': '',  # Invoice 模型没有 tax_number 字段
                 'invoice_number': invoice.invoice_number or '',
                 'has_invoice': True,
                 'invoice_file_key': invoice.image_url or '',
@@ -248,7 +248,7 @@ class ExportService:
         has_image_cols = any(c in IMAGE_COLUMNS for c in selected_columns)
         logger.info(f'生成Excel: 列={selected_columns}, 含图片列={has_image_cols}')
 
-        # Write headers
+        # 写入表头
         for col_idx, col_key in enumerate(selected_columns, 1):
             cell = ws.cell(row=1, column=col_idx, value=COLUMN_DEFINITIONS[col_key]['label'])
             cell.fill = header_fill
@@ -258,13 +258,13 @@ class ExportService:
             col_letter = get_column_letter(col_idx)
             ws.column_dimensions[col_letter].width = COLUMN_DEFINITIONS[col_key]['width']
 
-        # Image columns need wider columns to accommodate embedded images
+        # 图片列需要更宽的列宽以容纳嵌入的图片
         for col_idx, col_key in enumerate(selected_columns, 1):
             if col_key in IMAGE_COLUMNS:
                 col_letter = get_column_letter(col_idx)
                 ws.column_dimensions[col_letter].width = (IMG_TARGET_WIDTH_PX / 7) + 2
 
-        # Write data rows
+        # 写入数据行
         data_font = Font(name='微软雅黑', size=10)
         img_fallback_font = Font(name='微软雅黑', size=8, color='999999')
         cell_alignment = Alignment(vertical='center', wrap_text=True)
@@ -272,7 +272,7 @@ class ExportService:
         img_fail_count = 0
 
         for row_idx, record in enumerate(records, 2):
-            # Determine if this row will have embedded images for row height
+            # 判断该行是否包含嵌入图片，以确定行高
             row_has_image = False
             for col_key in selected_columns:
                 if col_key in IMAGE_COLUMNS:
@@ -288,7 +288,7 @@ class ExportService:
 
             for col_idx, col_key in enumerate(selected_columns, 1):
                 if col_key in IMAGE_COLUMNS:
-                    # has_invoice guard for invoice_image column
+                    # invoice_image 列的 has_invoice 保护判断
                     if col_key == 'invoice_image' and not record.get('has_invoice', False):
                         cell = ws.cell(row=row_idx, column=col_idx, value='无发票信息')
                         cell.font = data_font
@@ -351,22 +351,22 @@ class ExportService:
         return excel_path
 
     def _get_image_file_key(self, record, col_key):
-        """Get the storage file key for an image column."""
+        """获取图片列的存储文件 key。"""
         if col_key == 'receipt_image':
             return record.get('receipt_image_url', '')
         elif col_key == 'invoice_image':
-            # Prefer preview JPG over original PDF for embedding in Excel
+            # 嵌入 Excel 时优先使用预览 JPG，而非原始 PDF
             return (record.get('invoice_preview_key', '')
                     or record.get('invoice_file_key', '')
                     or record.get('image_url', ''))
         return ''
 
     def _download_and_save_image(self, file_key, temp_dir, record, col_key):
-        """Download an image file and save to temp dir, return the local path."""
+        """下载图片文件并保存到临时目录，返回本地路径。"""
         if not file_key:
             return None
 
-        # Determine filename and extension
+        # 确定文件名与扩展名
         if col_key == 'receipt_image':
             original_name = record.get('receipt_image_name', '')
             prefix = 'receipt'
@@ -374,14 +374,14 @@ class ExportService:
             original_name = record.get('invoice_original_filename', '') or record.get('file_name', '')
             prefix = 'invoice'
 
-        # Get extension from file_key first (actual file), then original name, or default
+        # 优先从 file_key（实际文件）取扩展名，其次从原始文件名取，最后用默认值
         ext = ''
         if file_key:
             ext = os.path.splitext(file_key.split('?')[0])[1].lower()
         if not ext and original_name:
             ext = os.path.splitext(original_name)[1].lower()
         if not ext:
-            ext = '.jpg'  # default
+            ext = '.jpg'  # 默认值
 
         record_id = record.get('id', 'unknown')
         safe_filename = f'{prefix}_{record_id}{ext}'
@@ -389,7 +389,7 @@ class ExportService:
 
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-        # Download file bytes
+        # 下载文件字节
         file_bytes = self._download_file(file_key)
         if not file_bytes:
             return None
@@ -399,7 +399,7 @@ class ExportService:
         with open(local_path, 'wb') as f:
             f.write(file_bytes)
 
-        # For PDF files, convert first page to image
+        # 对于 PDF 文件，将首页转换为图片
         if ext == '.pdf':
             try:
                 import fitz  # PyMuPDF
@@ -417,7 +417,7 @@ class ExportService:
                 logger.warning(f'PDF转图片失败: {local_path}, error={str(e)}')
                 return None
 
-        # For non-image files, skip
+        # 非图片文件则跳过
         if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'):
             logger.warning(f'不支持的图片格式: ext={ext}, record={record.get("id")}, file_key={file_key[:80]}')
             return None
@@ -445,15 +445,15 @@ class ExportService:
         return ''
 
     def _extract_cos_key(self, file_key):
-        """Extract bare COS key from various formats (presigned URL, full URL, or raw key)."""
+        """从各种格式（预签名 URL、完整 URL 或原始 key）中提取纯 COS key。"""
         if not file_key:
             return None
 
-        # If it looks like a URL, parse and extract the path
+        # 若看起来像 URL，则解析并提取路径
         if file_key.startswith('http://') or file_key.startswith('https://'):
             try:
                 parsed = urlparse(file_key)
-                # Path is like /invoices/xxx/file.jpg — strip leading /
+                # 路径形如 /invoices/xxx/file.jpg —— 去掉开头的 /
                 path = unquote(parsed.path).lstrip('/')
                 if path:
                     return path
@@ -461,20 +461,20 @@ class ExportService:
                 pass
             return None
 
-        # Already a bare COS key or local path
+        # 已经是纯 COS key 或本地路径
         return file_key
 
     def _download_file(self, file_key):
-        """Download a file by its key. Handles presigned URLs, COS keys, and local paths."""
+        """根据 key 下载文件，支持预签名 URL、COS key 和本地路径。"""
         if not file_key:
             return None
 
         logger.debug(f'尝试下载文件: {file_key[:80]}')
 
-        # Strategy 1: Check local uploads directory first (fastest)
+        # 策略 1：优先检查本地 uploads 目录（最快）
         uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
 
-        # Handle /uploads/xxx local paths
+        # 处理 /uploads/xxx 本地路径
         if file_key.startswith('/uploads/'):
             local_path = os.path.join(uploads_dir, file_key.replace('/uploads/', ''))
             if os.path.exists(local_path):
@@ -484,7 +484,7 @@ class ExportService:
             logger.warning(f'本地文件不存在: {local_path}')
             return None
 
-        # Strategy 2: If it's a full URL, download directly via HTTP
+        # 策略 2：若是完整 URL，则直接通过 HTTP 下载
         if file_key.startswith('http://') or file_key.startswith('https://'):
             try:
                 import requests as requests_lib
@@ -496,7 +496,7 @@ class ExportService:
                 logger.warning(f'从URL下载失败: {file_key[:80]}, error={str(e)}')
             return None
 
-        # Strategy 3: Use storage backend (local or COS)
+        # 策略 3：使用存储后端（本地或 COS）
         try:
             from utils.storage import storage_manager
             if storage_manager.is_available():
@@ -507,7 +507,7 @@ class ExportService:
         except Exception as e:
             logger.warning(f'存储下载失败: {file_key}, error={str(e)}')
 
-        # Strategy 4: Try as relative path in uploads dir
+        # 策略 4：尝试作为 uploads 目录下的相对路径
         local_path = os.path.join(uploads_dir, file_key)
         if os.path.exists(local_path):
             logger.debug(f'从本地相对路径读取: {local_path}')
@@ -544,9 +544,9 @@ class ExportService:
                 if not original:
                     filename = f'发票_{idx + 1}.pdf'
                 else:
-                    # Strip URL query params and sanitize for filesystem
+                    # 去掉 URL 查询参数并做文件系统安全处理
                     original = original.split('?')[0]
-                    # Remove characters invalid on Windows/Linux
+                    # 移除 Windows/Linux 下的非法字符
                     original = "".join(c for c in original if c not in '<>:"/\\|?*')
                     name, ext = os.path.splitext(original)
                     filename = f'{name}.pdf' if ext.lower() != '.pdf' else original

@@ -16,7 +16,7 @@ except ImportError:
 
 
 def _get_db_config_value(key: str) -> str | None:
-    """Read a config value from the database (SystemConfig table)."""
+    """从数据库（SystemConfig 表）读取配置值。"""
     try:
         from models import SystemConfig
         from utils.crypto_utils import decrypt_value
@@ -32,17 +32,17 @@ def _get_db_config_value(key: str) -> str | None:
 
 
 def resolve_ai_model() -> str:
-    """Resolve AI model name. DB config takes priority over env vars."""
+    """解析 AI 模型名称，数据库配置优先于环境变量。"""
     return _get_db_config_value('ai_model') or os.environ.get('GLM_MODEL', 'GLM-4V-Flash')
 
 
 def resolve_ai_api_key() -> str | None:
-    """Resolve AI API key. DB config takes priority over env vars."""
+    """解析 AI API 密钥，数据库配置优先于环境变量。"""
     return _get_db_config_value('ai_api_key') or os.environ.get('GLM_API_KEY')
 
 
 def resolve_ai_api_url() -> str:
-    """Resolve AI API URL. DB config takes priority over env vars."""
+    """解析 AI API 地址，数据库配置优先于环境变量。"""
     return _get_db_config_value('ai_api_url') or os.environ.get('GLM_API_URL', 'https://open.bigmodel.cn/api/paas/v4/chat/completions')
 
 
@@ -51,7 +51,7 @@ class GLMVisionService:
         self.api_key = api_key
 
     def _resolve_api_key(self) -> str | None:
-        """Resolve API key: explicit > DB config > env var."""
+        """解析 API 密钥：显式传入 > 数据库配置 > 环境变量。"""
         return self.api_key or resolve_ai_api_key()
 
     def is_available(self) -> bool:
@@ -84,7 +84,7 @@ class GLMVisionService:
         return 'image/jpeg'
 
     def extract_invoice_info(self, image_bytes: bytes, filename: str = '') -> Dict[str, Any]:
-        """Use the GLM vision model to extract invoice info from an image."""
+        """使用 GLM 视觉模型从图片中提取发票信息。"""
         if not self.is_available():
             return {
                 'success': False,
@@ -267,7 +267,7 @@ class GLMVisionService:
             }
 
     def chat_with_image(self, image_bytes: bytes, question: str, model: str = None) -> Dict[str, Any]:
-        """Send an image and question to the GLM vision model."""
+        """向 GLM 视觉模型发送图片和问题。"""
         if not self.is_available():
             return {
                 'success': False,

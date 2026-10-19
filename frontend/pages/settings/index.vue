@@ -1,6 +1,6 @@
 <template>
   <div class="settings-page">
-    <!-- 403 for non-admin -->
+    <!-- 非管理员（403） -->
     <div v-if="!isAdmin" class="forbidden-card">
       <div class="forbidden-icon">🔒</div>
       <h2>访问受限</h2>
@@ -15,7 +15,7 @@
       </header>
 
       <div class="settings-grid">
-        <!-- AI Configuration -->
+        <!-- AI 配置 -->
         <section class="config-card">
           <div class="card-header">
             <span class="card-icon">🤖</span>
@@ -88,7 +88,7 @@
           </form>
         </section>
 
-        <!-- Update Check -->
+        <!-- 更新检查 -->
         <section class="config-card">
           <div class="card-header">
             <span class="card-icon">🔄</span>
@@ -173,7 +173,7 @@
           </div>
         </section>
 
-        <!-- Data Backup & Restore -->
+        <!-- 数据备份与恢复 -->
         <section class="config-card backup-card">
           <div class="card-header">
             <span class="card-icon">💾</span>
@@ -183,7 +183,7 @@
             </div>
           </div>
 
-          <!-- Quick Backup -->
+          <!-- 快速备份 -->
           <div class="backup-quick">
             <div class="backup-quick-row">
               <div class="backup-quick-info">
@@ -200,7 +200,7 @@
                 {{ backupInProgress ? '备份中...' : '立即备份' }}
               </button>
             </div>
-            <!-- Progress -->
+            <!-- 进度 -->
             <div v-if="backupInProgress" class="backup-progress">
               <div class="progress-bar-track">
                 <div class="progress-bar-fill" :style="{ width: backupProgress + '%' }"></div>
@@ -212,7 +212,7 @@
             </transition>
           </div>
 
-          <!-- Scheduled Backup Config -->
+          <!-- 定时备份配置 -->
           <div class="backup-schedule">
             <div class="schedule-header">
               <span class="schedule-title">定时备份</span>
@@ -250,7 +250,7 @@
             </div>
           </div>
 
-          <!-- Local Restore -->
+          <!-- 本地恢复 -->
           <ClientOnly>
             <div class="backup-local-restore">
               <div class="restore-header">
@@ -258,7 +258,7 @@
                 <span class="restore-hint">选择一个系统备份文件（.tar.gz）直接恢复全部数据</span>
               </div>
 
-              <!-- State: Idle dropzone -->
+              <!-- 状态：空闲拖拽区 -->
               <div
                 v-if="!localRestoreFile && !localRestoreInProgress"
                 class="restore-dropzone"
@@ -294,7 +294,7 @@
                 </button>
               </div>
 
-              <!-- State: File selected -->
+              <!-- 状态：已选择文件 -->
               <div v-else-if="localRestoreFile && !localRestoreInProgress" class="restore-preview">
                 <div class="restore-file-card">
                   <div class="restore-file-card-icon">
@@ -324,7 +324,7 @@
                 <p class="restore-warning">⚠ 恢复操作将覆盖当前数据库及全部文件，不可撤销</p>
               </div>
 
-              <!-- State: Restoring -->
+              <!-- 状态：恢复中 -->
               <div v-else-if="localRestoreInProgress" class="restore-progress-section">
                 <div class="restore-progress-header">
                   <span class="restore-progress-spinner"></span>
@@ -337,14 +337,14 @@
                 <span class="restore-progress-status">{{ localRestoreProgressMsg }}</span>
               </div>
 
-              <!-- Messages -->
+              <!-- 消息提示 -->
               <transition name="msg-fade">
                 <div v-if="localRestoreMsg" class="form-msg" :class="localRestoreMsgType">{{ localRestoreMsg }}</div>
               </transition>
             </div>
           </ClientOnly>
 
-          <!-- Backup History -->
+          <!-- 备份历史 -->
           <div class="backup-history">
             <div class="history-header">
               <span class="history-title">备份记录</span>
@@ -397,7 +397,7 @@
           </div>
         </section>
 
-        <!-- Restore Confirm Modal -->
+        <!-- 恢复确认弹窗 -->
         <Teleport to="body">
           <transition name="modal-fade">
             <div v-if="restoreConfirmVisible" class="modal-overlay" @mousedown.self="restoreConfirmVisible = false">
@@ -453,7 +453,7 @@ const modelOptions = [
   { value: 'GLM-4-Flash-250414', label: 'GLM-4-Flash-250414' },
 ]
 
-// ---- AI Config ----
+// ---- AI 配置 ----
 const aiForm = reactive({ model: 'GLM-4V-Flash', apiKey: '', apiUrl: '' })
 const aiStatus = reactive({ maskedKey: '' })
 const showKey = ref(false)
@@ -481,7 +481,7 @@ async function loadAiConfig() {
       aiSaved.value = !!(cfg.ai_model?.has_value || cfg.ai_api_key?.has_value)
     }
   } catch (e) {
-    // silent
+    // 静默处理
   }
 }
 
@@ -509,7 +509,7 @@ async function saveAiConfig() {
   }
 }
 
-// ---- Test Model ----
+// ---- 测试模型 ----
 const testing = ref(false)
 const testResult = ref<{ success: boolean; text: string } | null>(null)
 let testMsgTimer: ReturnType<typeof setTimeout> | null = null
@@ -539,7 +539,7 @@ async function testModel() {
   }
 }
 
-// ---- Update Check ----
+// ---- 更新检查 ----
 const currentVersion = ref('1.0.0')
 const latestVersion = ref('')
 const updateInfo = ref('')
@@ -559,7 +559,7 @@ async function loadCurrentVersion() {
     if (data.code === 200 && data.data?._version?.value) {
       currentVersion.value = data.data._version.value
     }
-  } catch { /* silent */ }
+  } catch { /* 静默处理 */ }
 }
 
 async function copyCommand(cmd: string, stepNum?: number) {
@@ -613,7 +613,7 @@ async function checkUpdate() {
   }
 }
 
-// ---- Backup & Restore ----
+// ---- 备份与恢复 ----
 const backups = ref<any[]>([])
 const backupsLoading = ref(false)
 const backupInProgress = ref(false)
@@ -682,7 +682,7 @@ async function loadBackups() {
     if (data.code === 200) {
       backups.value = data.data.items || []
     }
-  } catch { /* silent */ } finally {
+  } catch { /* 静默处理 */ } finally {
     backupsLoading.value = false
   }
 }
@@ -696,7 +696,7 @@ async function loadScheduleConfig() {
       scheduleConfig.time = data.data.time
       scheduleConfig.retentionCount = data.data.retention_count
     }
-  } catch { /* silent */ }
+  } catch { /* 静默处理 */ }
 }
 
 async function saveScheduleConfig() {
@@ -740,7 +740,7 @@ function startPolling(backupId: number) {
         }
         loadBackups()
       }
-    } catch { /* silent */ }
+    } catch { /* 静默处理 */ }
   }, 1500)
 }
 
@@ -814,7 +814,7 @@ async function executeRestore() {
               showBackupMsg(restore.error_message || '恢复失败', 'error')
             }
           }
-        } catch { /* silent */ }
+        } catch { /* 静默处理 */ }
       }, 1500)
     } else {
       restoreInProgress.value = false
@@ -841,7 +841,7 @@ async function deleteBackup(id: number) {
   }
 }
 
-// ---- Local Restore ----
+// ---- 本地恢复 ----
 function pickLocalRestoreFile() {
   localRestoreInput.value?.click()
 }
@@ -944,7 +944,7 @@ async function executeLocalRestore() {
               loadBackups()
             }
           }
-        } catch { /* silent */ }
+        } catch { /* 静默处理 */ }
       }, 1500)
     } else {
       restoreInProgress.value = false
@@ -978,7 +978,7 @@ onUnmounted(() => {
   if (localRestoreMsgTimer) clearTimeout(localRestoreMsgTimer)
 })
 
-// Head
+// 页面头部
 useHead({ title: '系统设置 - 财务管理系统' })
 </script>
 
@@ -988,7 +988,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   margin: 0 auto;
 }
 
-/* ---- Forbidden ---- */
+/* ---- 访问受限 ---- */
 .forbidden-card {
   text-align: center;
   padding: 4rem 2rem;
@@ -1011,7 +1011,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
 }
 .back-link:hover { opacity: .85; }
 
-/* ---- Page Header ---- */
+/* ---- 页面头部 ---- */
 .page-header {
   margin-bottom: 2rem;
 }
@@ -1028,7 +1028,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   font-size: .9rem;
 }
 
-/* ---- Cards ---- */
+/* ---- 卡片 ---- */
 .settings-grid {
   display: flex;
   flex-direction: column;
@@ -1073,7 +1073,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   border-radius: 4px;
 }
 
-/* ---- Form ---- */
+/* ---- 表单 ---- */
 .config-form { display: flex; flex-direction: column; gap: 1rem; }
 .field { display: flex; flex-direction: column; gap: .3rem; }
 .field-label {
@@ -1086,7 +1086,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   color: #94a3b8;
 }
 
-/* Select */
+/* 选择框 */
 .select-wrapper {
   position: relative;
 }
@@ -1118,7 +1118,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   color: #94a3b8;
 }
 
-/* Input */
+/* 输入框 */
 .field-input {
   width: 100%;
   padding: .65rem .75rem;
@@ -1161,7 +1161,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
 }
 .toggle-btn:hover { color: #475569; }
 
-/* Buttons */
+/* 按钮 */
 .form-actions-row {
   display: flex;
   gap: .75rem;
@@ -1236,7 +1236,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Messages */
+/* 消息提示 */
 .form-msg {
   padding: .6rem .85rem;
   border-radius: 8px;
@@ -1249,7 +1249,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
 .msg-fade-enter-active, .msg-fade-leave-active { transition: all .25s ease; }
 .msg-fade-enter-from, .msg-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 
-/* ---- Update Section ---- */
+/* ---- 更新区块 ---- */
 .update-section { padding-top: .25rem; }
 .version-row {
   display: flex;
@@ -1303,7 +1303,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
 .update-status.ok { background: #eafaf1; color: #1e7e34; }
 .update-status.error { background: #fdf2f2; color: #9b1c1c; }
 
-/* ---- Update Commands ---- */
+/* ---- 更新命令 ---- */
 .update-commands {
   margin-top: 1rem;
 }
@@ -1387,7 +1387,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   text-decoration: underline;
 }
 
-/* ---- Manual Update Steps ---- */
+/* ---- 手动更新步骤 ---- */
 .manual-update-steps {
   margin-top: .75rem;
 }
@@ -1467,14 +1467,14 @@ useHead({ title: '系统设置 - 财务管理系统' })
   margin-top: .6rem;
   font-style: italic;
 }
-/* Hide old update action and progress */
+/* 隐藏旧的更新操作与进度 */
 .update-action,
 .update-progress-notice,
 .commands-hint {
   display: none;
 }
 
-/* ---- Backup Quick ---- */
+/* ---- 快速备份 ---- */
 .backup-quick {
   padding: .25rem 0 1rem;
   border-bottom: 1px solid #f0f2f5;
@@ -1529,7 +1529,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   color: #64748b;
 }
 
-/* ---- Backup Schedule ---- */
+/* ---- 定时备份 ---- */
 .backup-schedule {
   padding: 1rem 0;
   border-bottom: 1px solid #f0f2f5;
@@ -1588,7 +1588,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   line-height: 1.4;
 }
 
-/* ---- Local Restore ---- */
+/* ---- 本地恢复 ---- */
 .backup-local-restore {
   padding: 1rem 0;
   border-bottom: 1px solid #f0f2f5;
@@ -1610,7 +1610,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   color: #94a3b8;
 }
 
-/* Dropzone */
+/* 拖拽区 */
 .restore-dropzone {
   display: flex;
   flex-direction: column;
@@ -1677,7 +1677,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   background: #f8faff;
 }
 
-/* File Preview Card */
+/* 文件预览卡片 */
 .restore-preview {
   display: flex;
   flex-direction: column;
@@ -1735,7 +1735,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   color: #dc2626;
 }
 
-/* Restore Action Button */
+/* 恢复操作按钮 */
 .restore-action-btn {
   display: inline-flex;
   align-items: center;
@@ -1770,7 +1770,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   line-height: 1.45;
 }
 
-/* Restore Progress */
+/* 恢复进度 */
 .restore-progress-section {
   display: flex;
   flex-direction: column;
@@ -1831,7 +1831,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
   color: #64748b;
 }
 
-/* ---- Backup History ---- */
+/* ---- 备份历史 ---- */
 .backup-history { padding-top: 1rem; }
 .history-header {
   display: flex;
@@ -1966,7 +1966,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
 .action-btn.delete { color: #94a3b8; }
 .action-btn.delete:hover { background: #fee2e2; color: #dc2626; }
 
-/* ---- Restore Modal ---- */
+/* ---- 恢复弹窗 ---- */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -2029,7 +2029,7 @@ useHead({ title: '系统设置 - 财务管理系统' })
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .2s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 
-/* ---- Responsive ---- */
+/* ---- 响应式 ---- */
 @media (max-width: 768px) {
   .settings-page { padding: 0; }
   .page-header h1 { font-size: 1.3rem; }

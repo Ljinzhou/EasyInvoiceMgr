@@ -59,7 +59,7 @@ export const useEventStore = defineStore('eventStore', {
   }),
 
   getters: {
-    /** Full aggregate statistics across all events (for dashboard) */
+    /** 所有项目的完整汇总统计（用于总览面板） */
     fullStats(): EventStats {
       let totalAmount = 0
       let totalRecords = 0
@@ -102,7 +102,7 @@ export const useEventStore = defineStore('eventStore', {
       }
     },
 
-    /** Summary stats for purchases list page */
+    /** 购买记录列表页的汇总统计 */
     totalStats(): TotalStatsSummary {
       let totalAmount = 0
       let invoiceTotal = 0
@@ -127,13 +127,13 @@ export const useEventStore = defineStore('eventStore', {
       return { totalAmount, invoiceTotal, pendingReimburse, recordCount, remainingBudget }
     },
 
-    /** Whether data is stale (older than 3 minutes) */
+    /** 数据是否已过期（超过 3 分钟） */
     isStale(): boolean {
       if (!this.lastFetchTime) return true
       return Date.now() - this.lastFetchTime > 3 * 60 * 1000
     },
 
-    /** Get a single event by ID from the store */
+    /** 从 store 中按 ID 获取单个项目 */
     getEventById: (state) => (eventId: number): EventItem | undefined => {
       return state.events.find(e => e.event_id === eventId)
     }
@@ -141,18 +141,18 @@ export const useEventStore = defineStore('eventStore', {
 
   actions: {
     /**
-     * Unified fetch - the single entry point for loading event data.
-     * All modules MUST use this method to ensure data consistency.
+     * 统一拉取——加载项目数据的唯一入口。
+     * 所有模块必须使用此方法，以确保数据一致性。
      *
-     * @param options.pageSize - number of events per page
-     * @param options.forceRefresh - bypass cache
-     * @param options.status - filter by status
+     * @param options.pageSize - 每页项目数量
+     * @param options.forceRefresh - 绕过缓存
+     * @param options.status - 按状态筛选
      */
     async fetchEvents(options: {
       pageSize?: number
       forceRefresh?: boolean
       status?: string
-      api?: any  // injectable for testing
+      api?: any  // 可注入，用于测试
     } = {}) {
       const {
         pageSize = 100,
@@ -205,8 +205,8 @@ export const useEventStore = defineStore('eventStore', {
     },
 
     /**
-     * Invalidate cache and re-fetch. Call this after any mutation
-     * (create/update/delete record, approve/reimburse, etc.)
+     * 使缓存失效并重新拉取。任何变更操作后都应调用
+     * （新增/更新/删除记录、审批/报销等）。
      */
     async invalidateAndRefresh(options: {
       eventId?: number
@@ -219,16 +219,16 @@ export const useEventStore = defineStore('eventStore', {
     },
 
     /**
-     * Refresh a single event's data by re-fetching the full list.
-     * This ensures aggregated stats (which depend on all events) stay accurate.
+     * 通过重新拉取完整列表来刷新单个项目的数据。
+     * 这样可以确保汇总统计（依赖所有项目）保持准确。
      */
     async refreshAfterMutation(eventId?: number) {
       await this.invalidateAndRefresh({ eventId })
     },
 
     /**
-     * Ensure data is loaded (lazy init - fetches only if not yet initialized or stale).
-     * Safe to call in onMounted of any component.
+     * 确保数据已加载（惰性初始化——仅在尚未初始化或已过期时拉取）。
+     * 可在任何组件的 onMounted 中安全调用。
      */
     async ensureLoaded(options: { pageSize?: number; forceRefresh?: boolean; api?: any } = {}) {
       if (!this.initialized || this.isStale || options.forceRefresh) {

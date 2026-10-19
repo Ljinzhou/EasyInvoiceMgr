@@ -1,70 +1,70 @@
 import dayjs from 'dayjs'
 
 /**
- * Format date to YYYY-MM-DD
+ * 将日期格式化为 YYYY-MM-DD
  */
 export function formatDate(date: Date | string | number): string {
   return dayjs(date).format('YYYY-MM-DD')
 }
 
 /**
- * Format time to HH:mm:ss
+ * 将时间格式化为 HH:mm:ss
  */
 export function formatTime(date: Date | string | number): string {
   return dayjs(date).format('HH:mm:ss')
 }
 
 /**
- * Format datetime to YYYY-MM-DD HH:mm:ss
+ * 将日期时间格式化为 YYYY-MM-DD HH:mm:ss
  */
 export function formatDateTime(date: Date | string | number): string {
   return dayjs(date).format('YYYY-MM-DD HH:mm:ss')
 }
 
 /**
- * Get current date as YYYY-MM-DD
+ * 获取当前日期，格式为 YYYY-MM-DD
  */
 export function getCurrentDate(): string {
   return formatDate(new Date())
 }
 
 /**
- * Get current datetime as YYYY-MM-DD HH:mm:ss
+ * 获取当前日期时间，格式为 YYYY-MM-DD HH:mm:ss
  */
 export function getCurrentDateTime(): string {
   return formatDateTime(new Date())
 }
 
 /**
- * Add days to date
+ * 在日期上增加天数
  */
 export function addDays(date: Date | string | number, days: number): string {
   return dayjs(date).add(days, 'day').format('YYYY-MM-DD')
 }
 
 /**
- * Subtract days from date
+ * 从日期中减去天数
  */
 export function subtractDays(date: Date | string | number, days: number): string {
   return dayjs(date).subtract(days, 'day').format('YYYY-MM-DD')
 }
 
 /**
- * Check if date is today
+ * 判断日期是否为今天
  */
 export function isToday(date: Date | string | number): boolean {
   return dayjs(date).isSame(dayjs(), 'day')
 }
 
 /**
- * Check if date is in future
+ * 判断日期是否在未来
  */
 export function isFuture(date: Date | string | number): boolean {
   return dayjs(date).isAfter(dayjs())
 }
 
 /**
- * Check if date is in past
+ * 判断日期是否在过去
  */
 export function isPast(date: Date | string | number): boolean {
   return dayjs(date).isBefore(dayjs())

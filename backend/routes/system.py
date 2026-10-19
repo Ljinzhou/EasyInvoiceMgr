@@ -35,14 +35,14 @@ GITHUB_API_RELEASES = f'https://api.github.com/repos/{GITHUB_REPO}/releases/late
 
 
 def _is_admin() -> bool:
-    """Check if the current JWT identity belongs to an admin user."""
+    """判断当前 JWT 身份是否属于管理员用户。"""
     current_user_id = get_jwt_identity()
     user = db.session.get(User, current_user_id)
     return user is not None and user.user_type == 'admin'
 
 
 def _admin_required():
-    """Return 403 if the current user is not an admin, or 401 if not authenticated."""
+    """若当前用户不是管理员则返回 403，未认证则返回 401。"""
     current_user_id = get_jwt_identity()
     user = db.session.get(User, current_user_id)
     if user is None:
@@ -53,7 +53,7 @@ def _admin_required():
 
 
 def _get_config_value(config_key: str) -> str | None:
-    """Read a config value from DB, decrypting if needed."""
+    """从数据库读取配置值，必要时进行解密。"""
     record = SystemConfig.query.filter_by(config_key=config_key).first()
     if not record or not record.config_value:
         return None
@@ -66,7 +66,7 @@ def _get_config_value(config_key: str) -> str | None:
 
 
 def _set_config_value(config_key: str, value: str, description: str = None, admin_id: int = None):
-    """Upsert a config value, encrypting if it's a sensitive key."""
+    """更新或插入配置值，若为敏感键则进行加密。"""
     record = SystemConfig.query.filter_by(config_key=config_key).first()
     is_encrypted = config_key in ENCRYPTED_KEYS
     stored_value = encrypt_value(value) if is_encrypted else value
@@ -90,18 +90,18 @@ def _set_config_value(config_key: str, value: str, description: str = None, admi
 
 
 def get_ai_model() -> str | None:
-    """Get the configured AI model (DB first, env fallback). Call within app context."""
-    # Prefer DB config
+    """获取已配置的 AI 模型（优先数据库，回退到环境变量）。需在应用上下文中调用。"""
+    # 优先使用数据库配置
     model = _get_config_value('ai_model')
     if model:
         return model
-    # Fallback to env
+    # 回退到环境变量
     import os
     return os.environ.get('GLM_MODEL', 'GLM-4V-Flash')
 
 
 def get_ai_api_key() -> str | None:
-    """Get the configured AI API key (DB first, env fallback). Call within app context."""
+    """获取已配置的 AI API 密钥（优先数据库，回退到环境变量）。需在应用上下文中调用。"""
     key = _get_config_value('ai_api_key')
     if key:
         return key
@@ -110,7 +110,7 @@ def get_ai_api_key() -> str | None:
 
 
 def get_ai_api_url() -> str:
-    """Get the configured AI API URL (DB first, env fallback)."""
+    """获取已配置的 AI API 地址（优先数据库，回退到环境变量）。"""
     url = _get_config_value('ai_api_url')
     if url:
         return url
@@ -119,13 +119,13 @@ def get_ai_api_url() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Routes
+# 路由定义
 # ---------------------------------------------------------------------------
 
 @system_bp.route('/system/config', methods=['GET'])
 @jwt_required()
 def get_system_config():
-    """Get all system config. Admin only. Sensitive values are masked."""
+    """获取全部系统配置。仅管理员可用。敏感值会被脱敏显示。"""
     err = _admin_required()
     if err:
         return err
@@ -134,7 +134,7 @@ def get_system_config():
     result = {}
     for c in configs:
         if c.config_key in ENCRYPTED_KEYS:
-            # Mask sensitive values: show first 4 + last 4 chars
+            # 脱敏敏感值：显示前 4 位 + 后 4 位字符
             try:
                 plain = decrypt_value(c.config_value) if c.config_value else ''
                 if len(plain) > 8:
@@ -161,7 +161,7 @@ def get_system_config():
                 'has_value': bool(c.config_value)
             }
 
-    # Also return current version info
+    # 同时返回当前版本信息
     result['_version'] = {'value': CURRENT_VERSION}
 
     return jsonify({'code': 200, 'data': result})
@@ -170,7 +170,7 @@ def get_system_config():
 @system_bp.route('/system/config', methods=['PUT'])
 @jwt_required()
 def update_system_config():
-    """Update system config. Admin only. Body: {configs: {key: value, ...}}"""
+    """更新系统配置。仅管理员可用。请求体：{configs: {key: value, ...}}"""
     err = _admin_required()
     if err:
         return err
@@ -226,7 +226,7 @@ def update_system_config():
 @system_bp.route('/system/check-update', methods=['GET'])
 @jwt_required()
 def check_update():
-    """Check GitHub releases for a newer version."""
+    """检查 GitHub 发布版本是否有更新。"""
     err = _admin_required()
     if err:
         return err
@@ -720,7 +720,7 @@ def update_backup_config():
 @system_bp.route('/system/test-model', methods=['POST'])
 @jwt_required()
 def test_model():
-    """Test the configured AI model by sending a simple vision request."""
+    """通过发送一个简单的视觉请求来测试已配置的 AI 模型。"""
     err = _admin_required()
     if err:
         return err
@@ -851,11 +851,11 @@ def test_model():
 
 
 def _compare_versions(a: str, b: str) -> int:
-    """Compare two semver strings. Returns positive if a > b, 0 if equal, negative if a < b."""
+    """比较两个语义化版本字符串。a > b 返回正数，相等返回 0，a < b 返回负数。"""
     try:
         parts_a = [int(x) for x in a.split('.')]
         parts_b = [int(x) for x in b.split('.')]
-        # Pad with zeros
+        # 用 0 补位
         while len(parts_a) < 3:
             parts_a.append(0)
         while len(parts_b) < 3:

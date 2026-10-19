@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class LocalStorageManager:
-    """Local filesystem storage backend with the same interface as COSManager."""
+    """本地文件系统存储后端，接口与 COSManager 一致。"""
 
     def __init__(self):
         base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,8 +20,8 @@ class LocalStorageManager:
         return True
 
     def _resolve_path(self, file_key):
-        """Resolve a file key to an absolute local path."""
-        # Normalize: strip leading /uploads/ if present
+        """将文件 key 解析为本地绝对路径。"""
+        # 规范化：若存在开头的 /uploads/ 则去除
         key = file_key.lstrip('/')
         if key.startswith('uploads/'):
             key = key[8:]
@@ -66,7 +66,7 @@ class LocalStorageManager:
         return {'file_key': file_key, 'file_url': f'/uploads/{file_key}'}
 
     def upload_bytes(self, file_bytes, cos_path):
-        """Upload bytes directly to a given path (used by parse.py)."""
+        """直接将字节上传到指定路径（供 parse.py 使用）。"""
         local_path = self._resolve_path(cos_path)
         self._ensure_dir(local_path)
 
@@ -102,7 +102,7 @@ class LocalStorageManager:
             return f.read()
 
     def get_presigned_url(self, file_key, expires=3600):
-        """Local storage returns the direct file URL."""
+        """本地存储返回直接的文件 URL。"""
         return f'/uploads/{file_key}'
 
     def delete_file(self, file_key):

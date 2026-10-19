@@ -953,7 +953,7 @@ const zoomImageStyle = computed(() => ({
   cursor: isDragging.value ? 'grabbing' : 'grab'
 }))
 
-// Toast notification
+// Toast 通知
 const toastMessage = ref('')
 const toastType = ref('info')
 const toastVisible = ref(false)
@@ -1219,7 +1219,7 @@ const isEventMember = computed(() => {
   if (!currentUser.value) return false
   const userType = currentUser.value.user_type
   if (['admin', 'teacher', 'student_admin'].includes(userType)) return true
-  // Use is_member from event data, fallback to creator check
+  // 使用事件数据中的 is_member，兜底检查创建者
   if (event.value) {
     if (event.value.is_member !== undefined) return event.value.is_member
     if (event.value.creator_id === currentUser.value.user_id) return true
@@ -1850,7 +1850,7 @@ const calculateFileMD5 = (file) => {
     reader.onload = (e) => {
       try {
         const buffer = new Uint8Array(e.target.result)
-        // Pure JS MD5 implementation
+        // 纯 JS 实现的 MD5
         function md5cycle(x, k) {
           let a = x[0], b = x[1], c = x[2], d = x[3]
           a = ff(a, b, c, d, k[0], 7, -680876936); d = ff(d, a, b, c, k[1], 12, -389564586)
@@ -3019,7 +3019,7 @@ const formatMoney = (val) => {
   }
 }
 
-/* ========== MODAL OVERLAY ========== */
+/* ========== 弹窗遮罩层 ========== */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -3084,7 +3084,7 @@ const formatMoney = (val) => {
 
 .purchase-form { display: flex; flex-direction: column; gap: 1.25rem; }
 
-/* ========== FORM SECTIONS ========== */
+/* ========== 表单区块 ========== */
 .form-section {
   background: #f8fafc;
   padding: 1.25rem;
@@ -3128,7 +3128,7 @@ const formatMoney = (val) => {
 .invoice-section { border-color: #fef3c7; }
 .invoice-section.section-active { border-color: #fde68a; background: #fffbeb; }
 
-/* ========== TRANSFER SECTION ========== */
+/* ========== 转移区块 ========== */
 .transfer-section {
   border-color: #e8ecf1;
   background: linear-gradient(135deg, #fafbff 0%, #f6f3ff 100%);
@@ -3212,7 +3212,7 @@ const formatMoney = (val) => {
   border: 1px solid #a7f3d0;
 }
 
-/* ========== BATCH TRANSFER MODAL ========== */
+/* ========== 批量转移弹窗 ========== */
 .batch-transfer-modal {
   max-width: 480px;
 }
@@ -3352,7 +3352,7 @@ const formatMoney = (val) => {
   cursor: not-allowed;
 }
 
-/* ========== FORM ROWS & INPUTS ========== */
+/* ========== 表单行与输入框 ========== */
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 
 .form-group { display: flex; flex-direction: column; gap: 0.35rem; }
@@ -3399,7 +3399,7 @@ const formatMoney = (val) => {
 }
 .input-shell input.has-prefix { padding-left: 1.6rem; }
 
-/* Amount lock indicator */
+/* 金额锁定标识 */
 .amount-lock-badge {
   display: inline-flex;
   align-items: center;
@@ -3439,7 +3439,7 @@ const formatMoney = (val) => {
   align-items: center;
 }
 
-/* ========== UPLOADER SEARCH ========== */
+/* ========== 上传人搜索 ========== */
 .uploader-search-wrapper {
   position: relative;
 }
@@ -3493,7 +3493,7 @@ const formatMoney = (val) => {
   border-radius: 4px;
 }
 
-/* ========== UPLOAD AREA ========== */
+/* ========== 上传区域 ========== */
 .upload-area {
   border: 2px dashed #d1d5db;
   border-radius: 12px;
@@ -3515,7 +3515,7 @@ const formatMoney = (val) => {
   box-shadow: 0 0 0 3px rgba(102,126,234,.15);
 }
 
-/* Upload progress bar */
+/* 上传进度条 */
 .upload-progress-bar {
   width: 100%;
   max-width: 200px;
@@ -3582,7 +3582,7 @@ const formatMoney = (val) => {
 }
 .remove-btn-inline:hover { color: #ef4444; background: #fef2f2; }
 
-/* ========== TOGGLE SWITCH ========== */
+/* ========== 开关 ========== */
 .toggle-switch {
   display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
 }
@@ -3615,14 +3615,14 @@ const formatMoney = (val) => {
   border: 1px solid #fecaca;
 }
 
-/* ========== INVOICE FORM ========== */
+/* ========== 发票表单 ========== */
 .invoice-form { margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem; }
 .invoice-upload { border-color: #fde68a; }
 .invoice-upload:hover { border-color: #f59e0b; background: #fffbeb; }
 
 .invoice-details { display: flex; flex-direction: column; gap: 1rem; }
 
-/* ========== INVOICE UPLOAD ZONE ========== */
+/* ========== 发票上传区 ========== */
 .invoice-upload-zone {
   border: 2px dashed #e2e8f0;
   border-radius: 12px;
@@ -3669,7 +3669,7 @@ const formatMoney = (val) => {
 .invoice-action-btn:hover { border-color: #f59e0b; color: #f59e0b; background: #fffbeb; }
 .invoice-action-btn.danger:hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }
 
-/* ========== INVOICE PREVIEW PANEL ========== */
+/* ========== 发票预览面板 ========== */
 .invoice-preview-panel {
   background: #fff;
   border-radius: 12px;
@@ -3728,7 +3728,7 @@ const formatMoney = (val) => {
   box-shadow: 0 8px 24px rgba(0,0,0,0.1);
 }
 
-/* ========== PDF PREVIEW CARD ========== */
+/* ========== PDF 预览卡片 ========== */
 .pdf-preview-card {
   display: flex; align-items: center; gap: 14px;
   padding: 1.25rem; background: #fffbeb; border-radius: 10px;
@@ -3739,7 +3739,7 @@ const formatMoney = (val) => {
 .pdf-filename { font-size: 0.85rem; font-weight: 600; color: #1e293b; }
 .pdf-hint { font-size: 0.75rem; color: #92400e; opacity: 0.7; }
 
-/* ========== IMAGE LOADING / ERROR ========== */
+/* ========== 图片加载 / 错误 ========== */
 .image-loading {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   min-width: 180px; min-height: 160px;
@@ -3785,12 +3785,12 @@ const formatMoney = (val) => {
   display: inline-block;
 }
 
-/* ========== INVOICE FIELDS GRID ========== */
+/* ========== 发票字段网格 ========== */
 .invoice-fields-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
 }
 
-/* ========== AI ERROR BANNER ========== */
+/* ========== AI 错误提示条 ========== */
 .ai-error-banner {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 16px;
@@ -3811,7 +3811,7 @@ const formatMoney = (val) => {
 }
 .ai-error-close:hover { color: #78350f; }
 
-/* ========== RECEIPT PREVIEW ========== */
+/* ========== 购物凭证预览 ========== */
 .receipt-preview-container { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .fixed-preview-box {
   position: relative;
@@ -3852,7 +3852,7 @@ const formatMoney = (val) => {
 }
 .file-info-size { flex-shrink: 0; color: #94a3b8; }
 
-/* ========== INVOICE FILE THUMBNAIL (kept for other usages) ========== */
+/* ========== 发票文件缩略图（保留供其他用途） ========== */
 .invoice-file-thumb-wrap {
   position: relative; flex-shrink: 0;
   width: 80px; height: 80px;
@@ -3869,7 +3869,7 @@ const formatMoney = (val) => {
   flex: 1; min-width: 0;
 }
 
-/* ========== IMAGE ZOOM OVERLAY ========== */
+/* ========== 图片缩放遮罩层 ========== */
 .image-zoom-overlay {
   position: fixed; inset: 0;
   z-index: 2000;
@@ -3917,7 +3917,7 @@ const formatMoney = (val) => {
   will-change: transform;
 }
 
-/* ========== FORM ACTIONS ========== */
+/* ========== 表单操作按钮 ========== */
 .form-actions {
   display: flex; justify-content: flex-end; gap: 0.75rem;
   padding-top: 1rem; border-top: 1px solid #f1f5f9;
@@ -3939,7 +3939,7 @@ const formatMoney = (val) => {
 }
 .submit-btn:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 
-/* ========== TOAST NOTIFICATION ========== */
+/* ========== TOAST 通知 ========== */
 .toast-notification {
   position: fixed; top: 24px; right: 24px; z-index: 3000;
   display: flex; align-items: center; gap: 10px;
@@ -3954,7 +3954,7 @@ const formatMoney = (val) => {
 .toast-icon { font-size: 1rem; flex-shrink: 0; }
 .toast-text { line-height: 1.4; }
 
-/* ========== DETAIL MODAL ========== */
+/* ========== 详情弹窗 ========== */
 .detail-modal .modal-body { padding: 0; }
 .detail-section {
   padding: 1.25rem 1.5rem;
@@ -3997,7 +3997,7 @@ const formatMoney = (val) => {
 .detail-value.amount { font-size: 1.1rem; color: #dc2626; font-weight: 800; font-variant-numeric: tabular-nums; }
 .detail-value.mono { font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace; letter-spacing: 0.03em; }
 
-/* ========== DETAIL IMAGE PREVIEWS ========== */
+/* ========== 详情图片预览 ========== */
 .detail-images {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -186,7 +186,7 @@ def get_users():
         current_user_id = get_jwt_identity()
         current_user = User.query.get(current_user_id)
 
-        # Role check: only admin, teacher, student_admin can view user list (BUG-03 fix)
+        # 角色校验：仅 admin、teacher、student_admin 可查看用户列表（BUG-03 修复）
         if not current_user or current_user.user_type not in ['admin', 'teacher', 'student_admin']:
             return jsonify({'code': 403, 'message': '权限不足', 'data': None}), 403
 
@@ -428,16 +428,16 @@ MAX_AVATAR_SIZE = 5 * 1024 * 1024
 
 
 def _extract_storage_key(avatar_url: str) -> str:
-    """Extract the storage key from an avatar URL for deletion.
+    """从头像 URL 中提取用于删除的存储键。
 
-    For local storage paths like /uploads/avatars/1/xxx.png,
-    returns avatars/1/xxx.png (the path relative to uploads dir).
+    对于本地存储路径（如 /uploads/avatars/1/xxx.png），
+    返回 avatars/1/xxx.png（即相对于 uploads 目录的路径）。
 
-    For COS URLs, returns the full URL (COS delete handles it).
+    对于 COS URL，返回完整 URL（由 COS 删除逻辑处理）。
     """
     if '/uploads/' in (avatar_url or ''):
         return avatar_url.split('/uploads/', 1)[1]
-    # COS URL or other: extract the last path segment as fallback
+    # COS URL 或其他情况：提取最后一段路径作为兜底
     return avatar_url.split('/')[-1] if '/' in (avatar_url or '') else (avatar_url or '')
 
 

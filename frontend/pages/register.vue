@@ -1,16 +1,16 @@
 <template>
   <div class="register-scene">
-    <!-- Decorative floating orbs -->
+    <!-- 装饰性漂浮光球 -->
     <div class="orb orb-1"></div>
     <div class="orb orb-2"></div>
     <div class="orb orb-3"></div>
 
-    <!-- Noise overlay -->
+    <!-- 噪点叠加层 -->
     <div class="noise-layer"></div>
 
-    <!-- Glass card -->
+    <!-- 玻璃拟态卡片 -->
     <div class="glass-card">
-      <!-- Brand header -->
+      <!-- 品牌头部 -->
       <div class="brand">
         <div class="brand-icon">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -31,7 +31,7 @@
       </div>
 
       <form @submit.prevent="handleRegister" class="register-form">
-        <!-- Section: Basic Info -->
+        <!-- 区块：基本信息 -->
         <div class="form-section">
           <div class="section-header">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -103,7 +103,7 @@
           </div>
         </div>
 
-        <!-- Section: Invitation Code -->
+        <!-- 区块：邀请码 -->
         <div class="form-section invite-section">
           <div class="section-header">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -155,7 +155,7 @@
           </Transition>
         </div>
 
-        <!-- Submit -->
+        <!-- 提交按钮 -->
         <button type="submit" class="submit-btn" :disabled="registering || !!passwordError">
           <Transition name="fade" mode="out-in">
             <span v-if="registering" class="btn-loading" key="loading">
@@ -310,10 +310,10 @@ const handleRegister = async () => {
 
 <style scoped>
 /* ================================================================
-   Luminous Frost — Glassmorphism Register
+   明亮霜光 — 玻璃拟态注册
    ================================================================ */
 
-/* --- Scene --- */
+/* --- 场景 --- */
 .register-scene {
   position: relative;
   display: flex;
@@ -334,7 +334,7 @@ const handleRegister = async () => {
     );
 }
 
-/* --- Orbs --- */
+/* --- 光球 --- */
 .orb {
   position: absolute;
   border-radius: 50%;
@@ -377,7 +377,7 @@ const handleRegister = async () => {
   50% { transform: translate(-70px, 30px) scale(1.1); }
 }
 
-/* --- Noise --- */
+/* --- 噪点 --- */
 .noise-layer {
   position: fixed;
   inset: 0;
@@ -388,13 +388,13 @@ const handleRegister = async () => {
   background-size: 200px 200px;
 }
 
-/* --- Glass card --- */
+/* --- 玻璃拟态卡片 --- */
 .glass-card {
   position: relative;
   z-index: 1;
   width: 100%;
   max-width: 520px;
-  /* Glassmorphism */
+  /* 玻璃拟态 */
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
@@ -412,7 +412,7 @@ const handleRegister = async () => {
   from { opacity: 0; transform: translateY(24px) scale(0.97); }
 }
 
-/* --- Brand --- */
+/* --- 品牌 --- */
 .brand {
   text-align: center;
   margin-bottom: 32px;
@@ -447,14 +447,14 @@ const handleRegister = async () => {
   margin: 0;
 }
 
-/* --- Form --- */
+/* --- 表单 --- */
 .register-form {
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-/* --- Section --- */
+/* --- 区块 --- */
 .form-section {
   display: flex;
   flex-direction: column;
@@ -487,7 +487,7 @@ const handleRegister = async () => {
   margin-left: auto;
 }
 
-/* --- Field --- */
+/* --- 表单项 --- */
 .field {
   display: flex;
   flex-direction: column;
@@ -511,7 +511,7 @@ const handleRegister = async () => {
   gap: 14px;
 }
 
-/* --- Input shell --- */
+/* --- 输入框容器 --- */
 .input-shell {
   position: relative;
   display: flex;
@@ -554,7 +554,7 @@ const handleRegister = async () => {
   color: #667eea;
 }
 
-/* --- Field error --- */
+/* --- 表单项错误 --- */
 .field-error {
   display: block;
   font-size: 0.78rem;
@@ -578,7 +578,7 @@ const handleRegister = async () => {
   transform: translateY(-4px);
 }
 
-/* --- Invite section --- */
+/* --- 邀请码区块 --- */
 .invite-section {
   background: rgba(102, 126, 234, 0.04);
   border: 1.5px solid rgba(102, 126, 234, 0.1);
@@ -666,7 +666,7 @@ const handleRegister = async () => {
   animation: spin 0.7s linear infinite;
 }
 
-/* --- Verify result --- */
+/* --- 验证结果 --- */
 .verify-result {
   margin-top: 10px;
   padding: 10px 14px;
@@ -701,7 +701,7 @@ const handleRegister = async () => {
   font-weight: 700;
 }
 
-/* --- Detected type --- */
+/* --- 检测到的类型 --- */
 .detected-type {
   display: flex;
   align-items: center;
@@ -717,7 +717,7 @@ const handleRegister = async () => {
 .detected-label { color: #94a3b8; }
 .detected-value { font-weight: 700; color: #667eea; }
 
-/* --- Submit --- */
+/* --- 提交按钮 --- */
 .submit-btn {
   position: relative;
   width: 100%;
@@ -779,11 +779,11 @@ const handleRegister = async () => {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Transitions */
+/* 过渡动画 */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
-/* --- Footer --- */
+/* --- 底部 --- */
 .card-footer {
   margin-top: 24px;
   padding-top: 18px;
@@ -803,7 +803,7 @@ const handleRegister = async () => {
 .link:hover { color: #764ba2; }
 
 /* ================================================================
-   RESPONSIVE
+   响应式
    ================================================================ */
 
 @media (max-width: 1024px) {
@@ -860,7 +860,7 @@ const handleRegister = async () => {
   .input-shell input {
     min-height: 48px;
     padding: 12px 12px 12px 40px;
-    font-size: 16px; /* prevent iOS zoom */
+    font-size: 16px; /* 防止 iOS 缩放 */
     border-radius: 10px;
   }
 

@@ -1,16 +1,16 @@
 <template>
   <div class="login-scene">
-    <!-- Decorative floating orbs for depth -->
+    <!-- 装饰性漂浮光球，增加层次感 -->
     <div class="orb orb-1"></div>
     <div class="orb orb-2"></div>
     <div class="orb orb-3"></div>
 
-    <!-- Subtle noise overlay -->
+    <!-- 细微噪点叠加层 -->
     <div class="noise-layer"></div>
 
-    <!-- Glass card -->
+    <!-- 玻璃拟态卡片 -->
     <div class="glass-card">
-      <!-- Brand header -->
+      <!-- 品牌头部 -->
       <div class="brand">
         <div class="brand-icon">
           <svg viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -30,7 +30,7 @@
         <p class="brand-tagline">财务管理系统</p>
       </div>
 
-      <!-- Form -->
+      <!-- 表单 -->
       <form @submit.prevent="handleLogin" class="login-form">
         <div class="field">
           <label for="username" class="field-label">用户名</label>
@@ -68,7 +68,7 @@
           </div>
         </div>
 
-        <!-- Error message -->
+        <!-- 错误提示 -->
         <Transition name="error-pop">
           <div v-if="error" class="error-banner">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -78,7 +78,7 @@
           </div>
         </Transition>
 
-        <!-- Submit -->
+        <!-- 提交按钮 -->
         <button type="submit" class="submit-btn" :disabled="loading">
           <Transition name="fade" mode="out-in">
             <span v-if="loading" class="btn-loading" key="loading">
@@ -90,7 +90,7 @@
         </button>
       </form>
 
-      <!-- Footer link -->
+      <!-- 底部链接 -->
       <div class="card-footer">
         还没有账号？<NuxtLink to="/register" class="link">立即注册</NuxtLink>
       </div>
@@ -153,10 +153,10 @@ const handleLogin = async () => {
 
 <style scoped>
 /* ================================================================
-   Luminous Frost — Glassmorphism Login
+   明亮霜光 — 玻璃拟态登录
    ================================================================ */
 
-/* --- Scene --- */
+/* --- 场景 --- */
 .login-scene {
   position: relative;
   display: flex;
@@ -165,7 +165,7 @@ const handleLogin = async () => {
   min-height: 100vh;
   min-height: 100dvh;
   overflow: hidden;
-  /* High-brightness white gradient with subtle lavender tint */
+  /* 高亮白色渐变，带有淡淡的薰衣草紫调 */
   background:
     linear-gradient(135deg,
       #f8f9ff 0%,
@@ -177,7 +177,7 @@ const handleLogin = async () => {
     );
 }
 
-/* --- Decorative orbs --- */
+/* --- 装饰光球 --- */
 .orb {
   position: absolute;
   border-radius: 50%;
@@ -220,7 +220,7 @@ const handleLogin = async () => {
   50% { transform: translate(-70px, 30px) scale(1.1); }
 }
 
-/* --- Noise texture overlay --- */
+/* --- 噪点纹理叠加层 --- */
 .noise-layer {
   position: fixed;
   inset: 0;
@@ -231,7 +231,7 @@ const handleLogin = async () => {
   background-size: 200px 200px;
 }
 
-/* --- Glass card --- */
+/* --- 玻璃拟态卡片 --- */
 .glass-card {
   position: relative;
   z-index: 1;
@@ -239,7 +239,7 @@ const handleLogin = async () => {
   max-width: 420px;
   margin: 0 24px;
   padding: 44px 40px 36px;
-  /* Glassmorphism */
+  /* 玻璃拟态 */
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
@@ -249,7 +249,7 @@ const handleLogin = async () => {
     0 8px 32px rgba(102, 126, 234, 0.08),
     0 2px 8px rgba(0, 0, 0, 0.03),
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  /* Entry animation */
+  /* 入场动画 */
   animation: card-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -260,7 +260,7 @@ const handleLogin = async () => {
   }
 }
 
-/* --- Brand --- */
+/* --- 品牌 --- */
 .brand {
   text-align: center;
   margin-bottom: 36px;
@@ -297,14 +297,14 @@ const handleLogin = async () => {
   letter-spacing: 0.04em;
 }
 
-/* --- Form --- */
+/* --- 表单 --- */
 .login-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-/* --- Field --- */
+/* --- 表单项 --- */
 .field {
   display: flex;
   flex-direction: column;
@@ -358,7 +358,7 @@ const handleLogin = async () => {
   color: #667eea;
 }
 
-/* --- Error banner --- */
+/* --- 错误横幅 --- */
 .error-banner {
   display: flex;
   align-items: center;
@@ -387,7 +387,7 @@ const handleLogin = async () => {
   transform: scale(0.96);
 }
 
-/* --- Submit button --- */
+/* --- 提交按钮 --- */
 .submit-btn {
   position: relative;
   width: 100%;
@@ -453,7 +453,7 @@ const handleLogin = async () => {
   to { transform: rotate(360deg); }
 }
 
-/* Transition: fade */
+/* 过渡：淡入淡出 */
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.15s;
 }
@@ -461,7 +461,7 @@ const handleLogin = async () => {
   opacity: 0;
 }
 
-/* --- Card footer --- */
+/* --- 卡片底部 --- */
 .card-footer {
   margin-top: 28px;
   padding-top: 20px;
@@ -483,10 +483,10 @@ const handleLogin = async () => {
 }
 
 /* ================================================================
-   RESPONSIVE
+   响应式
    ================================================================ */
 
-/* Tablet */
+/* 平板 */
 @media (max-width: 1024px) {
   .glass-card {
     max-width: 400px;
@@ -494,7 +494,7 @@ const handleLogin = async () => {
   }
 }
 
-/* Mobile */
+/* 手机 */
 @media (max-width: 768px) {
   .login-scene {
     padding: 24px 16px;
@@ -513,7 +513,7 @@ const handleLogin = async () => {
   .orb-3 { width: 200px; height: 200px; }
 }
 
-/* Small mobile */
+/* 小屏手机 */
 @media (max-width: 480px) {
   .login-scene {
     padding: 16px 12px;
@@ -551,7 +551,7 @@ const handleLogin = async () => {
   .input-shell input {
     min-height: 48px;
     padding: 13px 14px 13px 44px;
-    font-size: 16px; /* prevent iOS zoom */
+    font-size: 16px; /* 防止 iOS 缩放 */
     border-radius: 12px;
   }
 
@@ -578,11 +578,11 @@ const handleLogin = async () => {
     font-size: 0.82rem;
   }
 
-  /* Reduce animation on small screens */
+  /* 小屏减少动画 */
   .orb { opacity: 0.3; }
 }
 
-/* Very small phones */
+/* 超小屏手机 */
 @media (max-width: 375px) {
   .glass-card {
     padding: 28px 18px 22px;

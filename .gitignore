@@ -79,6 +79,10 @@ backend/migrations/versions/*.pyc
 backend/uploads/
 backend/exports/
 
+# Rust
+target/
+rs-backend/data/
+
 .reasonix
 .codegraph
 

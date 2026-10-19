@@ -238,10 +238,10 @@ const quickAddEventId = ref('')
 
 const currentUser = ref(null)
 
-// All statistics from the unified store (reactive)
+// 来自统一 store 的全部统计数据（响应式）
 const totalStats = computed(() => eventStore.totalStats)
 
-// Events from the unified store
+// 来自统一 store 的比赛数据
 const events = computed(() => eventStore.events)
 
 function isEventMember(ev) {
@@ -363,7 +363,7 @@ const formatMoney = (val) => {
 .stat-value { font-size: 22px; font-weight: 700; color: #2c3e50; }
 .stat-label { font-size: 13px; color: #7f8c8d; }
 
-/* Section labels */
+/* 分区标题 */
 .events-section {
   margin-bottom: 2rem;
 }
@@ -384,7 +384,7 @@ const formatMoney = (val) => {
   margin-bottom: 1rem;
 }
 
-/* Not-joined card styling */
+/* 未加入卡片样式 */
 .event-card.not-joined-card { opacity: 0.75; }
 .event-card.not-joined-card:hover { opacity: 0.9; }
 .not-joined-header { background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%) !important; }

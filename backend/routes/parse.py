@@ -26,7 +26,7 @@ class InvoiceUploadService:
         """
         验证上传的文件
         
-        Returns:
+        返回：
             dict: {'valid': bool, 'error': str, 'ext': str, 'bytes': bytes}
         """
         if not file:

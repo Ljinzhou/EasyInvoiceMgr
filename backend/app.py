@@ -30,7 +30,7 @@ APP_VERSION = _read_version()
 
 
 def _seed_admin_user(app):
-    """Ensure a valid admin user exists, updating password hash if needed."""
+    """确保存在有效的管理员用户，必要时更新密码哈希。"""
     from werkzeug.security import generate_password_hash
     with app.app_context():
         from models import User, db
@@ -49,7 +49,7 @@ def _seed_admin_user(app):
             db.session.add(admin)
             logger.info('已创建默认管理员账户')
         else:
-            # Always update password hash to ensure correct hash on every deploy
+            # 每次部署都更新密码哈希，确保哈希值正确
             admin.password_hash = password_hash
             logger.info('已更新管理员密码')
         db.session.commit()
@@ -81,7 +81,7 @@ def create_app():
 
     @app.before_request
     def handle_options_preflight():
-        """Handle CORS preflight OPTIONS requests for all routes."""
+        """处理所有路由的 CORS 预检 OPTIONS 请求。"""
         if request.method == 'OPTIONS':
             response = app.make_default_options_response()
             return response

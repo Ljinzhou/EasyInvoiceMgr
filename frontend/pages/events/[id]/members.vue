@@ -109,7 +109,7 @@
           </div>
 
           <div class="member-modal__body">
-            <!-- Search -->
+            <!-- 搜索 -->
             <div class="member-search" :class="{ 'has-results': showMemberDropdown && filteredUsers.length > 0 }">
               <div class="member-search__input-wrap">
                 <svg class="member-search__icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -149,7 +149,7 @@
               </transition>
             </div>
 
-            <!-- Selected member card -->
+            <!-- 已选成员卡片 -->
             <transition name="card-rise">
               <div v-if="selectedMember" class="member-card">
                 <div class="member-card__avatar">
@@ -297,7 +297,7 @@ const searchQuery = ref('')
 const filterType = ref('')
 const stats = ref(null)
 
-// Add member modal
+// 添加成员弹窗
 const showAddModal = ref(false)
 const memberSearch = ref('')
 const filteredUsers = ref([])
@@ -306,18 +306,18 @@ const selectedMember = ref(null)
 const addingMember = ref(false)
 let searchTimer = null
 
-// Edit member modal
+// 编辑成员弹窗
 const showEditModal = ref(false)
 const editingMember = ref(null)
 const editRole = ref('student')
 const updatingMember = ref(false)
 
-// Remove member modal
+// 移除成员弹窗
 const showRemoveModal = ref(false)
 const removingMember = ref(null)
 const removingMemberLoading = ref(false)
 
-// Current user
+// 当前用户
 const currentUser = ref(null)
 
 const canManageMembers = computed(() => {
@@ -396,7 +396,7 @@ const filteredMembers = computed(() => {
   return result
 })
 
-// ===== Add Member =====
+// ===== 添加成员 =====
 const openAddMemberModal = () => {
   memberSearch.value = ''
   filteredUsers.value = []
@@ -404,7 +404,7 @@ const openAddMemberModal = () => {
   showAddModal.value = true
 }
 
-// Watch memberSearch to trigger user search
+// 监听 memberSearch 触发用户搜索
 watch(memberSearch, (val) => {
   if (searchTimer) clearTimeout(searchTimer)
   if (!val || !val.trim()) {
@@ -420,7 +420,7 @@ watch(memberSearch, (val) => {
       })
       if (response.data.code === 200) {
         const users = response.data.data.data || response.data.data || []
-        // Filter out already existing members
+        // 过滤掉已存在的成员
         const existingIds = new Set(members.value.map(m => m.user_id))
         filteredUsers.value = (Array.isArray(users) ? users : []).filter(u => !existingIds.has(u.user_id)).slice(0, 10)
       }
@@ -463,7 +463,7 @@ const addMember = async () => {
   }
 }
 
-// ===== Edit Member =====
+// ===== 编辑成员 =====
 const editMember = (member) => {
   editingMember.value = member
   editRole.value = member.user_type === 'admin' ? 'teacher' : member.user_type
@@ -495,7 +495,7 @@ const updateMemberRole = async () => {
   }
 }
 
-// ===== Remove Member =====
+// ===== 移除成员 =====
 const confirmRemoveMember = (member) => {
   removingMember.value = member
   showRemoveModal.value = true
@@ -689,7 +689,7 @@ const formatDate = (dateStr) => {
   color: #999;
 }
 
-/* Row actions */
+/* 行内操作按钮 */
 .row-actions {
   display: flex;
   gap: 6px;
@@ -721,7 +721,7 @@ const formatDate = (dateStr) => {
 }
 .btn-remove-sm:hover { background: #c0392b; }
 
-/* ===== MEMBER MODAL ===== */
+/* ===== 成员弹窗 ===== */
 .member-modal-mask {
   position: fixed; inset: 0;
   background: rgba(15, 23, 42, 0.45);
@@ -738,7 +738,7 @@ const formatDate = (dateStr) => {
   transform-origin: center;
 }
 
-/* Header */
+/* 头部 */
 .member-modal__header {
   display: flex; justify-content: space-between; align-items: flex-start;
   padding: 1.5rem 1.5rem 0;
@@ -770,10 +770,10 @@ const formatDate = (dateStr) => {
 }
 .member-modal__close:hover { background: #fee2e2; color: #ef4444; }
 
-/* Body */
+/* 主体 */
 .member-modal__body { padding: 1.25rem 1.5rem; }
 
-/* Search */
+/* 搜索 */
 .member-search { position: relative; }
 .member-search__input-wrap {
   display: flex; align-items: center; gap: 10px;
@@ -801,7 +801,7 @@ const formatDate = (dateStr) => {
 }
 .member-search__clear:hover { background: #cbd5e1; color: #334155; }
 
-/* Dropdown */
+/* 下拉列表 */
 .member-search__dropdown {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0;
   background: #fff;
@@ -837,7 +837,7 @@ const formatDate = (dateStr) => {
   flex-shrink: 0;
 }
 
-/* Selected member card */
+/* 已选成员卡片 */
 .member-card {
   display: flex; align-items: center; gap: 14px;
   margin-top: 16px;
@@ -867,7 +867,7 @@ const formatDate = (dateStr) => {
 }
 .member-card__remove:hover { background: #fef2f2; border-color: #fecaca; color: #ef4444; }
 
-/* Footer */
+/* 底部 */
 .member-modal__footer {
   display: flex; justify-content: flex-end; gap: 10px;
   padding: 1rem 1.5rem 1.5rem;
@@ -910,7 +910,7 @@ const formatDate = (dateStr) => {
 .spin-icon { animation: spin-icon 1s linear infinite; }
 @keyframes spin-icon { to { transform: rotate(360deg); } }
 
-/* Edit modal form */
+/* 编辑弹窗表单 */
 .form-group { margin-bottom: 1rem; }
 .form-group label {
   display: block;
@@ -933,14 +933,14 @@ const formatDate = (dateStr) => {
 }
 .form-select:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
 
-/* Remove warning */
+/* 移除警告 */
 .remove-warning {
   font-size: 0.93rem;
   color: #475569;
   line-height: 1.6;
 }
 
-/* Transitions */
+/* 过渡动画 */
 .modal-fade-enter-active, .modal-fade-leave-active { transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 .modal-fade-enter-from .member-modal { transform: scale(0.92) translateY(12px); }

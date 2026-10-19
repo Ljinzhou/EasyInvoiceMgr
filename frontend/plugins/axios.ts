@@ -14,7 +14,7 @@ export default defineNuxtPlugin((nuxtApp) => {
       }
       
       if (config.data instanceof FormData) {
-        // Let axios set the correct Content-Type with boundary for FormData
+        // 让 axios 为 FormData 自动设置带 boundary 的正确 Content-Type
         delete config.headers['Content-Type']
       } else if (!config.headers['Content-Type']) {
         config.headers['Content-Type'] = 'application/json'

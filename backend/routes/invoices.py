@@ -199,7 +199,7 @@ def create_invoice():
             logger.warning(f'比赛不存在: event_id={event_id}')
             return jsonify({'code': 2001, 'message': '比赛不存在', 'data': None}), 404
         
-        # Always compute MD5 and check for duplicates (BUG-04 fix)
+        # 始终计算 MD5 并检查重复（BUG-04 修复）
         file_content = file.read()
         file_md5 = hashlib.md5(file_content).hexdigest()
         file.seek(0)

@@ -70,7 +70,7 @@ def create_event():
         
         if not user:
             return jsonify({'code': 403, 'message': '用户不存在', 'data': None}), 403
-        # All authenticated users can create events
+        # 所有已认证用户均可创建项目
 
         data = request.get_json()
         
@@ -205,7 +205,7 @@ def get_events():
         total = query.count()
         events = query.order_by(Event.created_at.desc()).paginate(page=page, per_page=page_size, error_out=False)
         
-        # Build set of event IDs where current user is a member (for is_member flag)
+        # 构建当前用户所属的赛事 ID 集合（用于 is_member 标记）
         member_event_ids = set()
         if user and user.user_type not in ['admin', 'teacher', 'student_admin']:
             member_rows = db.session.query(EventMember.event_id).filter_by(
@@ -217,7 +217,7 @@ def get_events():
         for event in events.items:
             leader = User.query.get(event.leader_id) if event.leader_id else None
 
-            # Compute is_member: can the current user operate on this event?
+            # 计算 is_member：当前用户能否操作该赛事？
             is_member = True
             if user and user.user_type not in ['admin', 'teacher', 'student_admin']:
                 is_member = (event.creator_id == current_user_id) or (event.event_id in member_event_ids)
@@ -467,7 +467,7 @@ def get_event(event_id):
         if not event:
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
 
-        # Compute is_member: can the current user operate on this event?
+        # 计算 is_member：当前用户能否操作该赛事？
         event_is_member = True
         if user and user.user_type not in ['admin', 'teacher', 'student_admin']:
             member_check = EventMember.query.filter_by(
@@ -870,9 +870,9 @@ def get_user_summary():
             return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
 
         event_id = request.args.get('event_id', type=int)
-        status = request.args.get('status')  # 'ongoing', 'finished', or None for all
+        status = request.args.get('status')  # 'ongoing'、'finished'，或 None 表示全部
 
-        # Build a list of event IDs the user can access
+        # 构建用户可访问的赛事 ID 列表
         if event_id:
             event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
             if not event:
@@ -892,7 +892,7 @@ def get_user_summary():
         if not event_ids:
             return jsonify({'code': 200, 'message': 'success', 'data': {'rankings': []}}), 200
 
-        # Aggregate purchase records per uploader
+        # 按上传人聚合购买记录
         pr_sq = db.session.query(
             PurchaseRecord.uploader_id,
             func.sum(PurchaseRecord.amount).label('pr_total'),
@@ -902,7 +902,7 @@ def get_user_summary():
             PurchaseRecord.is_deleted == False
         ).group_by(PurchaseRecord.uploader_id).subquery()
 
-        # Aggregate invoices per uploader
+        # 按上传人聚合发票
         inv_sq = db.session.query(
             Invoice.uploader_id,
             func.sum(Invoice.amount).label('inv_total'),
@@ -912,7 +912,7 @@ def get_user_summary():
             Invoice.is_deleted == False
         ).group_by(Invoice.uploader_id).subquery()
 
-        # Combine with user info
+        # 与用户信息合并
         results = db.session.query(
             User.user_id,
             User.real_name,

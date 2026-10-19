@@ -6,7 +6,7 @@
       <span class="event-name" v-if="event">{{ event.event_name }}</span>
     </div>
 
-    <!-- Column Selection -->
+    <!-- 选择导出列 -->
     <div class="export-section">
       <h3 class="section-title">选择导出列</h3>
       <p class="section-desc">勾选需要导出的数据列，至少选择一项</p>
@@ -28,7 +28,7 @@
       </div>
     </div>
 
-    <!-- Export Options -->
+    <!-- 导出选项 -->
     <div class="export-section">
       <h3 class="section-title">导出选项</h3>
       <div class="options-list">
@@ -63,7 +63,7 @@
       </div>
     </div>
 
-    <!-- Action Buttons -->
+    <!-- 操作按钮 -->
     <div class="export-actions">
       <button
         @click="startExport"
@@ -76,7 +76,7 @@
       <button @click="goBack" class="btn-cancel">取消</button>
     </div>
 
-    <!-- Progress Display -->
+    <!-- 进度显示 -->
     <div v-if="taskId && (exportStatus === 'processing' || exportStatus === 'pending')" class="progress-section">
       <div class="progress-info">
         <span class="progress-label">{{ progressMessage || '准备中...' }}</span>
@@ -87,7 +87,7 @@
       </div>
     </div>
 
-    <!-- Download Section -->
+    <!-- 下载区域 -->
     <div v-if="exportStatus === 'completed'" class="download-section">
       <div class="download-icon">&#10003;</div>
       <h3>导出完成</h3>
@@ -96,7 +96,7 @@
       <p class="download-hint">文件将在30分钟后自动删除</p>
     </div>
 
-    <!-- Error Display -->
+    <!-- 错误显示 -->
     <div v-if="exportStatus === 'failed'" class="error-section">
       <div class="error-icon">&#10007;</div>
       <h3>导出失败</h3>

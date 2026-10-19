@@ -6,18 +6,18 @@ from cryptography.fernet import Fernet
 
 logger = logging.getLogger(__name__)
 
-# Use a dedicated key or derive from SECRET_KEY for persistence across restarts
+# 使用专用密钥，或从 SECRET_KEY 派生，以便重启后仍可持久使用
 _fernet = None
 
 
 def _get_fernet() -> Fernet:
-    """Lazy-init Fernet with a key derived from SECRET_KEY or a dedicated env var."""
+    """使用由 SECRET_KEY 或专用环境变量派生的密钥惰性初始化 Fernet。"""
     global _fernet
     if _fernet is not None:
         return _fernet
 
     key_material = os.environ.get('FERNET_KEY') or os.environ.get('SECRET_KEY') or 'easy-invoice-mgr-secret-key'
-    # Derive a 32-byte URL-safe base64 key from the secret material
+    # 从密钥材料派生 32 字节、URL 安全的 base64 密钥
     digest = hashlib.sha256(key_material.encode('utf-8')).digest()
     b64_key = base64.urlsafe_b64encode(digest)
     _fernet = Fernet(b64_key)
@@ -25,7 +25,7 @@ def _get_fernet() -> Fernet:
 
 
 def encrypt_value(plaintext: str) -> str:
-    """Encrypt a string value. Returns base64-encoded ciphertext."""
+    """加密字符串值，返回 base64 编码的密文。"""
     if not plaintext:
         return ''
     try:
@@ -38,7 +38,7 @@ def encrypt_value(plaintext: str) -> str:
 
 
 def decrypt_value(ciphertext: str) -> str:
-    """Decrypt a previously encrypted value. Returns plaintext."""
+    """解密此前加密的值，返回明文。"""
     if not ciphertext:
         return ''
     try:

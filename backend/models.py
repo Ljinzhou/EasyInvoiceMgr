@@ -5,7 +5,7 @@ db = SQLAlchemy()
 
 
 def _utcnow():
-    """Return current UTC datetime with timezone info."""
+    """返回带时区信息的当前 UTC 时间。"""
     return datetime.now(timezone.utc)
 
 
@@ -239,9 +239,9 @@ class BackupRecord(db.Model):
     __tablename__ = 'backup_records'
 
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
-    backup_type = db.Column(db.String(20), nullable=False, default='manual')  # manual / scheduled / restore
-    backup_scope = db.Column(db.String(20), nullable=False, default='full')  # database / full
-    status = db.Column(db.String(20), nullable=False, default='pending')  # pending / running / completed / failed
+    backup_type = db.Column(db.String(20), nullable=False, default='manual')  # 手动 / 定时 / 恢复
+    backup_scope = db.Column(db.String(20), nullable=False, default='full')  # 数据库 / 全量
+    status = db.Column(db.String(20), nullable=False, default='pending')  # 待处理 / 运行中 / 已完成 / 失败
     progress = db.Column(db.Integer, default=0)  # 0-100
     progress_message = db.Column(db.String(200))
     file_path = db.Column(db.Text)

@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard">
-    <!-- Header -->
+    <!-- 页头 -->
     <header class="dash-header">
       <div class="header-left">
         <h1 class="page-title">总览面板</h1>
@@ -24,7 +24,7 @@
       </div>
     </header>
 
-    <!-- SKELETON LOADING -->
+    <!-- 骨架屏加载 -->
     <template v-if="loading && !hasData">
       <div class="stats-grid">
         <div v-for="i in 5" :key="'sk'+i" class="stat-card skeleton">
@@ -37,7 +37,7 @@
       </div>
     </template>
 
-    <!-- EMPTY STATE -->
+    <!-- 空状态 -->
     <template v-else-if="!loading && !hasData">
       <div class="empty-state">
         <div class="empty-illustration">
@@ -62,9 +62,9 @@
       </div>
     </template>
 
-    <!-- MAIN CONTENT -->
+    <!-- 主内容 -->
     <template v-else>
-      <!-- Stat Cards -->
+      <!-- 统计卡片 -->
       <div class="stats-grid">
         <div
           v-for="card in statCards"
@@ -95,7 +95,7 @@
         </div>
       </div>
 
-      <!-- Per-Project Donut Cards -->
+      <!-- 按项目环形卡片 -->
       <div v-if="eventStore.events.length > 0" class="project-donuts-section">
         <!-- 进行中的项目 -->
         <h3 v-if="ongoingEvents.length > 0" class="section-title">进行中的项目</h3>
@@ -250,7 +250,7 @@
       </div>
 
 
-      <!-- Quick Actions -->
+      <!-- 快捷操作 -->
       <div class="quick-actions">
         <NuxtLink to="/purchases" class="action-card">
           <div class="action-icon-ring purple">
@@ -278,7 +278,7 @@
         </NuxtLink>
       </div>
 
-      <!-- User Ranking Section -->
+      <!-- 用户排名区块 -->
       <div v-if="hasData" ref="rankingSectionRef" class="ranking-section">
         <div class="section-card">
           <div class="section-header">
@@ -348,7 +348,7 @@ const canManageInvitationCodes = computed(() =>
   ['admin', 'teacher', 'student_admin'].includes(currentUser.value?.user_type)
 )
 
-// Project selector
+// 项目选择器
 const selectedEventId = ref<number | null | string>('ongoing')
 const selectedEvent = computed(() => {
   if (selectedEventId.value === 'ongoing') {
@@ -365,7 +365,7 @@ const isAllSummary = computed(() => selectedEventId.value === null)
 const ongoingEvents = computed(() => eventStore.events.filter(e => e.status === 'ongoing'))
 const finishedEvents = computed(() => eventStore.events.filter(e => e.status === 'finished'))
 
-// Stats
+// 统计数据
 const stats = computed(() => eventStore.fullStats)
 
 const lastUpdatedText = computed(() => {
@@ -373,7 +373,7 @@ const lastUpdatedText = computed(() => {
   return '更新于 ' + new Date(eventStore.lastFetchTime).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 })
 
-// Stat cards config - per-project or aggregate
+// 统计卡片配置 - 单项目或汇总
 const statCards = computed(() => {
   if (selectedEvent.value) {
     const ev = selectedEvent.value
@@ -432,7 +432,7 @@ const statCards = computed(() => {
   ]
 })
 
-// Helpers
+// 辅助函数
 function fmt(v: any): string {
   return parseFloat(String(v || 0)).toFixed(2)
 }
@@ -472,7 +472,7 @@ function getReimburseRate(event: any): number {
   return Math.min(100, Math.round((reimbursed / invoiceTotal) * 100))
 }
 
-// Ranking
+// 排名
 const rankingEventFilter = ref<number | string | null>('ongoing')
 const rankingData = ref<any[]>([])
 const rankingLoading = ref(false)
@@ -524,7 +524,7 @@ onMounted(async () => {
   currentUser.value = userStr ? JSON.parse(userStr) : null
   await eventStore.ensureLoaded()
 
-  // Lazy load ranking when visible
+  // 可见时懒加载排名
   const observer = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting) {
       rankingVisible.value = true
@@ -537,7 +537,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* ===== DESIGN TOKENS ===== */
+/* ===== 设计变量 ===== */
 .dashboard {
   --dash-bg: #f2f4f7;
   --card-bg: #ffffff;
@@ -553,7 +553,7 @@ onMounted(async () => {
   margin: 0 auto;
 }
 
-/* ===== HEADER ===== */
+/* ===== 页头 ===== */
 .dash-header {
   display: flex;
   justify-content: space-between;
@@ -610,7 +610,7 @@ onMounted(async () => {
 .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ===== SKELETON ===== */
+/* ===== 骨架屏 ===== */
 .skeleton {
   animation: shim 1.6s ease-in-out infinite;
   background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
@@ -628,7 +628,7 @@ onMounted(async () => {
 .sk-line.short { width: 45%; }
 .sk-line.long { width: 75%; }
 
-/* ===== EMPTY STATE ===== */
+/* ===== 空状态 ===== */
 .empty-state {
   text-align: center; padding: 4rem 2rem;
   background: var(--card-bg); border-radius: var(--radius);
@@ -649,7 +649,7 @@ onMounted(async () => {
 .btn-secondary { background: #f1f5f9; color: var(--text-2); border: 1px solid var(--border); }
 .btn-secondary:hover { background: #e2e8f0; }
 
-/* ===== STAT CARDS ===== */
+/* ===== 统计卡片 ===== */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -703,7 +703,7 @@ onMounted(async () => {
 .stat-sub .warn { color: #ef4444; }
 .stat-sub .up { color: #10b981; }
 
-/* ===== DONUT ===== */
+/* ===== 环形图 ===== */
 .donut-arc { transition: stroke-dashoffset 0.8s cubic-bezier(0.34,1.56,0.64,1); }
 
 .section-card {
@@ -716,7 +716,7 @@ onMounted(async () => {
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .section-header h3 { font-size: 0.95rem; font-weight: 600; color: var(--text-1); margin: 0; }
 
-/* ===== QUICK ACTIONS ===== */
+/* ===== 快捷操作 ===== */
 .quick-actions {
   display: flex; gap: 0.75rem; flex-wrap: wrap;
 }
@@ -744,7 +744,7 @@ onMounted(async () => {
 .action-icon-ring.blue   { background: #eff6ff; color: #3b82f6; }
 .action-icon-ring.amber  { background: #fffbeb; color: #f59e0b; }
 
-/* ===== PER-PROJECT DONUT CARDS ===== */
+/* ===== 按项目环形卡片 ===== */
 .project-donuts-section {
   margin-bottom: 1.25rem;
 }
@@ -778,7 +778,7 @@ onMounted(async () => {
   gap: 0.75rem;
 }
 
-/* Card */
+/* 卡片 */
 .donut-card {
   position: relative;
   background: var(--card-bg);
@@ -809,7 +809,7 @@ onMounted(async () => {
   border-left-color: #6366f1;
   box-shadow: 0 0 0 2px rgba(99,102,241,0.10), var(--shadow-card);
 }
-/* Accent border colors */
+/* 强调边框颜色 */
 .donut-card.accent-ok     { border-left-color: #6366f1; }
 .donut-card.accent-warn   { border-left-color: #f59e0b; }
 .donut-card.accent-danger { border-left-color: #ef4444; }
@@ -817,7 +817,7 @@ onMounted(async () => {
 .donut-card.accent-warn:hover   { border-left-color: #d97706; }
 .donut-card.accent-danger:hover { border-left-color: #dc2626; }
 
-/* Card header */
+/* 卡片头部 */
 .dc-header {
   display: flex;
   align-items: center;
@@ -861,7 +861,7 @@ onMounted(async () => {
 .dc-member-tag.joined { background: #dcfce7; color: #16a34a; }
 .dc-member-tag.not-joined { background: #fef2f2; color: #dc2626; }
 
-/* Card body */
+/* 卡片主体 */
 .dc-body {
   display: flex;
   align-items: center;
@@ -881,7 +881,7 @@ onMounted(async () => {
   gap: 0.5rem;
 }
 
-/* 4-column amounts grid */
+/* 四列金额网格 */
 .dc-amounts {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -911,7 +911,7 @@ onMounted(async () => {
 .dc-amt-value.warn    { color: #d97706; }
 .dc-amt-value.danger  { color: #dc2626; }
 
-/* Progress bar rows */
+/* 进度条行 */
 .dc-bar-row {
   display: flex;
   align-items: center;
@@ -952,7 +952,7 @@ onMounted(async () => {
 .dc-bar-val.danger { color: #dc2626; }
 .dc-bar-val.remaining-val { color: #10b981; }
 
-/* Meta tags */
+/* 元信息标签 */
 .dc-meta {
   display: flex;
   gap: 8px;
@@ -966,7 +966,7 @@ onMounted(async () => {
   border: 1px solid #f1f5f9;
 }
 
-/* ===== RANKING SECTION ===== */
+/* ===== 排名区块 ===== */
 .ranking-section {
   margin-bottom: 1.25rem;
 }
@@ -1096,7 +1096,7 @@ onMounted(async () => {
   transition: width 0.6s ease;
 }
 
-/* ===== RESPONSIVE ===== */
+/* ===== 响应式 ===== */
 @media (max-width: 768px) {
   .dash-header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
   .header-right { width: 100%; }

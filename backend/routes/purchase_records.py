@@ -201,7 +201,7 @@ def create_purchase_record(event_id):
         )
         
         db.session.add(record)
-        db.session.flush()  # Get record_id before commit
+        db.session.flush()  # 在提交前获取 record_id
 
         # 更新赛事统计（统一按明细表重算）
         recalc_event_stats(record.event_id)
@@ -263,7 +263,7 @@ def update_purchase_record(record_id):
         
         data = request.get_json()
 
-        # Only the uploader or admin/teacher/student_admin can modify
+        # 仅上传者或 admin/teacher/student_admin 可修改
         is_admin_or_teacher = user.user_type in ['admin', 'teacher', 'student_admin']
         is_uploader = record.uploader_id == int(current_user_id)
         if not (is_admin_or_teacher or is_uploader):

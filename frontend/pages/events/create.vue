@@ -298,7 +298,7 @@ const handleSubmit = async () => {
     if (response.data.code === 200) {
       success.value = isEditMode.value ? '✅ 比赛更新成功！' : '✅ 比赛创建成功！'
 
-      // Notify the unified store so all modules auto-refresh
+      // 通知统一 store，让所有模块自动刷新
       eventStore.invalidateAndRefresh({ eventId: isEditMode.value ? eventId.value : undefined })
 
       if (!isEditMode.value) {

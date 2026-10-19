@@ -27,14 +27,14 @@ body {
   min-height: 100dvh;
 }
 
-/* iOS safe area support */
+/* iOS 安全区域支持 */
 body::before {
   content: '';
   display: block;
   height: env(safe-area-inset-top);
 }
 
-/* Prevent iOS auto-zoom on inputs < 16px */
+/* 防止 iOS 在字号小于 16px 的输入框上自动缩放 */
 @media (max-width: 768px) {
   input[type="text"],
   input[type="password"],
@@ -51,7 +51,7 @@ body::before {
   }
 }
 
-/* Respect reduced motion preferences */
+/* 遵循减少动效偏好设置 */
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
