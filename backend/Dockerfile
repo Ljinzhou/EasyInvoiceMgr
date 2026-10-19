@@ -45,7 +45,7 @@ RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
 
 COPY . .
 
-RUN mkdir -p uploads exports
+RUN mkdir -p uploads exports data
 
 EXPOSE 5000
 

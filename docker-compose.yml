@@ -1,22 +1,4 @@
 services:
-  postgres:
-    image: postgres:15-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: easy_invoice_mgr
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-root}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./backend/sql/base.sql:/docker-entrypoint-initdb.d/01_base.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d easy_invoice_mgr"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ./backend
@@ -24,7 +6,7 @@ services:
         USE_CHINA_MIRROR: ${USE_CHINA_MIRROR:-false}
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-root}@postgres:5432/easy_invoice_mgr
+      DATABASE_URL: sqlite:////app/data/easy_invoice_mgr.sqlite
       SECRET_KEY: ${SECRET_KEY:-easy-invoice-mgr-secret-key}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-easy-invoice-mgr-jwt-secret-32bytes}
       STORAGE_BACKEND: local
@@ -34,6 +16,7 @@ services:
       GLM_MODEL: ${GLM_MODEL:-GLM-4V-Flash}
       HOST_PROJECT_DIR: ${PWD}
     volumes:
+      - dbdata:/app/data
       - uploads:/app/uploads
       - exports:/app/exports
       - ./backend/VERSION:/app/VERSION:ro
@@ -41,9 +24,6 @@ services:
       - ${PWD}:${PWD}
     ports:
       - "5000:5000"
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   frontend:
     build:
@@ -58,6 +38,6 @@ services:
       - backend
 
 volumes:
-  pgdata:
+  dbdata:
   uploads:
   exports:
