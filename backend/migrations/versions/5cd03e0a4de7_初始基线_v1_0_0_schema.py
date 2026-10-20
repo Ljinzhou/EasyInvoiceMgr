@@ -16,7 +16,12 @@ depends_on = None
 
 
 def upgrade():
-    """基线：schema 已由 base.sql 创建，无需操作。"""
+    """基线：空操作。
+
+    全新数据库的表结构由 `models.py` 经 `db.create_all()` 建立，
+    随后由 `utils/schema_init.py` 的 `ensure_schema()` 把 alembic 版本戳到此基线，
+    后续增量变更则由本目录下更新的 revision 承担。
+    """
     pass
 
 
