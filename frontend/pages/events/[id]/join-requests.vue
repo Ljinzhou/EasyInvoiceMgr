@@ -118,6 +118,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useEventStore } from '~/stores/eventStore'
 
 definePageMeta({
   layout: 'default'
@@ -126,6 +127,8 @@ definePageMeta({
 const { $api } = useNuxtApp()
 const route = useRoute()
 const router = useRouter()
+// 审核后同步导航栏红点
+const eventStore = useEventStore()
 
 const eventId = computed(() => route.params.id)
 const event = ref(null)
@@ -225,6 +228,7 @@ const review = async (item, action, reason = null) => {
     alert(response.data.message || '操作成功')
     closeRejectModal()
     await loadRequests()
+    eventStore.fetchPendingJoinCounts()
   } catch (e) {
     alert(e.response?.data?.message || '审核失败，请稍后重试')
   } finally {

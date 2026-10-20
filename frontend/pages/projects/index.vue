@@ -20,7 +20,10 @@
           <div class="action-buttons">
             <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 购买记录</button>
             <button @click="toggleEventStatus(event)" class="action-btn end-btn" :class="{ 'restart-btn': event.status === 'finished' }">{{ event.status === 'ongoing' ? '⏹ 结束' : '▶ 重新开启' }}</button>
-            <button @click="viewMembers(event)" class="action-btn view-btn">📋 人员管理</button>
+            <button @click="viewMembers(event)" class="action-btn view-btn">
+              📋 人员管理
+              <span v-if="pendingJoinCount(event) > 0" class="pending-dot">{{ pendingJoinCount(event) }}</span>
+            </button>
             <button v-if="canEditEvent(event)" @click="editEvent(event)" class="edit-button">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               编辑
@@ -197,7 +200,10 @@
           <div class="action-buttons">
             <button @click="goToInvoiceManage(event)" class="action-btn invoice-btn">📄 购买记录</button>
             <button @click="toggleEventStatus(event)" class="action-btn restart-btn">▶ 重新开启</button>
-            <button @click="viewMembers(event)" class="action-btn view-btn">📋 人员管理</button>
+            <button @click="viewMembers(event)" class="action-btn view-btn">
+              📋 人员管理
+              <span v-if="pendingJoinCount(event) > 0" class="pending-dot">{{ pendingJoinCount(event) }}</span>
+            </button>
             <button v-if="canEditEvent(event)" @click="editEvent(event)" class="edit-button">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               编辑
@@ -517,6 +523,12 @@ const eventStore = useEventStore()
 // 来自统一 store 的比赛数据（响应式）
 const currentUser = ref(null)
 const events = ref([])
+
+/** 某场比赛待审核的加入申请数量（人员管理按钮红点） */
+const pendingJoinCount = (event) => {
+  if (!event) return 0
+  return eventStore.pendingJoinCountFor(event.event_id)
+}
 
 const showEditModal = ref(false)
 const showDeleteModal = ref(false)
@@ -947,6 +959,23 @@ const deleteEvent = async () => {
   border: 1px solid rgba(255,255,255,0.3) !important;
   color: #fff !important;
   cursor: default;
+}
+
+/* 待审核加入申请红点（挂在「人员管理」按钮上） */
+.pending-dot {
+  display: inline-block;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 0.35rem;
+  border-radius: 8px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  vertical-align: 1px;
 }
 
 /* 分区标题 */

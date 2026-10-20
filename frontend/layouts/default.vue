@@ -28,6 +28,11 @@
         <NuxtLink to="/projects" class="nav-item" :class="{ active: $route.path.startsWith('/projects') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">📁</span>
           <span class="nav-text">项目管理</span>
+          <span
+            v-if="eventStore.pendingJoinTotal > 0"
+            class="nav-dot"
+            :title="`${eventStore.pendingJoinTotal} 条加入申请待审核`"
+          >{{ eventStore.pendingJoinTotal > 99 ? '99+' : eventStore.pendingJoinTotal }}</span>
         </NuxtLink>
         <NuxtLink v-if="isMounted && canManageUsers" to="/users" class="nav-item" :class="{ active: $route.path.startsWith('/users') }" @click="mobileMenuOpen = false">
           <span class="nav-icon">👥</span>
@@ -297,7 +302,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '~/stores/userStore'
 import { useEventStore } from '~/stores/eventStore'
 import { useCacheStore } from '~/stores/cache'
@@ -306,6 +311,7 @@ const { $api } = useNuxtApp()
 const route = useRoute()
 const userStore = useUserStore()
 userStore.loadFromStorage()
+const eventStore = useEventStore()
 const { getUploadUrl } = useUploadUrl()
 
 const isMounted = ref(false)
@@ -318,13 +324,40 @@ onMounted(() => {
   isMounted.value = true
 })
 
+// ===== 待审核加入申请红点 =====
+// 进入页面拉一次，之后每分钟刷新；切回浏览器标签页时也刷新，
+// 保证「有人申请加入」能在导航栏上及时冒红点。
+let pendingJoinTimer: ReturnType<typeof setInterval> | null = null
+
+const refreshPendingJoinCounts = () => {
+  if (!userStore.userType) return
+  eventStore.fetchPendingJoinCounts()
+}
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') refreshPendingJoinCounts()
+}
+
+onMounted(() => {
+  refreshPendingJoinCounts()
+  pendingJoinTimer = setInterval(refreshPendingJoinCounts, 60 * 1000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onBeforeUnmount(() => {
+  if (pendingJoinTimer) clearInterval(pendingJoinTimer)
+  pendingJoinTimer = null
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
+
 const toggleMobileMenu = () => {
   mobileMenuOpen.value = !mobileMenuOpen.value
 }
 
-// 路由变化时关闭移动端菜单
+// 路由变化时关闭移动端菜单，并刷新红点（审核完回到列表能立即更新）
 watch(() => route.path, () => {
   mobileMenuOpen.value = false
+  refreshPendingJoinCounts()
 })
 const userAvatarUrl = computed(() => getUploadUrl(userStore.avatarUrl))
 const avatarLoadError = ref(false)
@@ -533,7 +566,6 @@ const handleLogout = () => {
 
   // 清除所有 Pinia store
   userStore.clearUser()
-  const eventStore = useEventStore()
   eventStore.$reset()
   const cacheStore = useCacheStore()
   cacheStore.clear()
@@ -613,6 +645,28 @@ const handleLogout = () => {
 
 .nav-text {
   font-size: 0.95rem;
+}
+
+/* 导航栏红点：有待审核的加入申请时出现在「项目管理」右侧 */
+.nav-dot {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgba(26, 32, 53, 0.9);
+  animation: nav-dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes nav-dot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
 }
 
 .sidebar-footer {

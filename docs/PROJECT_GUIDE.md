@@ -126,7 +126,7 @@ EasyInvoiceMgr/
 | `plugins/axios.ts`                   | 全站唯一 HTTP 出口：`baseURL = $config.public.apiBase`，请求拦截注入 `localStorage.token`，FormData 时删 Content-Type，401 强制跳 `/login`                                 | 改动 API 基址、鉴权头、错误处理都在这里             |
 | `layouts/default.vue`                | 侧边导航 + 顶栏 + 用户信息/改密弹窗；按 `userType` 控制菜单可见性（`canManageUsers`/`canManageInvitationCodes`/`isAdmin`）                                                     | 新增页面入口同步改这里                        |
 | `stores/userStore.ts`                | 登录态与用户资料在 `localStorage('user')` 的读写，`realName/userType/userRole/userId/initial` 计算属性                                                                 | 角色中文映射写在这里                         |
-| `stores/eventStore.ts`               | 项目列表的**唯一数据源**：`fetchEvents/ensureLoaded/refreshAfterMutation/invalidateAndRefresh`，叠加 `stores/cache.ts` 缓存；getter `fullStats`/`totalStats`/`isStale` | 任何项目相关页面都应通过它取数，不要各自 `GET /events` |
+| `stores/eventStore.ts`               | 项目列表的**唯一数据源**：`fetchEvents/ensureLoaded/refreshAfterMutation/invalidateAndRefresh`，叠加 `stores/cache.ts` 缓存；getter `fullStats`/`totalStats`/`isStale`；**待审加入申请红点**：`fetchPendingJoinCounts()` 拉 `GET /events/join-requests/pending-summary`，写入 `pendingJoinCounts`/`pendingJoinTotal`，getter `pendingJoinCountFor(eventId)` 供项目卡片复用（拉过汇总接口后以它为准，避免列表数据过期红点不消失） | 任何项目相关页面都应通过它取数，不要各自 `GET /events`；任何会改变待审数量的动作（审核通过/驳回）后都要调 `fetchPendingJoinCounts()` |
 | `stores/cache.ts`                    | 带 TTL 的 Map 缓存 + 命中率统计 + localStorage 持久化；`invalidateEventCache/invalidateInvoiceCache/invalidateUserCache`                                           | 改缓存时长改 `defaultExpiry`             |
 | `pages/purchases/[id].vue`           | **全站最大文件（4122 行）**：项目详情 + 购买记录增删改 + 上传 + OCR 解析 + 转图预览 + 转移 + 报销                                                                                      | 核心链路，改动前先定位再动                      |
 | `pages/events/[id]/members.vue`      | 人员管理：成员列表（含**加入时间 / 加入方式 / 审核人**）、添加/编辑/移除成员；`can_review_join` 为真时才渲染「加入申请」入口与待审数量角标                                                                            | 审核入口必须由后端 `can_review_join` 驱动，不要在前端硬编码角色                |
@@ -219,7 +219,9 @@ EasyInvoiceMgr/
 
 > 管理员密码相关：GET `/users/passwords` 与 POST `/users/<id>/reset-password` 仅 `admin` 可用；前者返回明文列表（历史无密文返回 `available=false`），后者生成 12 位随机密码并只返回一次，均写操作日志且响应带 `Cache-Control: no-store`。
 
-**events（`/api`）**：POST/GET `/events`｜GET/PUT/DELETE `/events/<id>`｜GET/POST `/events/<id>/members`｜PUT/DELETE `/events/<id>/members/<user_id>`｜GET `/events/stats/user-summary`｜**加入申请**：POST/GET `/events/<id>/join-requests`（GET 支持 `?status=pending|approved|rejected`）、POST `/events/<id>/join-requests/<request_id>/review`（`{action:'approve'|'reject', reject_reason?}`）
+**events（`/api`）**：POST/GET `/events`｜GET/PUT/DELETE `/events/<id>`｜GET/POST `/events/<id>/members`｜PUT/DELETE `/events/<id>/members/<user_id>`｜GET `/events/stats/user-summary`｜**加入申请**：POST/GET `/events/<id>/join-requests`（GET 支持 `?status=pending|approved|rejected`）、POST `/events/<id>/join-requests/<request_id>/review`（`{action:'approve'|'reject', reject_reason?}`）、GET `/events/join-requests/pending-summary`（`{total, by_event}`，只统计当前用户有权审核的赛事，供导航栏/项目卡片红点）
+
+> 加入申请红点：`GET /events` 每个赛事带 `pending_join_request_count`（仅审核人可能非 0）；`GET /events/join-requests/pending-summary` 给全局红点。`layouts/default.vue` 在挂载、路由切换、切回标签页与每 60 秒轮询刷新，「项目管理」菜单项与「人员管理」按钮据此显示红点。
 
 > 加入申请权限：`GET /join-requests` 与 `review` 仅**比赛负责人 / 指导老师 / admin**（`utils.permissions.is_event_reviewer`）可用，其他人返回 403，前端不渲染入口；`POST /events/<id>/join-requests` 任何未加入且比赛进行中的用户可调，`join_review_mode='auto'` 时当场成为成员。
 

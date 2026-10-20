@@ -299,3 +299,49 @@ def test_events_list_exposes_join_state_for_students(env):
     auto_row = rows[ids['auto_event']]
     assert auto_row['join_review_mode'] == 'auto'
     assert auto_row['join_request_status'] is None
+
+
+def test_pending_summary_counts_only_reviewable_events(env):
+    """红点数据：只统计自己有权审核的赛事，别人的待办不算数。"""
+    application, client, ids, auth = env
+    event_id = ids['manual_event']
+
+    assert client.post(f'/api/events/{event_id}/join-requests',
+                       headers=auth('student')).status_code == 201
+    assert client.post(f'/api/events/{event_id}/join-requests',
+                       headers=auth('student2')).status_code == 201
+
+    def summary(key):
+        response = client.get('/api/events/join-requests/pending-summary', headers=auth(key))
+        assert response.status_code == 200, response.get_json()
+        return response.get_json()['data']
+
+    leader_data = summary('leader')
+    assert leader_data['total'] == 2
+    assert leader_data['by_event'][str(event_id)] == 2
+
+    assert summary('admin')['total'] == 2              # admin 可审全部
+    assert summary('project_teacher')['total'] == 2    # 本项目的指导老师
+    assert summary('outsider_teacher')['total'] == 0   # 全局老师但不是该项目成员
+    assert summary('student')['total'] == 0
+
+
+def test_events_list_includes_pending_join_count(env):
+    """项目列表带 pending_join_request_count，只有审核人拿到非零值。"""
+    application, client, ids, auth = env
+    event_id = ids['manual_event']
+
+    assert client.post(f'/api/events/{event_id}/join-requests',
+                       headers=auth('student')).status_code == 201
+
+    def rows_for(key):
+        response = client.get('/api/events?page=1&page_size=20', headers=auth(key))
+        assert response.status_code == 200, response.get_json()
+        return {row['event_id']: row for row in response.get_json()['data']['data']}
+
+    leader_rows = rows_for('leader')
+    assert leader_rows[event_id]['pending_join_request_count'] == 1
+    assert leader_rows[ids['auto_event']]['pending_join_request_count'] == 0
+
+    student_rows = rows_for('student')
+    assert student_rows[event_id]['pending_join_request_count'] == 0

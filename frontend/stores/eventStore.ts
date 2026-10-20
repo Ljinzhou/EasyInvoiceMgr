@@ -19,6 +19,8 @@ export interface EventItem {
   join_request_status?: 'pending' | 'approved' | 'rejected' | null
   /** 当前用户是否已是该比赛成员 */
   is_member?: boolean
+  /** 该比赛待审核的加入申请数量（仅当前用户有权审核时才有值） */
+  pending_join_request_count?: number
   total_budget: number
   reimbursed_amount: number
   remaining_budget: number
@@ -61,7 +63,12 @@ export const useEventStore = defineStore('eventStore', {
     loading: false,
     error: null as string | null,
     lastFetchTime: 0,
-    initialized: false
+    initialized: false,
+    /** 各比赛待审核加入申请数量（红点用）：{ [event_id]: count } */
+    pendingJoinCounts: {} as Record<number, number>,
+    /** 当前用户可审核的待处理加入申请总数（侧边栏红点用） */
+    pendingJoinTotal: 0,
+    pendingJoinFetchedAt: 0
   }),
 
   getters: {
@@ -142,6 +149,16 @@ export const useEventStore = defineStore('eventStore', {
     /** 从 store 中按 ID 获取单个项目 */
     getEventById: (state) => (eventId: number): EventItem | undefined => {
       return state.events.find(e => e.event_id === eventId)
+    },
+
+    /** 某场比赛待审核的加入申请数量（红点用，汇总接口优先） */
+    pendingJoinCountFor: (state) => (eventId: number): number => {
+      // 一旦拉过汇总接口，就以它为准，避免列表数据过期导致红点不消失
+      if (state.pendingJoinFetchedAt > 0) {
+        return state.pendingJoinCounts[eventId] || 0
+      }
+      const row = state.events.find(e => e.event_id === eventId)
+      return Number(row?.pending_join_request_count || 0)
     }
   },
 
@@ -240,6 +257,46 @@ export const useEventStore = defineStore('eventStore', {
       if (!this.initialized || this.isStale || options.forceRefresh) {
         await this.fetchEvents(options)
       }
+    },
+
+    /**
+     * 刷新「待审核加入申请」数量，供侧边栏与项目卡片红点使用。
+     *
+     * 红点是辅助提示：失败时只 warn，不抛异常、不打扰用户。
+     */
+    async fetchPendingJoinCounts(options: { api?: any } = {}) {
+      const token = import.meta.client ? localStorage.getItem('token') : null
+      if (!token) {
+        this.clearPendingJoinCounts()
+        return
+      }
+
+      try {
+        const $api = options.api || useNuxtApp().$api
+        const response = await $api.get('/events/join-requests/pending-summary', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+
+        if (response.data.code === 200) {
+          const byEvent = response.data.data?.by_event || {}
+          const counts: Record<number, number> = {}
+          Object.keys(byEvent).forEach((key) => {
+            const count = Number(byEvent[key]) || 0
+            if (count > 0) counts[Number(key)] = count
+          })
+          this.pendingJoinCounts = counts
+          this.pendingJoinTotal = Number(response.data.data?.total) || 0
+          this.pendingJoinFetchedAt = Date.now()
+        }
+      } catch (e: any) {
+        console.warn('获取待审核加入申请数量失败:', e?.message || e)
+      }
+    },
+
+    clearPendingJoinCounts() {
+      this.pendingJoinCounts = {}
+      this.pendingJoinTotal = 0
+      this.pendingJoinFetchedAt = 0
     }
   }
 })

@@ -46,6 +46,53 @@ JOIN_SOURCE_LABELS = {
 }
 
 
+def _reviewable_event_ids(user, user_id):
+    """当前用户有权审核加入申请的赛事 ID 集合。
+
+    admin 返回 None 表示「全部赛事」，其余用户返回自己作为负责人或
+    指导老师成员参与的赛事集合（与 utils.permissions.is_event_reviewer 一致）。
+    """
+    if not user:
+        return set()
+    if user.user_type == 'admin':
+        return None
+
+    ids = {
+        row[0]
+        for row in db.session.query(EventMember.event_id).filter(
+            EventMember.user_id == user_id,
+            EventMember.is_deleted == False,  # noqa: E712
+            EventMember.role_in_event == 'teacher',
+        ).all()
+    }
+    ids.update(
+        row[0]
+        for row in db.session.query(Event.event_id).filter(
+            Event.leader_id == user_id,
+            Event.is_deleted == False,  # noqa: E712
+        ).all()
+    )
+    return ids
+
+
+def _pending_join_count_map(user, user_id):
+    """当前用户可审核的待处理加入申请数量，按赛事 ID 聚合。"""
+    rows = db.session.query(
+        EventJoinRequest.event_id, func.count(EventJoinRequest.request_id)
+    ).filter(
+        EventJoinRequest.status == 'pending',
+        EventJoinRequest.is_deleted == False,  # noqa: E712
+    ).group_by(EventJoinRequest.event_id).all()
+
+    allowed = _reviewable_event_ids(user, user_id)
+    counts = {
+        int(event_id): int(count)
+        for event_id, count in rows
+        if allowed is None or int(event_id) in allowed
+    }
+    return counts
+
+
 def _parse_join_review_mode(value, default='manual'):
     """校验并归一化加入审核方式；非法值抛 ValueError。"""
     if value is None or value == '':
@@ -330,6 +377,9 @@ def get_events():
         for req_event_id, req_status, _req_id in request_rows:
             my_request_status[req_event_id] = req_status
 
+        # 当前用户可审核的待处理加入申请数量（前端红点提示）
+        pending_join_counts = _pending_join_count_map(user, int(current_user_id))
+
         events_data = []
         for event in events.items:
             leader = User.query.get(event.leader_id) if event.leader_id else None
@@ -389,7 +439,8 @@ def get_events():
                 'leader_name': leader.real_name if leader else None,
                 'is_member': is_member,
                 'join_review_mode': event.join_review_mode or 'manual',
-                'join_request_status': my_request_status.get(event.event_id)
+                'join_request_status': my_request_status.get(event.event_id),
+                'pending_join_request_count': pending_join_counts.get(event.event_id, 0)
             })
         
         return jsonify({
@@ -811,6 +862,34 @@ def get_event_members(event_id):
         
     except Exception as e:
         logger.error(f'获取赛事成员列表异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@events_bp.route('/events/join-requests/pending-summary', methods=['GET'])
+@jwt_required()
+def join_requests_pending_summary():
+    """侧边栏红点数据：当前用户可审核的待处理加入申请数量。
+
+    只统计用户有权审核的赛事，避免把别人的待办算进红点。
+    """
+    try:
+        current_user_id = int(get_jwt_identity())
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        counts = _pending_join_count_map(user, current_user_id)
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'total': sum(counts.values()),
+                'by_event': {str(event_id): count for event_id, count in counts.items()}
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'获取待审核加入申请数量异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
 
