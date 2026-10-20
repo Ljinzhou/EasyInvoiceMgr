@@ -94,6 +94,18 @@ def create_app():
     # 支持从查询参数获取JWT令牌（用于浏览器直接下载文件等场景）
     app.config['JWT_TOKEN_LOCATION'] = ['headers', 'query_string']
     app.config['JWT_QUERY_STRING_NAME'] = 'token'
+    # 本项目已从 PostgreSQL 迁移到 SQLite，只支持 sqlite 方言。
+    # 这里用 make_url 纯字符串解析，不创建引擎、不导入任何 DBAPI，
+    # 避免旧 DATABASE_URL 残留时先崩在驱动层（连接参数不被驱动识别）。
+    from sqlalchemy.engine import make_url
+    backend_name = make_url(app.config['SQLALCHEMY_DATABASE_URI']).get_backend_name()
+    if backend_name != 'sqlite':
+        raise RuntimeError(
+            f'数据库方言为 {backend_name!r}，本项目只支持 SQLite。'
+            f'请检查环境变量 DATABASE_URL 或 backend/.env 中的 DATABASE_URL，'
+            f'当前配置为：{make_url(app.config["SQLALCHEMY_DATABASE_URI"]).render_as_string(hide_password=True)}'
+        )
+
     db.init_app(app)
     from flask_migrate import Migrate
     migrate = Migrate(app, db)

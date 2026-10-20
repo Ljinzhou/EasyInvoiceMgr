@@ -16,15 +16,30 @@ def _default_database_url() -> str:
     return 'sqlite:///' + _DEFAULT_DB_FILE.replace('\\', '/')
 
 
+def _engine_options(database_uri: str) -> dict:
+    """按方言返回引擎参数。
+
+    `check_same_thread` / `timeout` 只有 sqlite3 驱动认识，
+    一旦把它们传给别的方言，驱动层会直接抛
+    `invalid connection option "check_same_thread"`。
+    所以这里只在 URL 是 SQLite 时才追加，其他情况返回空字典，
+    让方言用自身默认参数（真正禁止非 SQLite 方言由 app.create_app 里的校验负责）。
+    """
+    if database_uri.startswith('sqlite'):
+        # 进程内有多线程写库（导出线程、备份线程、APScheduler），
+        # SQLite 需要放开线程检查并给足写锁等待时间
+        return {'connect_args': {'check_same_thread': False, 'timeout': 30}}
+    return {}
+
+
+_DATABASE_URI = os.environ.get('DATABASE_URL') or _default_database_url()
+
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'easy-invoice-mgr-secret-key'
     JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'easy-invoice-mgr-jwt-secret'
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or _default_database_url()
-    # 进程内有多线程写库（导出线程、备份线程、APScheduler），
-    # SQLite 需要放开线程检查并给足写锁等待时间
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'connect_args': {'check_same_thread': False, 'timeout': 30},
-    }
+    SQLALCHEMY_DATABASE_URI = _DATABASE_URI
+    SQLALCHEMY_ENGINE_OPTIONS = _engine_options(_DATABASE_URI)
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_MIGRATE_REPO = os.path.join(_BACKEND_DIR, 'migrations')
     JWT_ACCESS_TOKEN_EXPIRES = 3600

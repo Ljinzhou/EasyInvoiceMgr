@@ -153,6 +153,8 @@ EasyInvoiceMgr/
 
 > `FERNET_KEY` 不是 `config.py` 变量，由 `backend/utils/crypto_utils.py` 直接读取，用于加密 `system_configs.ai_api_key` 和用户 `password_encrypted`；未设置时从 `SECRET_KEY` 派生。生产环境应显式设置为随机值并妥善备份，更换密钥会导致既有密文无法解密。
 
+> **本地启动踩坑**：`backend/.env` 由 `app.py` 的 `load_dotenv()` 加载，优先级高于默认值。如果迁移前留下的 `.env` 里还有 `DATABASE_URL=postgresql://...`，`create_app()` 会直接抛 `数据库方言为 'postgresql'，本项目只支持 SQLite`——把那一行删掉或注释即可回到默认的 `backend/data/easy_invoice_mgr.sqlite`。可参照 `backend/.env.example` 重建该文件。`config.py` 只在 URL 以 `sqlite` 开头时才注入 `check_same_thread`/`timeout`，避免这些 SQLite 专用参数被传给其他方言驱动。
+
 前端：`NUXT_PUBLIC_API_BASE`（`nuxt.config.ts` → `runtimeConfig.public.apiBase`，构建期注入，`docker-compose.yml` 作为 build arg 传入）。非本地部署必须设置，否则登录 Network Error。
 
 ### 4.2 数据库内配置（表 `system_configs`，键值对）
