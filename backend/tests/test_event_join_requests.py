@@ -345,3 +345,50 @@ def test_events_list_includes_pending_join_count(env):
 
     student_rows = rows_for('student')
     assert student_rows[event_id]['pending_join_request_count'] == 0
+
+
+def test_update_event_can_switch_join_review_mode(env):
+    """编辑比赛可以改审核方式：manual→auto 后新申请当场通过，非法值被拒绝。"""
+    application, client, ids, auth = env
+    event_id = ids['manual_event']
+
+    switched = client.put(f'/api/events/{event_id}',
+                          json={'join_review_mode': 'auto'}, headers=auth('leader'))
+    assert switched.status_code == 200, switched.get_json()
+    assert switched.get_json()['data']['join_review_mode'] == 'auto'
+
+    listing = client.get('/api/events?page=1&page_size=20', headers=auth('leader'))
+    rows = {row['event_id']: row for row in listing.get_json()['data']['data']}
+    assert rows[event_id]['join_review_mode'] == 'auto'
+
+    applied = client.post(f'/api/events/{event_id}/join-requests', headers=auth('student'))
+    assert applied.status_code == 201, applied.get_json()
+    assert applied.get_json()['data']['is_member'] is True
+
+    # 切回人工审核
+    back = client.put(f'/api/events/{event_id}',
+                      json={'join_review_mode': 'manual'}, headers=auth('leader'))
+    assert back.status_code == 200
+    assert back.get_json()['data']['join_review_mode'] == 'manual'
+
+    bad = client.put(f'/api/events/{event_id}',
+                     json={'join_review_mode': 'whatever'}, headers=auth('leader'))
+    assert bad.status_code == 400
+    assert '加入审核方式' in bad.get_json()['message']
+
+    with application.app_context():
+        from utils.operation_log import OperationLog
+
+        latest = (
+            OperationLog.query
+            .filter_by(action_type='update_event')
+            .order_by(OperationLog.log_id.desc())
+            .first()
+        )
+        assert latest is not None
+        detail = latest.detail
+        if isinstance(detail, str):
+            import json
+
+            detail = json.loads(detail)
+        assert 'join_review_mode' in (detail or {}).get('changes', {})

@@ -420,6 +420,33 @@
               </div>
             </div>
 
+            <!-- 区块：加入审核方式 -->
+            <div class="form-section">
+              <h3 class="form-section__title">加入审核方式</h3>
+              <div class="review-mode-group">
+                <label class="review-mode-option" :class="{ active: editForm.join_review_mode === 'manual' }">
+                  <input type="radio" value="manual" v-model="editForm.join_review_mode" />
+                  <span class="review-mode-body">
+                    <span class="review-mode-title">人工审核加入</span>
+                    <span class="review-mode-desc">用户提交申请后，由比赛负责人、指导老师或管理员审核</span>
+                  </span>
+                </label>
+                <label class="review-mode-option" :class="{ active: editForm.join_review_mode === 'auto' }">
+                  <input type="radio" value="auto" v-model="editForm.join_review_mode" />
+                  <span class="review-mode-body">
+                    <span class="review-mode-title">自动审核加入</span>
+                    <span class="review-mode-desc">用户提交申请后立即加入比赛，审核人记为管理员</span>
+                  </span>
+                </label>
+              </div>
+              <p
+                v-if="editForm.join_review_mode === 'auto' && editingPendingCount > 0"
+                class="review-mode-warning"
+              >
+                当前还有 {{ editingPendingCount }} 条待审核申请：切换为自动审核不会自动通过它们，仍需在「加入申请」里处理。
+              </p>
+            </div>
+
             <!-- 底部 -->
             <div class="edit-modal__footer">
               <button type="button" @click="showEditModal = false" class="btn-edit-cancel">取消</button>
@@ -508,7 +535,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useEventStore } from '~/stores/eventStore'
 import { useUserSearch } from '~/composables/useUserSearch'
 
@@ -538,6 +565,12 @@ const deleting = ref(false)
 const editingEventId = ref(null)
 const deletingEvent = ref(null)
 
+// 编辑弹窗提示用：该比赛当前待审核的加入申请数量
+const editingPendingCount = computed(() => {
+  if (!editingEventId.value) return 0
+  return eventStore.pendingJoinCountFor(editingEventId.value)
+})
+
 const editForm = ref({
   event_name: '',
   description: '',
@@ -546,7 +579,8 @@ const editForm = ref({
   upload_start_time: '',
   upload_end_time: '',
   total_budget: 0,
-  leader_id: null
+  leader_id: null,
+  join_review_mode: 'manual'
 })
 
 const { searchText: leaderSearch, results: filteredUsers } = useUserSearch()
@@ -664,7 +698,8 @@ const editEvent = (event) => {
     upload_start_time: formatDateTimeLocal(event.upload_start_time),
     upload_end_time: formatDateTimeLocal(event.upload_end_time),
     total_budget: parseFloat(event.total_budget),
-    leader_id: event.leader_id || null
+    leader_id: event.leader_id || null,
+    join_review_mode: event.join_review_mode || 'manual'
   }
   showEditModal.value = true
 }
@@ -976,6 +1011,73 @@ const deleteEvent = async () => {
   line-height: 16px;
   text-align: center;
   vertical-align: 1px;
+}
+
+/* 编辑弹窗：加入审核方式单选组 */
+.review-mode-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.review-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.review-mode-option:hover {
+  border-color: #a5b4fc;
+}
+
+.review-mode-option.active {
+  border-color: #667eea;
+  background: #f5f6ff;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.12);
+}
+
+.review-mode-option input[type='radio'] {
+  margin-top: 0.15rem;
+  padding: 0;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  accent-color: #667eea;
+}
+
+.review-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.review-mode-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.review-mode-desc {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #888;
+  font-weight: 400;
+}
+
+.review-mode-warning {
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  background: #fff7ed;
+  color: #b45309;
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 /* 分区标题 */
