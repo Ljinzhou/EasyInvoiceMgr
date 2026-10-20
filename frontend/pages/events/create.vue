@@ -65,7 +65,7 @@
         </div>
         <div class="quick-set-row">
           <button type="button" @click="syncUploadTimes" class="quick-set-button" :disabled="!form.event_start_time || !form.event_end_time">
-            与比赛时间同步
+            与开始比赛时间同步
           </button>
         </div>
 
@@ -109,6 +109,26 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label>加入审核方式 *</label>
+          <div class="review-mode-group">
+            <label class="review-mode-option" :class="{ active: form.join_review_mode === 'manual' }">
+              <input type="radio" value="manual" v-model="form.join_review_mode" />
+              <span class="review-mode-body">
+                <span class="review-mode-title">人工审核加入</span>
+                <span class="review-mode-desc">用户提交申请后，由比赛负责人、指导老师或管理员审核</span>
+              </span>
+            </label>
+            <label class="review-mode-option" :class="{ active: form.join_review_mode === 'auto' }">
+              <input type="radio" value="auto" v-model="form.join_review_mode" />
+              <span class="review-mode-body">
+                <span class="review-mode-title">自动审核加入</span>
+                <span class="review-mode-desc">用户提交申请后立即加入比赛，审核人记为管理员</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <div v-if="error" class="error-message">{{ error }}</div>
         <div v-if="success" class="success-message">{{ success }}</div>
 
@@ -149,7 +169,9 @@ const form = ref({
   upload_start_time: '',
   upload_end_time: '',
   total_budget: 0,
-  leader_id: null
+  leader_id: null,
+  // 加入审核方式：manual=人工审核加入（默认，向后兼容），auto=自动审核加入
+  join_review_mode: 'manual'
 })
 
 const loading = ref(false)
@@ -253,7 +275,8 @@ const loadEventData = async () => {
         upload_start_time: toLocal(event.upload_start_time),
         upload_end_time: toLocal(event.upload_end_time),
         total_budget: parseFloat(event.total_budget) || 0,
-        leader_id: event.leader_id || null
+        leader_id: event.leader_id || null,
+        join_review_mode: event.join_review_mode || 'manual'
       }
       // 自动填充负责人姓名到搜索框
       leaderSearch.value = event.leader_name || ''
@@ -333,7 +356,8 @@ const resetForm = (clearMessages = false) => {
     upload_start_time: '',
     upload_end_time: '',
     total_budget: 0,
-    leader_id: null
+    leader_id: null,
+    join_review_mode: 'manual'
   }
   leaderSearch.value = ''
   if (clearMessages) {
@@ -406,6 +430,63 @@ const resetForm = (clearMessages = false) => {
 .form-group textarea:focus {
   outline: none;
   border-color: #667eea;
+}
+
+/* 加入审核方式单选组 */
+.review-mode-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.review-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.review-mode-option:hover {
+  border-color: #a5b4fc;
+}
+
+.review-mode-option.active {
+  border-color: #667eea;
+  background: #f5f6ff;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.12);
+}
+
+.review-mode-option input[type='radio'] {
+  margin-top: 0.15rem;
+  padding: 0;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  accent-color: #667eea;
+}
+
+.review-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.review-mode-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.review-mode-desc {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #888;
+  font-weight: 400;
 }
 
 .autocomplete-wrapper {

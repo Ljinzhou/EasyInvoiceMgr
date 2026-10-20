@@ -32,6 +32,36 @@ def check_student_event_access(event_id: int, user) -> bool:
     return False
 
 
+def is_event_reviewer(event, user) -> bool:
+    """能否审核该比赛的加入申请。
+
+    只认三类人：admin、比赛负责人（Event.leader_id）、该比赛里
+    role_in_event='teacher' 的成员。全局 user_type='teacher' 但既不是负责人
+    也不是该比赛成员的老师**不在**其列。
+    """
+    if not event or not user:
+        return False
+    if user.user_type == 'admin':
+        return True
+    if event.leader_id and int(event.leader_id) == int(user.user_id):
+        return True
+
+    from models import EventMember
+
+    teacher_member = EventMember.query.filter_by(
+        event_id=event.event_id, user_id=user.user_id, is_deleted=False
+    ).first()
+    return bool(teacher_member and teacher_member.role_in_event == 'teacher')
+
+
+def resolve_auto_reviewer_id():
+    """自动审核时的审核人：admin 账号（多个时取 user_id 最小的），没有则返回 None。"""
+    from models import User
+
+    admin = User.query.filter_by(user_type='admin', is_deleted=False).order_by(User.user_id).first()
+    return admin.user_id if admin else None
+
+
 def ensure_event_membership(event_id: int, user_id: int) -> bool:
     """若用户在赛事成员列表中则直接返回，否则自动添加为赛事成员。
 
@@ -60,7 +90,8 @@ def ensure_event_membership(event_id: int, user_id: int) -> bool:
         member = EventMember(
             event_id=event_id,
             user_id=user_id,
-            role_in_event=role
+            role_in_event=role,
+            join_source='privileged_auto'
         )
         db.session.add(member)
         logger.info(f'自动添加赛事成员: event_id={event_id}, user_id={user_id}, role={role}')

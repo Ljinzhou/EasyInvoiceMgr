@@ -53,6 +53,8 @@ class Event(db.Model):
     upload_end_time = db.Column(UTCDateTime())
     creator_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
     leader_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))
+    # 加入审核方式：auto=申请即通过（审核人记 admin），manual=负责人/指导老师/admin 人工审核
+    join_review_mode = db.Column(db.String(20), nullable=False, default='manual')
     total_budget = db.Column(db.Numeric(12, 2), nullable=False, default=0.00)
     reimbursed_amount = db.Column(db.Numeric(12, 2), default=0.00)
     remaining_budget = db.Column(db.Numeric(12, 2), default=0.00)
@@ -78,12 +80,16 @@ class EventMember(db.Model):
     user_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
     role_in_event = db.Column(db.String(20), nullable=False)
     join_time = db.Column(UTCDateTime(), default=_utcnow)
+    # 谁把该成员加进来的/审核通过的；join_source 说明加入途径
+    joined_by = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))
+    join_source = db.Column(db.String(20))  # creator/leader/direct_add/auto_review/manual_review/privileged_auto/legacy
     created_at = db.Column(UTCDateTime(), default=_utcnow)
     updated_at = db.Column(UTCDateTime(), default=_utcnow, onupdate=_utcnow)
     is_deleted = db.Column(db.Boolean, default=False)
 
     event = db.relationship('Event', backref='members')
-    user = db.relationship('User', backref='event_memberships')
+    user = db.relationship('User', foreign_keys=[user_id], backref='event_memberships')
+    joiner = db.relationship('User', foreign_keys=[joined_by])
 
     __table_args__ = (db.UniqueConstraint('event_id', 'user_id'),)
 
@@ -263,3 +269,31 @@ class BackupRecord(db.Model):
     updated_at = db.Column(UTCDateTime(), default=_utcnow, onupdate=_utcnow)
 
     creator = db.relationship('User', foreign_keys=[created_by], backref='backup_records')
+
+
+class EventJoinRequest(db.Model):
+    """比赛加入申请。
+
+    单独建表而不是往 EventMember 里塞状态：全项目有大量
+    `EventMember.query.filter(is_deleted=False)` 的权限/统计查询，
+    pending 记录混进成员表会静默污染它们。
+    """
+    __tablename__ = 'event_join_requests'
+
+    request_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
+    event_id = db.Column(db.BigInteger, db.ForeignKey('events.event_id'), nullable=False)
+    user_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending / approved / rejected
+    # 申请发起时的审核模式快照：比赛中途改模式不影响历史记录的解读
+    review_mode = db.Column(db.String(20), nullable=False, default='manual')  # auto / manual
+    reviewer_id = db.Column(db.BigInteger, db.ForeignKey('users.user_id'))
+    review_time = db.Column(UTCDateTime())
+    reject_reason = db.Column(db.Text)
+    created_at = db.Column(UTCDateTime(), default=_utcnow)
+    updated_at = db.Column(UTCDateTime(), default=_utcnow, onupdate=_utcnow)
+    is_deleted = db.Column(db.Boolean, default=False)
+
+    event = db.relationship('Event', backref='join_requests')
+    user = db.relationship('User', foreign_keys=[user_id], backref='join_requests')
+    reviewer = db.relationship('User', foreign_keys=[reviewer_id])
+

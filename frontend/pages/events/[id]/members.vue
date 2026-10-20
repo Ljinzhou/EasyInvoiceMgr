@@ -4,6 +4,14 @@
       <button @click="goBack" class="back-button">← 返回</button>
       <h1 class="page-title">人员管理 - {{ event?.event_name || '加载中...' }}</h1>
       <div class="header-actions">
+        <button
+          v-if="canReviewJoin"
+          @click="goJoinRequests"
+          class="action-button review"
+        >
+          📝 加入申请
+          <span v-if="pendingRequestCount > 0" class="pending-count">{{ pendingRequestCount }}</span>
+        </button>
         <button @click="openAddMemberModal" class="action-button primary">+ 添加成员</button>
       </div>
     </div>
@@ -57,6 +65,8 @@
             <th>角色</th>
             <th>学号/工号</th>
             <th>加入时间</th>
+            <th>加入方式</th>
+            <th>审核人</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -74,7 +84,13 @@
               </span>
             </td>
             <td>{{ member.student_or_staff_id || '-' }}</td>
-            <td>{{ formatDate(member.created_at) }}</td>
+            <td>{{ formatDate(member.join_time || member.created_at) }}</td>
+            <td>
+              <span class="join-source-badge" :class="member.join_source || 'manual_add'">
+                {{ member.join_source_label || '手动添加' }}
+              </span>
+            </td>
+            <td>{{ member.joined_by_name || '—' }}</td>
             <td>
               <div class="row-actions">
                 <button @click="editMember(member)" class="btn-edit-sm" title="编辑角色">✏️ 编辑</button>
@@ -83,7 +99,7 @@
             </td>
           </tr>
           <tr v-if="filteredMembers.length === 0">
-            <td :colspan="8" class="empty-row">暂无成员数据</td>
+            <td :colspan="10" class="empty-row">暂无成员数据</td>
           </tr>
         </tbody>
       </table>
@@ -339,6 +355,14 @@ const goBack = () => {
   }
 }
 
+// 加入申请审核入口：仅负责人/指导老师/管理员可见（后端 can_review_join 为准）
+const canReviewJoin = ref(false)
+const pendingRequestCount = ref(0)
+
+const goJoinRequests = () => {
+  router.push(`/events/${eventId.value}/join-requests`)
+}
+
 const loadEvent = async () => {
   try {
     const token = localStorage.getItem('token')
@@ -363,6 +387,8 @@ const loadMembers = async () => {
 
     if (response.data.code === 200) {
       const membersList = response.data.data.members || []
+      canReviewJoin.value = response.data.data.can_review_join === true
+      pendingRequestCount.value = response.data.data.pending_request_count || 0
 
       members.value = membersList
 
@@ -584,6 +610,38 @@ const formatDate = (dateStr) => {
 }
 .action-button.primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
 .action-button.primary:hover { transform: translateY(-1px); opacity: 0.95; }
+
+.header-actions .action-button.review {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #fff;
+  color: #4c51bf;
+  border: 1px solid #c7d2fe;
+}
+.header-actions .action-button.review:hover { background: #eef2ff; }
+.pending-count {
+  min-width: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+.join-source-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: #f1f5f9;
+  color: #475569;
+}
+.join-source-badge.manual_review { background: #eef2ff; color: #4338ca; }
+.join-source-badge.auto_review { background: #ecfdf5; color: #047857; }
 
 .stats-panel {
   display: grid;

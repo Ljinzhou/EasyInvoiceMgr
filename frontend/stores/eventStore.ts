@@ -13,6 +13,12 @@ export interface EventItem {
   creator_id: number | null
   leader_id: number | null
   leader_name: string | null
+  /** 加入审核方式：auto=自动审核加入，manual=人工审核加入 */
+  join_review_mode?: 'auto' | 'manual'
+  /** 当前用户在该比赛最近一次加入申请的状态 */
+  join_request_status?: 'pending' | 'approved' | 'rejected' | null
+  /** 当前用户是否已是该比赛成员 */
+  is_member?: boolean
   total_budget: number
   reimbursed_amount: number
   remaining_budget: number

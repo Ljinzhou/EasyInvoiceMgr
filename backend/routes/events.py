@@ -1,10 +1,14 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, Event, User, Invoice, PurchaseRecord, EventMember
+from models import db, Event, User, Invoice, PurchaseRecord, EventMember, EventJoinRequest
 from utils.operation_log import log_operation
-from utils.permissions import ensure_event_membership
+from utils.permissions import (
+    ensure_event_membership,
+    is_event_reviewer,
+    resolve_auto_reviewer_id,
+)
 from utils.event_stats import recalc_event_stats
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import func
 import logging
 
@@ -23,7 +27,32 @@ EVENT_FIELD_LABELS = {
     'upload_start_time': '上传开始时间',
     'upload_end_time': '上传结束时间',
     'leader_id': '负责人',
+    'join_review_mode': '加入审核方式',
 }
+
+# 加入审核方式取值与中文标签
+JOIN_REVIEW_MODES = ('auto', 'manual')
+JOIN_REVIEW_MODE_LABELS = {'auto': '自动审核加入', 'manual': '人工审核加入'}
+
+# 成员加入途径的展示文案
+JOIN_SOURCE_LABELS = {
+    'creator': '创建项目',
+    'leader': '设为负责人',
+    'direct_add': '直接添加',
+    'auto_review': '自动审核通过',
+    'manual_review': '人工审核通过',
+    'privileged_auto': '权限自动加入',
+    'legacy': '历史数据',
+}
+
+
+def _parse_join_review_mode(value, default='manual'):
+    """校验并归一化加入审核方式；非法值抛 ValueError。"""
+    if value is None or value == '':
+        return default
+    if value not in JOIN_REVIEW_MODES:
+        raise ValueError(f'无效的加入审核方式 "{value}"，有效值为: auto、manual')
+    return value
 
 
 def _normalize_event_value(field, value):
@@ -58,7 +87,73 @@ def _format_event_value(field, value):
         return f'"{user_obj.real_name}"' if user_obj and user_obj.real_name else f'"{value}"'
     if field in ('event_name', 'description', 'status'):
         return f'"{value}"'
+    if field == 'join_review_mode':
+        return f'"{JOIN_REVIEW_MODE_LABELS.get(value, value)}"'
     return str(value)
+
+
+def _iso(value):
+    return value.isoformat() if value else None
+
+
+def _serialize_join_request(join_request):
+    """序列化一条加入申请（含申请人/审核人姓名）。"""
+    applicant = join_request.user
+    reviewer = join_request.reviewer
+    return {
+        'request_id': join_request.request_id,
+        'event_id': join_request.event_id,
+        'user_id': join_request.user_id,
+        'username': applicant.username if applicant else None,
+        'real_name': applicant.real_name if applicant else None,
+        'status': join_request.status,
+        'review_mode': join_request.review_mode,
+        'reviewer_id': join_request.reviewer_id,
+        'reviewer_name': reviewer.real_name if reviewer else None,
+        'review_time': _iso(join_request.review_time),
+        'reject_reason': join_request.reject_reason,
+        'created_at': _iso(join_request.created_at)
+    }
+
+
+def _serialize_my_join_request(event_id, user_id):
+    """当前用户在该赛事里最近一次（未删除的）加入申请。"""
+    if not user_id:
+        return None
+    latest = EventJoinRequest.query.filter_by(
+        event_id=event_id, user_id=user_id, is_deleted=False
+    ).order_by(EventJoinRequest.request_id.desc()).first()
+    return _serialize_join_request(latest) if latest else None
+
+
+def _grant_membership(event, user_id, reviewer_id, join_source, role=None):
+    """把用户加进赛事成员表，并记录是审核人/操作人加的。
+
+    已存在的成员行不重复插入，只补齐此前为空的 joined_by/join_source。
+    返回 (member, created)。
+    """
+    existing = EventMember.query.filter_by(
+        event_id=event.event_id, user_id=user_id, is_deleted=False
+    ).first()
+    if existing:
+        if not existing.joined_by:
+            existing.joined_by = reviewer_id
+        if not existing.join_source:
+            existing.join_source = join_source
+        return existing, False
+
+    member_user = User.query.get(user_id)
+    if role is None:
+        role = 'teacher' if (member_user and member_user.user_type == 'teacher') else 'member'
+    member = EventMember(
+        event_id=event.event_id,
+        user_id=user_id,
+        role_in_event=role,
+        joined_by=reviewer_id,
+        join_source=join_source
+    )
+    db.session.add(member)
+    return member, True
 
 
 @events_bp.route('/events', methods=['POST'])
@@ -98,7 +193,12 @@ def create_event():
         total_budget = float(data.get('total_budget', 0))
         if total_budget < 0:
             return jsonify({'code': 400, 'message': '预算不能为负数', 'data': None}), 400
-        
+
+        try:
+            join_review_mode = _parse_join_review_mode(data.get('join_review_mode'))
+        except ValueError as error:
+            return jsonify({'code': 400, 'message': str(error), 'data': None}), 400
+
         event = Event(
             event_name=data['event_name'],
             description=data.get('description'),
@@ -109,6 +209,7 @@ def create_event():
             upload_end_time=upload_end_time,
             creator_id=current_user_id,
             leader_id=data.get('leader_id'),
+            join_review_mode=join_review_mode,
             total_budget=total_budget,
             remaining_budget=total_budget
         )
@@ -127,7 +228,9 @@ def create_event():
                 leader_member = EventMember(
                     event_id=event.event_id,
                     user_id=event.leader_id,
-                    role_in_event=role
+                    role_in_event=role,
+                    joined_by=current_user_id,
+                    join_source='leader'
                 )
                 db.session.add(leader_member)
 
@@ -140,7 +243,9 @@ def create_event():
                 creator_member = EventMember(
                     event_id=event.event_id,
                     user_id=event.creator_id,
-                    role_in_event='teacher'
+                    role_in_event='teacher',
+                    joined_by=current_user_id,
+                    join_source='creator'
                 )
                 db.session.add(creator_member)
 
@@ -174,6 +279,7 @@ def create_event():
                 'upload_end_time': event.upload_end_time.isoformat() if event.upload_end_time else None,
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
+                'join_review_mode': event.join_review_mode or 'manual',
                 'total_budget': float(event.total_budget),
                 'reimbursed_amount': float(event.reimbursed_amount),
                 'remaining_budget': float(event.remaining_budget),
@@ -212,6 +318,17 @@ def get_events():
                 user_id=current_user_id, is_deleted=False
             ).all()
             member_event_ids = {row[0] for row in member_rows}
+
+        # 当前用户在每个赛事里最近一次加入申请的状态（用于前端按钮文案）
+        my_request_status = {}
+        request_rows = db.session.query(
+            EventJoinRequest.event_id, EventJoinRequest.status, EventJoinRequest.request_id
+        ).filter(
+            EventJoinRequest.user_id == current_user_id,
+            EventJoinRequest.is_deleted == False  # noqa: E712
+        ).order_by(EventJoinRequest.request_id).all()
+        for req_event_id, req_status, _req_id in request_rows:
+            my_request_status[req_event_id] = req_status
 
         events_data = []
         for event in events.items:
@@ -270,7 +387,9 @@ def get_events():
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
                 'leader_name': leader.real_name if leader else None,
-                'is_member': is_member
+                'is_member': is_member,
+                'join_review_mode': event.join_review_mode or 'manual',
+                'join_request_status': my_request_status.get(event.event_id)
             })
         
         return jsonify({
@@ -317,6 +436,15 @@ def update_event(event_id):
         old_upload_start_time = event.upload_start_time
         old_upload_end_time = event.upload_end_time
         old_leader_id = event.leader_id
+        old_join_review_mode = event.join_review_mode or 'manual'
+
+        if 'join_review_mode' in data:
+            try:
+                event.join_review_mode = _parse_join_review_mode(
+                    data['join_review_mode'], default=old_join_review_mode
+                )
+            except ValueError as error:
+                return jsonify({'code': 400, 'message': str(error), 'data': None}), 400
 
         if 'event_name' in data:
             event.event_name = data['event_name']
@@ -392,13 +520,16 @@ def update_event(event_id):
                 changes['upload_end_time'] = {'old': old_upload_end_time, 'new': new_uet}
         if 'leader_id' in data and data['leader_id'] != old_leader_id:
             changes['leader_id'] = {'old': old_leader_id, 'new': data['leader_id']}
+        if 'join_review_mode' in data and (event.join_review_mode or 'manual') != old_join_review_mode:
+            changes['join_review_mode'] = {'old': old_join_review_mode, 'new': event.join_review_mode}
 
         # 构造 action_description（在 commit 前完成，避免依赖 commit 后的状态）
         if changes:
             change_parts = []
             for field in ['event_name', 'description', 'total_budget', 'status',
                           'event_start_time', 'event_end_time',
-                          'upload_start_time', 'upload_end_time', 'leader_id']:
+                          'upload_start_time', 'upload_end_time', 'leader_id',
+                          'join_review_mode']:
                 if field in changes:
                     label = EVENT_FIELD_LABELS.get(field, field)
                     old_part = _format_event_value(field, changes[field]['old'])
@@ -444,6 +575,7 @@ def update_event(event_id):
                 'upload_end_time': event.upload_end_time.isoformat() if event.upload_end_time else None,
                 'creator_id': event.creator_id,
                 'leader_id': event.leader_id,
+                'join_review_mode': event.join_review_mode or 'manual',
                 'total_budget': float(event.total_budget or 0),
                 'reimbursed_amount': float(event.reimbursed_amount or 0),
                 'remaining_budget': float(event.remaining_budget or 0)
@@ -528,7 +660,10 @@ def get_event(event_id):
                 'invoice_count': invoice_count,
                 'purchase_record_count': purchase_count,
                 'voucher_count': invoice_count + purchase_count,
-                'is_member': event_is_member
+                'is_member': event_is_member,
+                'join_review_mode': event.join_review_mode or 'manual',
+                'can_review_join': is_event_reviewer(event, user),
+                'my_join_request': _serialize_my_join_request(event_id, current_user_id)
             }
         }), 200
 
@@ -617,42 +752,291 @@ def get_event_members(event_id):
         if not event:
             return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
         
-        # 获取赛事成员
-        members = db.session.query(User, EventMember.role_in_event).join(
-            EventMember, User.user_id == EventMember.user_id
+        # 获取赛事成员（带加入时间与审核人）
+        rows = db.session.query(EventMember, User).join(
+            User, User.user_id == EventMember.user_id
         ).filter(
             EventMember.event_id == event_id,
-            EventMember.is_deleted == False,
-            User.is_deleted == False
-        ).all()
-        
+            EventMember.is_deleted == False,  # noqa: E712
+            User.is_deleted == False  # noqa: E712
+        ).order_by(EventMember.join_time, EventMember.id).all()
+
+        joiner_ids = {member_row.joined_by for member_row, _member_user in rows if member_row.joined_by}
+        joiners = {}
+        if joiner_ids:
+            joiners = {
+                joiner.user_id: joiner
+                for joiner in User.query.filter(User.user_id.in_(joiner_ids)).all()
+            }
+
         members_data = []
-        for user, role in members:
+        for member_row, member_user in rows:
+            joiner = joiners.get(member_row.joined_by)
             members_data.append({
-                'user_id': user.user_id,
-                'username': user.username,
-                'real_name': user.real_name,
-                'email': user.email,
-                'phone': user.phone,
-                'user_type': user.user_type,
-                'student_or_staff_id': user.student_or_staff_id,
-                'avatar_url': user.avatar_url,
-                'role_in_event': role,
-                'created_at': user.created_at.isoformat() if user.created_at else None
+                'user_id': member_user.user_id,
+                'username': member_user.username,
+                'real_name': member_user.real_name,
+                'email': member_user.email,
+                'phone': member_user.phone,
+                'user_type': member_user.user_type,
+                'student_or_staff_id': member_user.student_or_staff_id,
+                'avatar_url': member_user.avatar_url,
+                'role_in_event': member_row.role_in_event,
+                'join_time': _iso(member_row.join_time),
+                'joined_by': member_row.joined_by,
+                'joined_by_name': joiner.real_name or joiner.username if joiner else None,
+                'join_source': member_row.join_source,
+                'join_source_label': JOIN_SOURCE_LABELS.get(member_row.join_source),
+                'created_at': _iso(member_user.created_at)
             })
-        
+
+        can_review = is_event_reviewer(event, user)
+        pending_count = 0
+        if can_review:
+            pending_count = EventJoinRequest.query.filter_by(
+                event_id=event_id, status='pending', is_deleted=False
+            ).count()
+
         return jsonify({
             'code': 200,
             'message': 'success',
             'data': {
                 'members': members_data,
-                'total_count': len(members_data)
+                'total_count': len(members_data),
+                'can_review_join': can_review,
+                'pending_request_count': pending_count,
+                'join_review_mode': event.join_review_mode or 'manual'
             }
         }), 200
         
     except Exception as e:
         logger.error(f'获取赛事成员列表异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@events_bp.route('/events/<int:event_id>/join-requests', methods=['POST'])
+@jwt_required()
+def create_join_request(event_id):
+    """提交加入比赛的申请。自动审核模式下当场通过，审核人记为 admin。"""
+    logger.info(f'=== 提交加入申请: event_id={event_id} ===')
+    try:
+        current_user_id = int(get_jwt_identity())
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+
+        if (event.status or 'ongoing') != 'ongoing':
+            return jsonify({'code': 400, 'message': '该比赛已结束，无法申请加入', 'data': None}), 400
+
+        existing_member = EventMember.query.filter_by(
+            event_id=event_id, user_id=current_user_id, is_deleted=False
+        ).first()
+        if existing_member:
+            return jsonify({'code': 400, 'message': '您已经是该比赛成员，无需申请', 'data': None}), 400
+
+        pending = EventJoinRequest.query.filter_by(
+            event_id=event_id, user_id=current_user_id, status='pending', is_deleted=False
+        ).first()
+        if pending:
+            return jsonify({'code': 400, 'message': '您的加入申请正在审核中，请耐心等待', 'data': None}), 400
+
+        review_mode = event.join_review_mode or 'manual'
+        now = datetime.now(timezone.utc)
+        join_request = EventJoinRequest(
+            event_id=event_id,
+            user_id=current_user_id,
+            status='pending',
+            review_mode=review_mode
+        )
+        db.session.add(join_request)
+        db.session.flush()
+
+        is_member = False
+        message = '加入申请已提交，请等待审核'
+        if review_mode == 'auto':
+            reviewer_id = resolve_auto_reviewer_id()
+            join_request.status = 'approved'
+            join_request.reviewer_id = reviewer_id
+            join_request.review_time = now
+            _grant_membership(event, current_user_id, reviewer_id, 'auto_review')
+            is_member = True
+            message = '已自动通过审核，您已加入该比赛'
+
+        db.session.commit()
+
+        log_operation(
+            user_id=current_user_id,
+            username=user.username,
+            action_type='apply_join_event',
+            action_description=f'申请加入项目「{event.event_name}」',
+            target_type='event',
+            target_id=event_id,
+            target_name=event.event_name,
+            event_id=event_id,
+            event_name=event.event_name,
+            detail={
+                'request_id': join_request.request_id,
+                'review_mode': review_mode,
+                'auto_approved': is_member
+            }
+        )
+
+        return jsonify({
+            'code': 200,
+            'message': message,
+            'data': {
+                'request': _serialize_join_request(join_request),
+                'is_member': is_member
+            }
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f'提交加入申请异常: event_id={event_id}, error={str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': f'服务器错误: {str(e)}', 'data': None}), 500
+
+
+@events_bp.route('/events/<int:event_id>/join-requests', methods=['GET'])
+@jwt_required()
+def get_join_requests(event_id):
+    """列出加入申请。只有负责人/指导老师/admin 能看，其他人 403。"""
+    try:
+        current_user_id = int(get_jwt_identity())
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+
+        if not is_event_reviewer(event, user):
+            return jsonify({
+                'code': 403,
+                'message': '只有该比赛的负责人、指导老师或管理员可以审核加入申请',
+                'data': None
+            }), 403
+
+        status = request.args.get('status')
+        query = EventJoinRequest.query.filter_by(event_id=event_id, is_deleted=False)
+        if status:
+            query = query.filter_by(status=status)
+
+        rows = query.order_by(EventJoinRequest.request_id.desc()).all()
+        pending_count = EventJoinRequest.query.filter_by(
+            event_id=event_id, status='pending', is_deleted=False
+        ).count()
+
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'requests': [_serialize_join_request(row) for row in rows],
+                'pending_count': pending_count,
+                'join_review_mode': event.join_review_mode or 'manual'
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f'获取加入申请异常: event_id={event_id}, error={str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': f'服务器错误: {str(e)}', 'data': None}), 500
+
+
+@events_bp.route('/events/<int:event_id>/join-requests/<int:request_id>/review', methods=['POST'])
+@jwt_required()
+def review_join_request(event_id, request_id):
+    """审核加入申请：approve 通过并加入成员，reject 驳回。"""
+    logger.info(f'=== 审核加入申请: event_id={event_id}, request_id={request_id} ===')
+    try:
+        current_user_id = int(get_jwt_identity())
+        user = User.query.get(current_user_id)
+        if not user:
+            return jsonify({'code': 401, 'message': '用户不存在', 'data': None}), 401
+
+        event = Event.query.filter_by(event_id=event_id, is_deleted=False).first()
+        if not event:
+            return jsonify({'code': 2001, 'message': '赛事不存在', 'data': None}), 404
+
+        if not is_event_reviewer(event, user):
+            return jsonify({
+                'code': 403,
+                'message': '只有该比赛的负责人、指导老师或管理员可以审核加入申请',
+                'data': None
+            }), 403
+
+        join_request = EventJoinRequest.query.filter_by(
+            event_id=event_id, request_id=request_id, is_deleted=False
+        ).first()
+        if not join_request:
+            return jsonify({'code': 2002, 'message': '加入申请不存在', 'data': None}), 404
+
+        if join_request.status != 'pending':
+            return jsonify({
+                'code': 400,
+                'message': f'该申请已处理（当前状态：{join_request.status}），不能重复审核',
+                'data': None
+            }), 400
+
+        data = request.get_json(silent=True) or {}
+        action = data.get('action')
+        if action not in ('approve', 'reject'):
+            return jsonify({'code': 400, 'message': 'action 必须是 approve 或 reject', 'data': None}), 400
+
+        now = datetime.now(timezone.utc)
+        applicant = User.query.get(join_request.user_id)
+        applicant_name = (applicant.real_name or applicant.username) if applicant else str(join_request.user_id)
+
+        join_request.reviewer_id = current_user_id
+        join_request.review_time = now
+
+        if action == 'approve':
+            join_request.status = 'approved'
+            join_request.reject_reason = None
+            _grant_membership(event, join_request.user_id, current_user_id, 'manual_review')
+            action_desc = f'通过「{applicant_name}」加入项目「{event.event_name}」的申请'
+        else:
+            join_request.status = 'rejected'
+            join_request.reject_reason = (data.get('reject_reason') or '').strip() or None
+            action_desc = f'驳回「{applicant_name}」加入项目「{event.event_name}」的申请'
+
+        db.session.commit()
+
+        log_operation(
+            user_id=current_user_id,
+            username=user.username,
+            action_type='review_join_request',
+            action_description=action_desc,
+            target_type='event',
+            target_id=event_id,
+            target_name=event.event_name,
+            event_id=event_id,
+            event_name=event.event_name,
+            detail={
+                'request_id': request_id,
+                'applicant_id': join_request.user_id,
+                'applicant_name': applicant_name,
+                'action': action,
+                'reject_reason': join_request.reject_reason
+            }
+        )
+
+        return jsonify({
+            'code': 200,
+            'message': '审核通过，该用户已加入比赛' if action == 'approve' else '已驳回该申请',
+            'data': {
+                'request': _serialize_join_request(join_request),
+                'is_member': action == 'approve'
+            }
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f'审核加入申请异常: event_id={event_id}, error={str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': f'服务器错误: {str(e)}', 'data': None}), 500
 
 
 @events_bp.route('/events/<int:event_id>/members', methods=['POST'])
@@ -695,7 +1079,9 @@ def add_event_member(event_id):
         member = EventMember(
             event_id=event_id,
             user_id=user_id,
-            role_in_event=role_in_event
+            role_in_event=role_in_event,
+            joined_by=current_user_id,
+            join_source='direct_add'
         )
         
         db.session.add(member)

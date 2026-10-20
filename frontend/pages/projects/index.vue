@@ -127,9 +127,33 @@
               {{ event.status === 'ongoing' ? '进行中' : (event.status === 'finished' ? '已结束' : '已归档') }}
             </span>
             <span class="not-member-badge">您未加入该比赛</span>
+            <span class="join-mode-hint">{{ joinReviewModeText(event) }}</span>
           </div>
           <div class="action-buttons">
             <button @click="$router.push(`/purchases/${event.event_id}`)" class="action-btn preview-btn">👁 预览</button>
+            <button
+              v-if="canRequestJoin(event)"
+              @click="requestJoin(event)"
+              class="action-btn join-request-btn"
+              :disabled="joiningEventId === event.event_id"
+            >
+              {{ joiningEventId === event.event_id ? '提交中…' : '✋ 请求加入' }}
+            </button>
+            <button
+              v-else-if="event.join_request_status === 'pending'"
+              class="action-btn join-pending-btn"
+              disabled
+            >
+              ⏳ 审核中
+            </button>
+            <button
+              v-else-if="event.join_request_status === 'rejected'"
+              @click="requestJoin(event)"
+              class="action-btn join-request-btn"
+              :disabled="joiningEventId === event.event_id"
+            >
+              再次申请加入
+            </button>
           </div>
         </div>
 
@@ -346,7 +370,7 @@
               </div>
               <div class="quick-set-row">
                 <button type="button" @click="syncEditUploadTimes" class="quick-set-button" :disabled="!editForm.event_start_time || !editForm.event_end_time">
-                  与比赛时间同步
+                  与开始比赛时间同步
                 </button>
               </div>
             </div>
@@ -555,6 +579,45 @@ const isEventMember = (event) => {
   if (event.creator_id === currentUser.value.user_id) return true
   return false
 }
+
+// 加入申请：提交中状态，避免重复点击
+const joiningEventId = ref(null)
+
+/**
+ * 未加入的进行中比赛才能申请加入；
+ * 已经提交过 pending 申请的不再提供按钮（显示「审核中」）。
+ */
+const canRequestJoin = (event) => {
+  if (!currentUser.value) return false
+  if (event.status !== 'ongoing') return false
+  if (isEventMember(event)) return false
+  return event.join_request_status !== 'pending'
+}
+
+const requestJoin = async (event) => {
+  if (joiningEventId.value) return
+  joiningEventId.value = event.event_id
+  try {
+    const token = localStorage.getItem('token')
+    const response = await $api.post(
+      `/events/${event.event_id}/join-requests`,
+      {},
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const message = response.data?.message || '加入申请已提交'
+    // 自动审核模式下当场成为成员，人工审核模式只是 pending，两种都要刷新
+    await eventStore.invalidateAndRefresh()
+    syncFromStore()
+    alert(message)
+  } catch (error) {
+    const message = error?.response?.data?.message || error?.message || '提交加入申请失败，请稍后重试'
+    alert(message)
+  } finally {
+    joiningEventId.value = null
+  }
+}
+
+const joinReviewModeText = (event) => (event.join_review_mode === 'auto' ? '自动审核加入' : '人工审核加入')
 
 // 保持本地比赛数据与 store 同步（响应式绑定）
 const syncFromStore = () => {
@@ -854,6 +917,36 @@ const deleteEvent = async () => {
   background: rgba(255,255,255,0.15) !important;
   border: 1px solid rgba(255,255,255,0.25) !important;
   color: white !important;
+}
+
+/* 加入申请 */
+.join-mode-hint {
+  padding: 0.2rem 0.6rem;
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.join-request-btn {
+  background: #2563eb !important;
+  border: 1px solid #1d4ed8 !important;
+  color: #fff !important;
+  font-weight: 600;
+}
+.join-request-btn:hover:not(:disabled) {
+  background: #1d4ed8 !important;
+}
+.join-request-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.join-pending-btn {
+  background: rgba(255,255,255,0.18) !important;
+  border: 1px solid rgba(255,255,255,0.3) !important;
+  color: #fff !important;
+  cursor: default;
 }
 
 /* 分区标题 */
