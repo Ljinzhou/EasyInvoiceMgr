@@ -15,12 +15,68 @@ logger = logging.getLogger(__name__)
 _backup_service = None
 _scheduler = None
 
+# 超过该时长没有任何进度更新的 pending/running 记录，视为孤儿记录（僵尸任务）
+STALE_BACKUP_MINUTES = 30
+
 
 class BackupService:
     def __init__(self, app):
         self.app = app
         self.exports_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'exports')
         os.makedirs(self.exports_dir, exist_ok=True)
+
+    def recover_stale_backups(self, max_age_minutes=None):
+        """把僵尸备份记录（长期停在 pending/running）标记为失败，返回回收条数。
+
+        背景：备份线程是进程内的 daemon 线程，进程一旦被杀/重启，跑到一半的记录
+        就永远停在 running，而手动备份接口会以「已有备份任务正在执行」返回 409，
+        导致备份功能被一条历史记录永久卡死（迁移前的 PostgreSQL 时代遗留记录被
+        导入后就会这样）。这里以最后更新时间作为心跳，超出阈值即判定为中断。
+
+        Args:
+            max_age_minutes: None 表示无条件回收——进程刚启动时调用，
+                此时进程内不可能存在存活的后台备份线程，凡是未结束的记录都是孤儿。
+                传入分钟数则只回收超过该时长没有进展的记录，用于长时间运行的进程兜底。
+        """
+        from datetime import timedelta
+
+        from sqlalchemy import func, or_
+
+        from models import BackupRecord, db
+
+        query = BackupRecord.query.filter(BackupRecord.status.in_(['pending', 'running']))
+        if max_age_minutes is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+            query = query.filter(
+                or_(
+                    func.coalesce(BackupRecord.updated_at, BackupRecord.created_at) < cutoff,
+                    BackupRecord.created_at.is_(None),
+                )
+            )
+        stale = query.all()
+        if not stale:
+            return 0
+
+        now = datetime.now(timezone.utc)
+        stale_ids = []
+        for record in stale:
+            stale_ids.append(record.id)
+            record.status = 'failed'
+            record.error_message = (
+                '备份进程已中断（服务重启或线程异常退出），该记录已自动标记为失败，请重新发起备份'
+            )
+            record.progress_message = '备份中断，已标记为失败'
+            record.completed_at = now
+
+        try:
+            db.session.commit()
+        except Exception as error:
+            db.session.rollback()
+            logger.error(f'回收僵尸备份记录失败: {error}', exc_info=True)
+            raise
+
+        logger.warning(f'回收僵尸备份记录 {len(stale_ids)} 条: id={stale_ids}')
+        return len(stale_ids)
 
     def run_backup(self, record_id):
         """后台线程：执行全量备份"""
@@ -382,6 +438,9 @@ class BackupService:
         with self.app.app_context():
             from models import db, BackupRecord
 
+            # 先回收僵尸记录，否则一条历史遗留的 running 会让定时备份永久跳过
+            self.recover_stale_backups(max_age_minutes=STALE_BACKUP_MINUTES)
+
             # 检查是否有正在运行的备份
             running = BackupRecord.query.filter(
                 BackupRecord.status.in_(['pending', 'running']),
@@ -607,6 +666,14 @@ def init_backup_service(app):
     global _backup_service, _scheduler
 
     _backup_service = BackupService(app)
+
+    # 进程刚启动时不存在任何存活的后台备份线程，
+    # 因此此刻仍是 pending/running 的记录一定是上次进程被杀掉时留下的孤儿记录。
+    try:
+        with app.app_context():
+            _backup_service.recover_stale_backups()
+    except Exception as e:
+        logger.error(f'启动时回收僵尸备份记录失败: {e}', exc_info=True)
 
     try:
         from apscheduler.schedulers.background import BackgroundScheduler

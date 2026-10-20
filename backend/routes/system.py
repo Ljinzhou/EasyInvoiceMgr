@@ -52,6 +52,25 @@ def _admin_required():
     return None
 
 
+def _recover_stale_backups() -> int:
+    """回收僵尸备份记录（长期停在 pending/running），返回回收条数。
+
+    备份/恢复线程随进程生命周期结束，进程重启后旧记录会永远停在 running，
+    而下面几个接口都以「已有任务正在执行」返回 409，导致功能被一条历史记录
+    永久卡死。所以每次执行前先兜底清理一次，清理失败不影响主流程。
+    """
+    from utils.backup_service import STALE_BACKUP_MINUTES, get_backup_service
+
+    service = get_backup_service()
+    if service is None:
+        return 0
+    try:
+        return service.recover_stale_backups(max_age_minutes=STALE_BACKUP_MINUTES)
+    except Exception as error:  # noqa: BLE001 - 清理失败不应阻塞业务
+        logger.warning(f'回收僵尸备份记录失败，继续执行: {error}')
+        return 0
+
+
 def _get_config_value(config_key: str) -> str | None:
     """从数据库读取配置值，必要时进行解密。"""
     record = SystemConfig.query.filter_by(config_key=config_key).first()
@@ -329,6 +348,9 @@ def manual_backup():
     if err:
         return err
 
+    # 先回收僵尸记录，否则历史遗留的 pending/running 会永久阻塞手动备份
+    _recover_stale_backups()
+
     # 检查是否有正在运行的备份
     running = BackupRecord.query.filter(
         BackupRecord.status.in_(['pending', 'running']),
@@ -339,6 +361,11 @@ def manual_backup():
 
     from utils.backup_service import get_backup_service
 
+    # 先确认服务可用再落库，避免服务未初始化时留下一条永远 pending 的记录
+    service = get_backup_service()
+    if not service:
+        return jsonify({'code': 503, 'message': '备份服务未初始化', 'data': None}), 503
+
     admin_id = get_jwt_identity()
     record = BackupRecord(
         backup_type='manual',
@@ -348,10 +375,6 @@ def manual_backup():
     )
     db.session.add(record)
     db.session.commit()
-
-    service = get_backup_service()
-    if not service:
-        return jsonify({'code': 503, 'message': '备份服务未初始化', 'data': None}), 503
 
     thread = threading.Thread(target=service.run_backup, args=(record.id,), daemon=True)
     thread.start()
@@ -516,6 +539,9 @@ def restore_backup(backup_id):
     if not os.path.exists(record.file_path):
         return jsonify({'code': 404, 'message': '备份文件已被删除'}), 404
 
+    # 先回收僵尸记录，避免历史遗留任务永久阻塞恢复
+    _recover_stale_backups()
+
     # 检查是否有正在运行的任务
     running = BackupRecord.query.filter(
         BackupRecord.status.in_(['pending', 'running'])
@@ -561,6 +587,9 @@ def restore_upload_backup():
     err = _admin_required()
     if err:
         return err
+
+    # 先回收僵尸记录，避免历史遗留任务永久阻塞恢复
+    _recover_stale_backups()
 
     # 检查是否有正在运行的任务
     running = BackupRecord.query.filter(

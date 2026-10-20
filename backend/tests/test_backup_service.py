@@ -133,3 +133,109 @@ def test_restore_from_file_survives_open_engine_handles(app, service, db_path):
             text("SELECT count(*) FROM backup_records WHERE backup_type='restore' AND status='completed'")
         ).scalar()
         assert completed == 1, '恢复完成后必须留下一条 completed 的恢复记录'
+
+
+def _make_record(app, status, minutes_ago=0, backup_type='manual'):
+    """插入一条指定状态、指定「最后更新」时间的备份记录。"""
+    from datetime import datetime, timedelta, timezone
+
+    from models import BackupRecord, db
+
+    stamp = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    with app.app_context():
+        record = BackupRecord(
+            backup_type=backup_type,
+            backup_scope='full',
+            status=status,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        db.session.add(record)
+        db.session.commit()
+        return record.id
+
+
+def test_recover_stale_backups_marks_old_running_as_failed(app, service):
+    """超过阈值没进展的 running 记录要被标记失败，新记录不能被误伤。"""
+    from models import BackupRecord, db
+
+    stale_id = _make_record(app, 'running', minutes_ago=180)
+    fresh_id = _make_record(app, 'running', minutes_ago=1)
+
+    with app.app_context():
+        assert service.recover_stale_backups(max_age_minutes=30) == 1
+
+        stale = db.session.get(BackupRecord, stale_id)
+        fresh = db.session.get(BackupRecord, fresh_id)
+        assert stale.status == 'failed'
+        assert '中断' in (stale.error_message or '')
+        assert stale.completed_at is not None
+        assert fresh.status == 'running', '还在跑的新任务不能被回收'
+
+
+def test_recover_stale_backups_force_marks_every_in_progress(app, service):
+    """进程启动时用无条件模式：此刻不可能有存活线程，未结束的记录都是孤儿。"""
+    from models import BackupRecord, db
+
+    pending_id = _make_record(app, 'pending', minutes_ago=0, backup_type='scheduled')
+    running_id = _make_record(app, 'running', minutes_ago=0)
+
+    with app.app_context():
+        assert service.recover_stale_backups() == 2
+        assert db.session.get(BackupRecord, pending_id).status == 'failed'
+        assert db.session.get(BackupRecord, running_id).status == 'failed'
+
+
+def test_manual_backup_endpoint_recovers_stale_record(tmp_path, monkeypatch):
+    """回归：历史遗留的 running 记录不能再让手动备份永远返回 409。"""
+    import importlib
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setenv('DATABASE_URL', 'sqlite:///' + (tmp_path / 'api.sqlite').as_posix())
+    monkeypatch.setenv('SECRET_KEY', 'test-secret')
+    monkeypatch.setenv('JWT_SECRET_KEY', 'test-jwt-secret')
+    monkeypatch.setenv('ADMIN_PASSWORD', 'admin')
+
+    import config
+    importlib.reload(config)
+    import app as app_module
+    importlib.reload(app_module)
+
+    # 不真的跑备份线程（否则会往 backend/exports 写压缩包）
+    import utils.backup_service as backup_service_module
+    started = []
+    monkeypatch.setattr(
+        backup_service_module.BackupService,
+        'run_backup',
+        lambda self, record_id: started.append(record_id),
+    )
+
+    application = app_module.create_app()
+    try:
+        with application.app_context():
+            from models import BackupRecord, db
+
+            old = datetime.now(timezone.utc) - timedelta(days=90)
+            stale = BackupRecord(
+                backup_type='manual', backup_scope='full', status='running',
+                progress=5, progress_message='正在备份数据库...',
+                created_at=old, updated_at=old,
+            )
+            db.session.add(stale)
+            db.session.commit()
+            stale_id = stale.id
+
+        client = application.test_client()
+        login = client.post('/api/auth/login', json={'username': 'admin', 'password': 'admin'})
+        token = login.get_json()['data']['token']
+        response = client.post('/api/system/backup', headers={'Authorization': f'Bearer {token}'})
+
+        assert response.status_code == 200, response.get_json()
+        with application.app_context():
+            from models import BackupRecord, db
+            assert db.session.get(BackupRecord, stale_id).status == 'failed'
+            created = db.session.get(BackupRecord, response.get_json()['data']['id'])
+            assert created.status == 'pending'
+            assert created.id != stale_id
+    finally:
+        application = None
