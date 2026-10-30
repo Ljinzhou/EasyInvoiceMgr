@@ -154,6 +154,52 @@ def _load_tables():
     return db.metadata.tables
 
 
+# 旧 dump 里没有、需要导入后补值的历史语义（迁移时也是这么回填的）
+POST_IMPORT_STATEMENTS = {
+    'event_members': [
+        # 旧数据没有「加入途径」这一列，统一标记为历史数据
+        "UPDATE event_members SET join_source = 'legacy' WHERE join_source IS NULL",
+    ],
+}
+
+_NO_DEFAULT = object()
+
+
+def _scalar_default(column):
+    """取列在 Python 侧的标量默认值（旧 dump 缺少该列时用它补齐）。
+
+    pg_dump 是模型的「过去」，模型后续新增的非空列（例如
+    Event.join_review_mode）在旧 dump 的 COPY 里并不存在；SQLAlchemy 的
+    default 只在 ORM 写入时生效，裸 SQLite 没建 server_default，直接 INSERT
+    会撞 NOT NULL。这里把这类列的默认值显式补上。
+    """
+    default = column.default
+    if default is None:
+        return _NO_DEFAULT
+
+    value = default.arg
+    if callable(value):
+        try:
+            value = value()
+        except TypeError:
+            try:
+                value = value(None)
+            except Exception:  # noqa: BLE001  拿不到默认值就交给数据库报错
+                return _NO_DEFAULT
+
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.strftime('%Y-%m-%d %H:%M:%S.%f')
+    if isinstance(value, bool):
+        return 1 if value else 0
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (str, int, float)):
+        return value
+    return _NO_DEFAULT
+
+
 def import_pg_dump_file(db_path: str, sql_path: str) -> ImportReport:
     with open(sql_path, 'r', encoding='utf-8', errors='replace') as handle:
         return import_pg_dump_text(db_path, handle.read())
@@ -189,19 +235,39 @@ def import_pg_dump_text(db_path: str, sql_text: str) -> ImportReport:
                 logger.warning(f'表 {table_name} 的列 {missing} 在当前模型中不存在，已跳过')
 
             columns = [table.columns[name] for _index, name in usable]
-            column_sql = ', '.join(f'"{column.name}"' for column in columns)
-            placeholder_sql = ', '.join('?' * len(columns))
+            used_names = {name for _index, name in usable}
+
+            # 旧 dump 缺少的新列：有 Python 侧默认值的就按默认值补齐
+            extra_columns = []
+            extra_values = []
+            for column in table.columns:
+                if column.name in used_names:
+                    continue
+                value = _scalar_default(column)
+                if value is _NO_DEFAULT:
+                    continue
+                extra_columns.append(column)
+                extra_values.append(value)
+
+            insert_columns = columns + extra_columns
+            column_sql = ', '.join(f'"{column.name}"' for column in insert_columns)
+            placeholder_sql = ', '.join('?' * len(insert_columns))
             statement = f'INSERT INTO "{table_name}" ({column_sql}) VALUES ({placeholder_sql})'
 
             rows = []
             for raw_row in block.rows:
-                rows.append([
+                values = [
                     _coerce_value(column, raw_row[index] if index < len(raw_row) else None)
                     for (index, _name), column in zip(usable, columns)
-                ])
+                ]
+                rows.append(values + list(extra_values))
 
             connection.executemany(statement, rows)
             report.row_counts[table_name] = len(rows)
+
+            # 导入后的历史语义回填
+            for fixup in POST_IMPORT_STATEMENTS.get(table_name, []):
+                connection.execute(fixup)
 
         connection.commit()
         violations = connection.execute('PRAGMA foreign_key_check').fetchall()
