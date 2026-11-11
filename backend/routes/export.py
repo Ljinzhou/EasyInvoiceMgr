@@ -6,6 +6,11 @@ import threading
 import os
 import logging
 from utils.operation_log import log_operation
+from utils.export_service import (
+    COLUMN_DEFINITIONS,
+    EXPORT_FORMAT_VERSION,
+    normalize_export_options,
+)
 
 logger = logging.getLogger(__name__)
 export_bp = Blueprint('export', __name__)
@@ -34,12 +39,27 @@ def start_export(event_id):
 
         data = request.get_json() or {}
         columns = data.get('columns', [])
-        options = data.get('options', {})
+        options = normalize_export_options(data.get('options', {}))
 
         if not columns:
             return jsonify({'code': 400, 'message': '请至少选择一个导出列', 'data': None}), 400
 
-        columns_config = {'columns': columns, 'options': options}
+        unknown_columns = [col for col in columns if col not in COLUMN_DEFINITIONS]
+        if unknown_columns:
+            return jsonify({
+                'code': 400,
+                'message': f'存在无效的导出列: {", ".join(map(str, unknown_columns))}',
+                'data': None
+            }), 400
+
+        # 去重并保持前端选择顺序
+        columns = list(dict.fromkeys(columns))
+
+        columns_config = {
+            'columns': columns,
+            'options': options,
+            'format_version': EXPORT_FORMAT_VERSION,
+        }
 
         cached_task = export_service.check_cache(event_id, columns_config)
         if cached_task:

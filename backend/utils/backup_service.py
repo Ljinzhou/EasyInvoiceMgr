@@ -537,6 +537,7 @@ class BackupService:
 
         if dump_path.endswith(('.sqlite3', '.sqlite', '.db')):
             self._replace_database_file(target_path, dump_path)
+            self._upgrade_schema_after_restore()
             return
 
         if dump_path.endswith('.sql'):
@@ -579,6 +580,18 @@ class BackupService:
 
         self._disconnect_database()
         logger.info(f'数据库已由快照覆盖: {target_path}')
+
+    def _upgrade_schema_after_restore(self):
+        """恢复旧快照后立即把数据库结构升级到当前版本。
+
+        旧备份可能缺少后续版本新增的表（例如 purchase_record_files），
+        若不在恢复后立刻迁移，请求线程会碰到 "no such table" 直到服务重启。
+        """
+        from utils.schema_init import ensure_schema
+
+        self._disconnect_database()
+        ensure_schema()
+        logger.info('恢复后数据库结构已升级到最新版本')
 
     def _reset_sqlite_schema(self):
         """原地清空数据库结构。

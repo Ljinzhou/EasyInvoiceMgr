@@ -257,6 +257,8 @@
                         <option value="铨洲智造">铨洲智造</option>
                         <option value="嘉立创">嘉立创</option>
                         <option value="微信">微信</option>
+                        <option value="滴滴">滴滴</option>
+                        <option value="12306">12306</option>
                         <option value="线下实体店">线下实体店</option>
                         <option value="其他">其他</option>
                       </select>
@@ -327,50 +329,57 @@
                 </div>
               </div>
 
-              <!-- 购物凭证 -->
+              <!-- 购物凭证（支持多张） -->
               <div class="form-section">
                 <div class="section-header-row">
                   <div class="section-icon-box green">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
                   </div>
                   <h3 class="section-title">购物凭证</h3>
+                  <span v-if="receiptDrafts.length > 0" class="file-count-badge">{{ receiptDrafts.length }} 张</span>
                   <span class="required-tag">必填</span>
                 </div>
                 <div
-                  class="upload-area"
-                  :class="{ 'has-file': receiptPreviewSrc, 'drag-over': receiptDragOver }"
-                  @click="$refs.receiptInput.click()"
+                  class="upload-area multi-file-area"
+                  :class="{ 'drag-over': receiptDragOver }"
                   @dragover="onReceiptDragOver"
                   @dragleave="onReceiptDragLeave"
                   @drop="onReceiptDrop"
                 >
-                  <input ref="receiptInput" type="file" accept="image/*" @change="handleReceiptUpload" hidden />
-                  <div v-if="!receiptPreviewSrc" class="upload-placeholder">
+                  <input ref="receiptInput" type="file" accept="image/*" multiple @change="handleReceiptUpload" hidden />
+                  <div v-if="receiptDrafts.length === 0" class="upload-placeholder" @click="$refs.receiptInput.click()">
                     <div class="upload-icon-circle">
                       <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     </div>
                     <p class="upload-main-text">点击或拖拽上传购物凭证图片</p>
-                    <p class="upload-hint">支持 JPG、PNG 格式</p>
+                    <p class="upload-hint">支持 JPG、PNG 格式，可一次选择多张</p>
                     <div v-if="receiptUploadProgress > 0" class="upload-progress-bar">
                       <div class="upload-progress-fill" :style="{ width: receiptUploadProgress + '%' }"></div>
                     </div>
                   </div>
-                  <div v-else class="file-preview">
-                    <div class="receipt-preview-container">
-                      <div class="fixed-preview-box receipt-fixed">
-                        <img :src="receiptPreviewSrc" class="preview-img" loading="lazy" decoding="async" @click.stop="showImageModal(receiptPreviewSrc)" />
-                        <button type="button" @click.stop="$refs.receiptInput.click()" class="reupload-overlay-btn" title="重新上传">
-                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                        </button>
+                  <div v-else class="file-grid">
+                    <div v-for="(item, index) in receiptDrafts" :key="item.uid" class="file-grid-item">
+                      <img
+                        v-if="!item.is_pdf"
+                        :src="item.preview_url || item.file_url"
+                        class="file-grid-thumb"
+                        loading="lazy"
+                        decoding="async"
+                        @click.stop="showImageModal(item.preview_url || item.file_url)"
+                      />
+                      <div v-else class="file-grid-thumb file-grid-doc" @click.stop="downloadDraftFile(item)">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        <span>PDF</span>
                       </div>
-                      <div class="file-info-bar">
-                        <span class="file-info-name">{{ form.receipt_image_name || '凭证图片' }}</span>
-                        <span v-if="receiptFileSize" class="file-info-size">{{ receiptFileSize }}</span>
-                      </div>
+                      <span class="file-grid-name" :title="item.original_filename">{{ item.original_filename || '凭证' }}</span>
+                      <button type="button" class="file-grid-remove" @click.stop="removeReceiptAt(index)" title="移除">
+                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
                     </div>
-                    <button type="button" @click.stop="removeReceipt" class="remove-btn" title="移除">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                    </button>
+                    <div class="file-grid-add" @click.stop="$refs.receiptInput.click()">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      <span>添加</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -382,21 +391,17 @@
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z"/></svg>
                   </div>
                   <h3 class="section-title">发票信息</h3>
-                  <div class="toggle-group">
-                    <label class="toggle-switch cannot-invoice-toggle" :class="{ 'active-red': form.cannot_invoice }">
-                      <input type="checkbox" v-model="form.cannot_invoice" @change="onCannotInvoiceChange" />
-                      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                      <span class="toggle-label">{{ form.cannot_invoice ? '无法开票' : '可开票' }}</span>
-                    </label>
-                    <label class="toggle-switch" v-show="!form.cannot_invoice">
-                      <input type="checkbox" v-model="form.has_invoice" />
-                      <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                      <span class="toggle-label">{{ form.has_invoice ? '有发票' : '无发票' }}</span>
-                    </label>
-                  </div>
+                  <span v-if="invoiceDrafts.length > 0" class="file-count-badge amber">{{ invoiceDrafts.length }} 份</span>
+                  <label class="invoice-status-checkbox" :class="{ 'is-checked': form.cannot_invoice }">
+                    <input type="checkbox" v-model="form.cannot_invoice" @change="onCannotInvoiceChange" />
+                    <span class="status-box">
+                      <svg v-if="form.cannot_invoice" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                    </span>
+                    <span class="status-text">无法开票</span>
+                  </label>
                 </div>
 
-                  <div v-if="!form.cannot_invoice && form.has_invoice" class="invoice-form">
+                  <div v-if="!form.cannot_invoice" class="invoice-form">
                     <!-- AI解析状态提示 -->
                     <div v-if="aiParseError" class="ai-error-banner">
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -404,48 +409,55 @@
                       <button type="button" @click="aiParseError = ''" class="ai-error-close">&times;</button>
                     </div>
 
-                    <!-- 上传发票 -->
+                    <!-- 上传发票（支持多份） -->
                     <div
-                      class="invoice-upload-zone"
-                      :class="{ 'has-file': form.invoice_file_key || invoiceLocalFile, 'drag-over': invoiceDragOver }"
-                      @click="$refs.invoiceInput.click()"
+                      class="invoice-upload-zone multi-file-area"
+                      :class="{ 'drag-over': invoiceDragOver }"
                       @dragover="onInvoiceDragOver"
                       @dragleave="onInvoiceDragLeave"
                       @drop="onInvoiceDrop"
                     >
-                      <input ref="invoiceInput" type="file" accept=".pdf,image/*,.jpg,.jpeg,.png" @change="handleInvoiceUpload" hidden />
-                      <div v-if="!form.invoice_file_key && !invoiceLocalFile" class="upload-placeholder">
+                      <input ref="invoiceInput" type="file" accept=".pdf,image/*,.jpg,.jpeg,.png" multiple @change="handleInvoiceUpload" hidden />
+                      <div v-if="invoiceDrafts.length === 0" class="upload-placeholder" @click="$refs.invoiceInput.click()">
                         <div class="upload-icon-circle amber">
                           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                         </div>
                         <p class="upload-main-text">点击或拖拽上传发票文件</p>
-                        <p class="upload-hint">支持 PDF、JPG、PNG 格式（移动端请从相册或文件管理器选择）</p>
+                        <p class="upload-hint">支持 PDF、JPG、PNG 格式，可一次选择多份</p>
                         <div v-if="invoiceUploadProgress > 0" class="upload-progress-bar">
                           <div class="upload-progress-fill" :style="{ width: invoiceUploadProgress + '%' }"></div>
                         </div>
                       </div>
-                      <div v-else class="invoice-file-bar">
-                        <div class="invoice-file-icon">
-                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                        </div>
-                        <div class="invoice-file-meta">
-                          <span class="invoice-file-name">{{ form.invoice_original_filename || '发票文件' }}</span>
-                          <span v-if="invoiceFileSize" class="invoice-file-size">{{ invoiceFileSize }}</span>
-                        </div>
-                        <div class="invoice-file-actions">
-                          <button type="button" @click.stop="$refs.invoiceInput.click()" class="invoice-action-btn" title="重新上传">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                      <div v-else class="file-grid">
+                        <div v-for="(item, index) in invoiceDrafts" :key="item.uid" class="file-grid-item">
+                          <img
+                            v-if="!item.is_pdf"
+                            :src="item.preview_url || item.file_url"
+                            class="file-grid-thumb"
+                            loading="lazy"
+                            decoding="async"
+                            @click.stop="openInvoiceDraft(index)"
+                          />
+                          <div v-else class="file-grid-thumb file-grid-doc" @click.stop="openInvoiceDraft(index)">
+                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            <span>PDF</span>
+                          </div>
+                          <span class="file-grid-name" :title="item.original_filename">{{ item.original_filename || '发票文件' }}</span>
+                          <button type="button" class="file-grid-remove" @click.stop="removeInvoiceAt(index)" title="移除">
+                            <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                           </button>
-                          <button type="button" @click.stop="removeInvoice" class="invoice-action-btn danger" title="移除">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                          </button>
+                        </div>
+                        <div class="file-grid-add" @click.stop="$refs.invoiceInput.click()">
+                          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                          <span>添加</span>
                         </div>
                       </div>
                     </div>
+                    <p class="invoice-upload-tip">默认需要上传发票；如确实没有发票，可不传，保存后将记录为「无发票」。</p>
 
-                    <!-- 发票预览区域 -->
-                    <div v-if="form.invoice_file_key || invoiceLocalFile" class="invoice-details">
-                      <div v-if="form._preview_display_url || form.invoice_file_key || _invoice_blob_url" class="invoice-preview-panel">
+                    <!-- 发票预览区域（以第一份发票为准） -->
+                    <div v-if="invoiceDrafts.length > 0" class="invoice-details">
+                      <div v-if="invoiceFilePreviewSrc || form._is_pdf" class="invoice-preview-panel">
                         <div class="preview-panel-header">
                           <div class="preview-panel-title">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -517,7 +529,7 @@
                           </div>
                         </div>
                         <div class="form-group">
-                          <label>发票税号</label>
+                          <label>销售方税号</label>
                           <div class="input-shell">
                             <input v-model="form.invoice_tax_number" type="text" placeholder="自动提取或手动填写" />
                           </div>
@@ -695,43 +707,74 @@
             </div>
           </div>
 
-          <!-- 图片预览 -->
+          <!-- 附件预览（支持多文件） -->
           <div class="detail-section">
             <div class="detail-section-label">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-              <span>图片预览</span>
+              <span>附件预览</span>
             </div>
-            <div class="detail-images">
-              <div class="detail-image-card">
-                <div class="detail-image-header">购物凭证</div>
-                <div class="detail-image-body" @click="showImageModal(getFullImageUrl(currentRecord.receipt_image_url))">
+
+            <div class="detail-file-group">
+              <div class="detail-file-group-title">
+                <span>购物凭证</span>
+                <span class="detail-file-count">{{ detailReceiptFiles.length }}</span>
+              </div>
+              <div v-if="detailReceiptFiles.length" class="detail-file-grid">
+                <div
+                  v-for="(file, index) in detailReceiptFiles"
+                  :key="file.file_id || file.file_key || index"
+                  class="detail-file-tile"
+                  @click="openDetailFile(file)"
+                >
                   <img
-                    :src="getFullImageUrl(currentRecord.receipt_image_url)"
+                    v-if="!file.is_pdf"
+                    :src="file.preview_url || file.file_url"
                     class="detail-preview-img"
                     loading="lazy"
                     decoding="async"
                     @error="(e) => e.target.style.display='none'"
                   />
-                  <div class="detail-image-hint">点击放大查看</div>
+                  <div v-else class="detail-file-pdf">
+                    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span>PDF</span>
+                  </div>
+                  <span class="detail-file-name" :title="file.original_filename">{{ file.original_filename || `凭证${index + 1}` }}</span>
                 </div>
               </div>
-              <div v-if="currentRecord.has_invoice" class="detail-image-card">
-                <div class="detail-image-header amber">发票预览</div>
-                <div class="detail-image-body" @click="invoiceDetailPreviewUrl ? showImageModal(invoiceDetailPreviewUrl) : undefined">
+              <div v-else class="detail-image-empty">
+                <span>暂无购物凭证</span>
+              </div>
+            </div>
+
+            <div v-if="currentRecord.has_invoice" class="detail-file-group">
+              <div class="detail-file-group-title amber">
+                <span>发票预览</span>
+                <span class="detail-file-count">{{ detailInvoiceFiles.length }}</span>
+              </div>
+              <div v-if="detailInvoiceFiles.length" class="detail-file-grid">
+                <div
+                  v-for="(file, index) in detailInvoiceFiles"
+                  :key="file.file_id || file.file_key || index"
+                  class="detail-file-tile"
+                  @click="openDetailFile(file)"
+                >
                   <img
-                    v-if="invoiceDetailPreviewUrl"
-                    :src="invoiceDetailPreviewUrl"
+                    v-if="!file.is_pdf"
+                    :src="file.preview_url || file.file_url"
                     class="detail-preview-img"
                     loading="lazy"
                     decoding="async"
-                    @error="(e) => { e.target.style.display='none'; invoiceDetailPreviewError = true }"
+                    @error="(e) => e.target.style.display='none'"
                   />
-                  <div v-if="!invoiceDetailPreviewUrl || invoiceDetailPreviewError" class="detail-image-empty">
-                    <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#d1d5db" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    <span>暂无发票预览</span>
+                  <div v-else class="detail-file-pdf amber">
+                    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span>PDF</span>
                   </div>
-                  <div v-if="invoiceDetailPreviewUrl && !invoiceDetailPreviewError" class="detail-image-hint">点击放大查看</div>
+                  <span class="detail-file-name" :title="file.original_filename">{{ file.original_filename || `发票${index + 1}` }}</span>
                 </div>
+              </div>
+              <div v-else class="detail-image-empty">
+                <span>暂无发票预览</span>
               </div>
             </div>
           </div>
@@ -905,9 +948,78 @@ const lastTouchDist = ref(0)
 const zoomOverlayRef = ref(null)
 const zoomImageRef = ref(null)
 
-// 本地文件存储（延迟上传）
-const receiptLocalFile = ref(null)
-const invoiceLocalFile = ref(null)
+// 多文件附件草稿（延迟上传）：购物凭证 / 发票都支持多个文件
+const receiptDrafts = ref([])
+const invoiceDrafts = ref([])
+let _draftSeq = 0
+
+const createFileDraft = (overrides = {}) => {
+  _draftSeq += 1
+  return {
+    uid: `draft-${Date.now()}-${_draftSeq}`,
+    file: null,
+    file_key: '',
+    preview_key: '',
+    file_id: null,
+    original_filename: '',
+    file_md5: '',
+    file_url: '',
+    preview_url: '',
+    download_url: '',
+    is_pdf: false,
+    blob_url: '',
+    preview_blob: null,
+    ...overrides
+  }
+}
+
+const revokeDraftBlobs = (drafts) => {
+  drafts.forEach((draft) => {
+    if (draft.blob_url) URL.revokeObjectURL(draft.blob_url)
+  })
+}
+
+const clearDrafts = () => {
+  revokeDraftBlobs(receiptDrafts.value)
+  revokeDraftBlobs(invoiceDrafts.value)
+  receiptDrafts.value = []
+  invoiceDrafts.value = []
+}
+
+// 把「第一份文件」同步到 form 的旧单文件字段，复用原有 AI 解析/预览逻辑
+const syncPrimaryFormFiles = () => {
+  const firstReceipt = receiptDrafts.value[0]
+  form.value.receipt_image_url = firstReceipt ? (firstReceipt.file_key || '') : ''
+  form.value.receipt_image_name = firstReceipt ? (firstReceipt.original_filename || '') : ''
+  form.value.receipt_file_md5 = firstReceipt ? (firstReceipt.file_md5 || '') : ''
+
+  const firstInvoice = invoiceDrafts.value[0]
+  const hasInvoiceFile = Boolean(firstInvoice) && !form.value.cannot_invoice
+  form.value.has_invoice = hasInvoiceFile
+  form.value.invoice_file_key = hasInvoiceFile ? (firstInvoice.file_key || '') : ''
+  form.value.invoice_preview_key = hasInvoiceFile ? (firstInvoice.preview_key || '') : ''
+  form.value.invoice_original_filename = hasInvoiceFile ? (firstInvoice.original_filename || '') : ''
+  form.value.invoice_md5 = hasInvoiceFile ? (firstInvoice.file_md5 || '') : ''
+  form.value._preview_display_url = hasInvoiceFile
+    ? (firstInvoice.preview_url || firstInvoice.file_url || '')
+    : ''
+  form.value._is_pdf = hasInvoiceFile ? Boolean(firstInvoice.is_pdf) : false
+}
+
+function normalizeDetailFile(file) {
+  const rawPreview = file.preview_url || file.file_url || ''
+  const rawFile = file.file_url || file.preview_url || ''
+  const isPdf = Boolean(file.is_pdf) || /\.pdf(\?|$)/i.test(String(rawFile))
+  return {
+    file_id: file.file_id || null,
+    file_key: file.file_key || '',
+    preview_url: rawPreview ? getFullImageUrl(rawPreview) : '',
+    file_url: rawFile ? getFullImageUrl(rawFile) : '',
+    download_url: file.download_url ? getFullImageUrl(file.download_url) : '',
+    original_filename: file.original_filename || '',
+    is_pdf: isPdf
+  }
+}
 
 // 拖拽上传状态
 const receiptDragOver = ref(false)
@@ -920,33 +1032,51 @@ const invoiceUploading = ref(false)
 // 图片懒加载
 const imageLoadedMap = ref({})
 const imageErrorMap = ref({})
-const _receipt_blob_url = ref('')
-const _invoice_blob_url = ref('')
-const _invoice_preview_blob = ref(null) // PDF转图片的Blob，用于上传到服务器
 
-// 计算预览源（本地blob优先）
-const receiptPreviewSrc = computed(() => {
-  return _receipt_blob_url.value || form.value.receipt_image_url || ''
-})
+// 第一张发票文件的预览源（本地 blob 优先）
 const invoiceFilePreviewSrc = computed(() => {
-  if (_invoice_blob_url.value) return _invoice_blob_url.value
-  if (form.value._preview_display_url) return getFullImageUrl(form.value._preview_display_url)
-  return ''
-})
-const invoiceDetailPreviewUrl = computed(() => {
-  if (!currentRecord.value) return ''
-  const r = currentRecord.value
-  // 优先使用预览URL（来自COS预签名或本地路径），回退到发票文件URL
-  const url = r.invoice_preview_url || r.invoice_url || ''
+  const firstInvoice = invoiceDrafts.value[0]
+  if (!firstInvoice) return ''
+  if (firstInvoice.blob_url) return firstInvoice.blob_url
+  const url = firstInvoice.preview_url || firstInvoice.file_url || form.value._preview_display_url || ''
   return url ? getFullImageUrl(url) : ''
 })
-const receiptFileSize = computed(() => {
-  if (receiptLocalFile.value) return formatFileSize(receiptLocalFile.value.size)
-  return ''
+
+const detailReceiptFiles = computed(() => {
+  const record = currentRecord.value
+  if (!record) return []
+  if (Array.isArray(record.receipt_files) && record.receipt_files.length) {
+    return record.receipt_files.map((file) => normalizeDetailFile(file))
+  }
+  if (record.receipt_image_url) {
+    return [normalizeDetailFile({
+      file_key: record.receipt_image_url,
+      preview_url: record.receipt_image_url,
+      file_url: record.receipt_image_url,
+      original_filename: record.receipt_image_name || '',
+      is_pdf: false
+    })]
+  }
+  return []
 })
-const invoiceFileSize = computed(() => {
-  if (invoiceLocalFile.value) return formatFileSize(invoiceLocalFile.value.size)
-  return ''
+
+const detailInvoiceFiles = computed(() => {
+  const record = currentRecord.value
+  if (!record || !record.has_invoice) return []
+  if (Array.isArray(record.invoice_files) && record.invoice_files.length) {
+    return record.invoice_files.map((file) => normalizeDetailFile(file))
+  }
+  const fallbackUrl = record.invoice_preview_url || record.invoice_url || ''
+  if (fallbackUrl) {
+    return [normalizeDetailFile({
+      file_key: record.invoice_file_key || fallbackUrl,
+      preview_url: fallbackUrl,
+      file_url: record.invoice_url || fallbackUrl,
+      original_filename: record.invoice_original_filename || '',
+      is_pdf: /\.pdf(\?|$)/i.test(String(fallbackUrl))
+    })]
+  }
+  return []
 })
 const zoomImageStyle = computed(() => ({
   transform: `translate(${zoomPanX.value}px, ${zoomPanY.value}px) scale(${zoomScale.value})`,
@@ -1413,14 +1543,58 @@ const viewRecord = (record) => {
 
 const editRecord = (record) => {
   editingRecord.value = record
-  // 清理旧blob URL
-  if (_receipt_blob_url.value) URL.revokeObjectURL(_receipt_blob_url.value)
-  if (_invoice_blob_url.value) URL.revokeObjectURL(_invoice_blob_url.value)
-  _receipt_blob_url.value = ''
-  _invoice_blob_url.value = ''
-  receiptLocalFile.value = null
-  invoiceLocalFile.value = null
   aiParseError.value = ''
+  clearDrafts()
+
+  // 从多文件附件初始化草稿（旧数据回退到单文件字段）
+  const receiptSource = (Array.isArray(record.receipt_files) && record.receipt_files.length)
+    ? record.receipt_files
+    : (record.receipt_image_url
+      ? [{
+          file_key: record.receipt_image_url,
+          preview_url: record.receipt_image_url,
+          file_url: record.receipt_image_url,
+          original_filename: record.receipt_image_name || '',
+          file_md5: record.receipt_file_md5 || '',
+          is_pdf: false
+        }]
+      : [])
+  receiptDrafts.value = receiptSource.map((file) => createFileDraft({
+    file_id: file.file_id || null,
+    file_key: file.file_key || '',
+    preview_key: file.preview_key || '',
+    original_filename: file.original_filename || '',
+    file_md5: file.file_md5 || '',
+    file_url: file.file_url || '',
+    preview_url: file.preview_url || '',
+    download_url: file.download_url || '',
+    is_pdf: Boolean(file.is_pdf)
+  }))
+
+  const invoiceSource = (Array.isArray(record.invoice_files) && record.invoice_files.length)
+    ? record.invoice_files
+    : (record.has_invoice && (record.invoice_preview_url || record.invoice_url || record.invoice_file_key)
+      ? [{
+          file_key: record.invoice_file_key || '',
+          preview_key: record.invoice_preview_key || '',
+          preview_url: record.invoice_preview_url || record.invoice_url || '',
+          file_url: record.invoice_url || record.invoice_preview_url || '',
+          original_filename: record.invoice_original_filename || '',
+          file_md5: record.invoice_md5 || '',
+          is_pdf: /\.pdf(\?|$)/i.test(String(record.invoice_file_key || record.invoice_url || ''))
+        }]
+      : [])
+  invoiceDrafts.value = invoiceSource.map((file) => createFileDraft({
+    file_id: file.file_id || null,
+    file_key: file.file_key || '',
+    preview_key: file.preview_key || '',
+    original_filename: file.original_filename || '',
+    file_md5: file.file_md5 || '',
+    file_url: file.file_url || '',
+    preview_url: file.preview_url || '',
+    download_url: file.download_url || '',
+    is_pdf: Boolean(file.is_pdf)
+  }))
 
   form.value = {
     item_name: record.item_name,
@@ -1531,12 +1705,7 @@ const closeAddModal = () => {
   showAddModal.value = false
   editingRecord.value = null
   resetForm()
-  if (_receipt_blob_url.value) URL.revokeObjectURL(_receipt_blob_url.value)
-  if (_invoice_blob_url.value) URL.revokeObjectURL(_invoice_blob_url.value)
-  _receipt_blob_url.value = ''
-  _invoice_blob_url.value = ''
-  receiptLocalFile.value = null
-  invoiceLocalFile.value = null
+  clearDrafts()
   // 重置转移状态
   transferTargetEventId.value = ''
   transferError.value = ''
@@ -1654,6 +1823,7 @@ const resetForm = () => {
     invoice_tax_number: '',
     uploader_id: null
   }
+  clearDrafts()
   // 重置上传人搜索状态
   selectedUploaderId.value = null
   selectedUploaderName.value = ''
@@ -1677,7 +1847,7 @@ function onReceiptDrop(e) {
   receiptDragOver.value = false
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
-    processReceiptFile(files[0])
+    processReceiptFiles(files)
   }
 }
 function onInvoiceDragOver(e) {
@@ -1692,7 +1862,7 @@ function onInvoiceDrop(e) {
   invoiceDragOver.value = false
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
-    processInvoiceFile(files[0])
+    processInvoiceFiles(files)
   }
 }
 
@@ -1727,91 +1897,99 @@ function compressImageForPreview(file, maxWidth = 800, quality = 0.85) {
   })
 }
 
-async function processReceiptFile(file) {
-  if (!file.type.startsWith('image/')) {
-    showToast('请上传图片格式的购物凭证', 'error')
-    return
-  }
+async function processReceiptFiles(fileList) {
+  const files = Array.from(fileList || [])
+  if (!files.length) return
   receiptUploading.value = true
-  receiptUploadProgress.value = 0
+  receiptUploadProgress.value = 10
   try {
-    // 释放旧blob URL
-    if (_receipt_blob_url.value) URL.revokeObjectURL(_receipt_blob_url.value)
-
-    // 压缩预览图
-    receiptUploadProgress.value = 30
-    const compressed = await compressImageForPreview(file)
-    receiptUploadProgress.value = 60
-
-    receiptLocalFile.value = file
-    _receipt_blob_url.value = URL.createObjectURL(compressed)
-    form.value.receipt_image_name = file.name
-    form.value.receipt_image_url = ''
-    receiptUploadProgress.value = 80
-
-    // 异步计算MD5用于提交时去重
-    try {
-      form.value.receipt_file_md5 = await calculateFileMD5(file)
-    } catch (_) {}
+    for (const file of files) {
+      if (!file.type || !file.type.startsWith('image/')) {
+        showToast(`「${file.name}」不是图片格式，已跳过`, 'error')
+        continue
+      }
+      // 压缩预览图
+      const compressed = await compressImageForPreview(file)
+      const blobUrl = URL.createObjectURL(compressed)
+      let fileMd5 = ''
+      try {
+        fileMd5 = await calculateFileMD5(file)
+      } catch (_) {}
+      receiptDrafts.value.push(createFileDraft({
+        file,
+        original_filename: file.name,
+        file_md5: fileMd5,
+        is_pdf: false,
+        file_url: blobUrl,
+        preview_url: blobUrl,
+        blob_url: blobUrl
+      }))
+      receiptUploadProgress.value = Math.min(95, receiptUploadProgress.value + Math.round(80 / files.length))
+    }
+    syncPrimaryFormFiles()
     receiptUploadProgress.value = 100
-    showToast('凭证已选择，点击提交后上传', 'success')
+    if (receiptDrafts.value.length) {
+      showToast(`已添加 ${receiptDrafts.value.length} 张购物凭证，提交后上传`, 'success')
+    }
   } catch (err) {
     showToast('文件处理失败，请重试', 'error')
   } finally {
-    setTimeout(() => { receiptUploadProgress.value = 0 }, 1500)
+    setTimeout(() => { receiptUploadProgress.value = 0 }, 1200)
     receiptUploading.value = false
   }
 }
 
-async function processInvoiceFile(file) {
-  const ext = file.name.split('.').pop()?.toLowerCase()
-  if (!['pdf', 'png', 'jpg', 'jpeg'].includes(ext || '')) {
-    showToast('请上传 PDF、JPG 或 PNG 格式的发票文件', 'error')
-    return
-  }
+async function processInvoiceFiles(fileList) {
+  const files = Array.from(fileList || [])
+  if (!files.length) return
   invoiceUploading.value = true
   invoiceUploadProgress.value = 0
   try {
-    // 释放旧blob URL
-    if (_invoice_blob_url.value) URL.revokeObjectURL(_invoice_blob_url.value)
-    _invoice_preview_blob.value = null
-
-    invoiceLocalFile.value = file
-    const isPdf = file.name.toLowerCase().endsWith('.pdf')
-    invoiceUploadProgress.value = 20
-
-    if (!isPdf) {
-      // 图片：压缩后作为预览
-      const compressed = await compressImageForPreview(file)
-      invoiceUploadProgress.value = 50
-      _invoice_blob_url.value = URL.createObjectURL(compressed)
-    } else {
-      // PDF文件：转换为图片预览
-      try {
-        invoiceImageLoading.value = true
-        invoiceUploadProgress.value = 30
-        const imageBlob = await convertPdfToImage(file)
-        invoiceUploadProgress.value = 60
-        _invoice_preview_blob.value = imageBlob
-        _invoice_blob_url.value = URL.createObjectURL(imageBlob)
-      } catch (err) {
-        console.error('PDF转图片失败:', err.message)
-        _invoice_blob_url.value = ''
-        _invoice_preview_blob.value = null
-      } finally {
-        invoiceImageLoading.value = false
+    for (const file of files) {
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      if (!['pdf', 'png', 'jpg', 'jpeg'].includes(ext || '')) {
+        showToast(`「${file.name}」不是 PDF/JPG/PNG 格式，已跳过`, 'error')
+        continue
       }
+      const isPdf = file.name.toLowerCase().endsWith('.pdf')
+      let blobUrl = ''
+      let previewBlob = null
+      if (!isPdf) {
+        // 图片：压缩后作为预览
+        const compressed = await compressImageForPreview(file)
+        blobUrl = URL.createObjectURL(compressed)
+      } else {
+        // PDF文件：转换为图片预览
+        try {
+          invoiceImageLoading.value = true
+          previewBlob = await convertPdfToImage(file)
+          if (previewBlob) blobUrl = URL.createObjectURL(previewBlob)
+        } catch (err) {
+          console.error('PDF转图片失败:', err.message)
+        } finally {
+          invoiceImageLoading.value = false
+        }
+      }
+
+      let fileMd5 = ''
+      try {
+        fileMd5 = await calculateFileMD5(file)
+      } catch (_) {}
+
+      invoiceDrafts.value.push(createFileDraft({
+        file,
+        original_filename: file.name,
+        file_md5: fileMd5,
+        is_pdf: isPdf,
+        file_url: blobUrl,
+        preview_url: blobUrl,
+        blob_url: blobUrl,
+        preview_blob: previewBlob
+      }))
+      invoiceUploadProgress.value = Math.min(95, invoiceUploadProgress.value + Math.round(80 / files.length))
     }
 
-    invoiceUploadProgress.value = 80
-    form.value.invoice_original_filename = file.name
-    form.value._is_pdf = isPdf
-    form.value.invoice_file_key = ''
-    form.value.has_invoice = true
-
-    try {
-      form.value.invoice_md5 = await calculateFileMD5(file)
-    } catch (_) {}
+    syncPrimaryFormFiles()
     invoiceUploadProgress.value = 100
 
     imageLoadingError.value = false
@@ -1819,12 +1997,14 @@ async function processInvoiceFile(file) {
     parseApplied.value = false
     aiParseError.value = ''
 
-    // 自动触发AI解析
-    await autoParseLocalInvoice()
+    // 自动触发AI解析（取第一份发票）
+    if (invoiceDrafts.value.length === 1) {
+      await autoParseLocalInvoice()
+    }
   } catch (err) {
     showToast('文件处理失败，请重试', 'error')
   } finally {
-    setTimeout(() => { invoiceUploadProgress.value = 0 }, 1500)
+    setTimeout(() => { invoiceUploadProgress.value = 0 }, 1200)
     invoiceUploading.value = false
   }
 }
@@ -1838,10 +2018,10 @@ function onImageLazyError(url) {
 }
 
 const handleReceiptUpload = async (e) => {
-  const file = e.target.files[0]
-  if (!file) return
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
   e.target.value = ''
-  await processReceiptFile(file)
+  await processReceiptFiles(files)
 }
 
 const calculateFileMD5 = (file) => {
@@ -1964,42 +2144,80 @@ async function convertPdfToImage(file) {
 }
 
 const handleInvoiceUpload = async (e) => {
-  const file = e.target.files[0]
-  if (!file) return
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
   e.target.value = ''
-  await processInvoiceFile(file)
+  await processInvoiceFiles(files)
 }
 
-const removeReceipt = () => {
-  if (_receipt_blob_url.value) URL.revokeObjectURL(_receipt_blob_url.value)
-  _receipt_blob_url.value = ''
-  receiptLocalFile.value = null
-  form.value.receipt_image_url = ''
-  form.value.receipt_image_name = ''
-  form.value.receipt_file_md5 = ''
+const removeReceiptAt = (index) => {
+  const [removed] = receiptDrafts.value.splice(index, 1)
+  if (removed?.blob_url) URL.revokeObjectURL(removed.blob_url)
+  syncPrimaryFormFiles()
 }
 
-const removeInvoice = () => {
-  if (_invoice_blob_url.value) URL.revokeObjectURL(_invoice_blob_url.value)
-  _invoice_blob_url.value = ''
-  _invoice_preview_blob.value = null
-  invoiceLocalFile.value = null
-  form.value.invoice_file_key = ''
-  form.value.invoice_preview_key = ''
-  form.value.invoice_original_filename = ''
-  form.value.invoice_md5 = ''
-  form.value._preview_display_url = ''
-  form.value._is_pdf = false
-  form.value.has_invoice = false
+const removeInvoiceAt = (index) => {
+  const [removed] = invoiceDrafts.value.splice(index, 1)
+  if (removed?.blob_url) URL.revokeObjectURL(removed.blob_url)
   invoiceParseResult.value = null
   parseApplied.value = false
   aiParseError.value = ''
+  syncPrimaryFormFiles()
+}
+
+const openInvoiceDraft = (index) => {
+  const item = invoiceDrafts.value[index]
+  if (!item) return
+  if (item.is_pdf) {
+    downloadDraftFile(item)
+    return
+  }
+  const url = item.blob_url || item.preview_url || item.file_url
+  if (url) showImageModal(url)
+}
+
+const downloadDraftFile = (item) => {
+  if (!item) return
+  if (item.download_url) {
+    window.open(item.download_url, '_blank')
+    return
+  }
+  if (item.file && !item.file_key) {
+    showToast('文件将在提交后上传，可先保存记录', 'info')
+    return
+  }
+  const url = item.preview_url || item.file_url || item.blob_url
+  if (url) window.open(url, '_blank')
+}
+
+const openDetailFile = (file) => {
+  if (!file) return
+  if (file.is_pdf) {
+    const target = file.download_url || file.file_url
+    if (target) window.open(target, '_blank')
+    return
+  }
+  const target = file.preview_url || file.file_url
+  if (target) showImageModal(target)
 }
 
 const onCannotInvoiceChange = () => {
   if (form.value.cannot_invoice) {
+    // 无法开票：清空所有发票附件及发票信息
+    revokeDraftBlobs(invoiceDrafts.value)
+    invoiceDrafts.value = []
+    form.value.invoice_file_key = ''
+    form.value.invoice_preview_key = ''
+    form.value.invoice_original_filename = ''
+    form.value.invoice_md5 = ''
+    form.value._preview_display_url = ''
+    form.value._is_pdf = false
     form.value.has_invoice = false
-    removeInvoice()
+    invoiceParseResult.value = null
+    parseApplied.value = false
+    aiParseError.value = ''
+  } else {
+    syncPrimaryFormFiles()
   }
 }
 
@@ -2064,10 +2282,11 @@ const retryLoadImage = () => {
  * 对本地发票文件执行AI解析（上传到parse-invoice端点）
  */
 const autoParseLocalInvoice = async () => {
-  if (!invoiceLocalFile.value) return
+  const firstInvoice = invoiceDrafts.value.find((item) => item.file)
+  if (!firstInvoice) return
 
   // 获取用于AI解析的图片：PDF用转换后的预览图，图片直接用原文件
-  const imageBlob = _invoice_preview_blob.value || invoiceLocalFile.value
+  const imageBlob = firstInvoice.preview_blob || firstInvoice.file
   if (!imageBlob) return
 
   parsingInvoice.value = true
@@ -2078,7 +2297,7 @@ const autoParseLocalInvoice = async () => {
   try {
     const token = localStorage.getItem('token')
     const formData = new FormData()
-    const filename = invoiceLocalFile.value.name.replace(/\.pdf$/i, '.jpg')
+    const filename = (firstInvoice.original_filename || firstInvoice.file.name).replace(/\.pdf$/i, '.jpg')
     formData.append('file', imageBlob, filename)
 
     const response = await $api.post('/parse-image', formData, {
@@ -2117,13 +2336,14 @@ const autoParseLocalInvoice = async () => {
 }
 
 const parseInvoiceFromUrl = async () => {
-  if (!form.value.invoice_file_key && !invoiceLocalFile.value) {
+  const firstInvoice = invoiceDrafts.value[0]
+  if (!firstInvoice) {
     showToast('请先上传发票文件', 'error')
     return
   }
 
-  // 如果有本地文件但还没有服务器key，先执行上传解析
-  if (invoiceLocalFile.value && !form.value.invoice_file_key) {
+  // 本地新文件：直接调用 parse-image 解析
+  if (firstInvoice.file) {
     await autoParseLocalInvoice()
     return
   }
@@ -2181,10 +2401,38 @@ const parseInvoiceFromUrl = async () => {
   }
 }
 
+/**
+ * 发票解析接口异常时的兜底：只上传文件，保证发票文件与预览图仍然落盘。
+ */
+const uploadInvoiceFileOnly = async (item, token) => {
+  try {
+    const formData = new FormData()
+    formData.append('file', item.file)
+    const res = await $api.post('/upload-file', formData, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 120000
+    })
+    if (res.data.code !== 200) {
+      console.error('发票兜底上传失败:', res.data.message)
+      return null
+    }
+    const d = res.data.data
+    return {
+      file_key: d.file_key || d.image_url,
+      preview_key: d.preview_key || '',
+      original_filename: item.original_filename || item.file.name,
+      file_md5: d.file_md5 || item.file_md5 || ''
+    }
+  } catch (e) {
+    console.error('发票兜底上传异常:', e?.message || e)
+    return null
+  }
+}
+
 const saveRecord = async () => {
-  // 验证：必须有购物凭证（本地文件或已有服务器URL）
-  if (!receiptLocalFile.value && !form.value.receipt_image_url) {
-    alert('请上传购物凭证图片')
+  // 验证：至少一张购物凭证（本地草稿或已有服务器文件）
+  if (!receiptDrafts.value.length) {
+    alert('请至少上传一张购物凭证图片')
     return
   }
 
@@ -2200,85 +2448,153 @@ const saveRecord = async () => {
       payload.uploader_id = selectedUploaderId.value
     }
 
-    // === 步骤1: 上传购物凭证（如有新文件） ===
-    if (receiptLocalFile.value) {
-      const receiptForm = new FormData()
-      receiptForm.append('file', receiptLocalFile.value)
-      const receiptRes = await $api.post('/upload-file', receiptForm, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 60000
-      })
-      if (receiptRes.data.code === 200) {
-        payload.receipt_image_url = receiptRes.data.data.image_url
-        payload.receipt_file_md5 = receiptRes.data.data.file_md5 || payload.receipt_file_md5
-      } else {
-        throw new Error(receiptRes.data.message || '购物凭证上传失败')
-      }
-    }
-
-    // === 步骤2: 上传发票到COS（如有新文件） ===
-    if (invoiceLocalFile.value && payload.has_invoice && !payload.invoice_file_key) {
-      const invoiceForm = new FormData()
-      invoiceForm.append('file', invoiceLocalFile.value)
-      // 附带客户端生成的预览图（PDF转图片），供服务端在自身转换失败时使用
-      if (_invoice_preview_blob.value) {
-        const previewName = invoiceLocalFile.value.name.replace(/\.pdf$/i, '.jpg')
-        invoiceForm.append('preview_file', _invoice_preview_blob.value, previewName)
-      }
-      try {
-        const invoiceRes = await $api.post('/parse-invoice', invoiceForm, {
+    // === 步骤1: 逐个上传购物凭证，汇总成数组 ===
+    const receiptFiles = []
+    for (const item of receiptDrafts.value) {
+      if (item.file) {
+        const receiptForm = new FormData()
+        receiptForm.append('file', item.file)
+        const receiptRes = await $api.post('/upload-file', receiptForm, {
           headers: { Authorization: `Bearer ${token}` },
-          timeout: 120000
+          timeout: 60000
         })
-
-        if (invoiceRes.data.code === 409) {
-          const d = invoiceRes.data.data
-          showToast(`检测到重复发票，已由 ${d.original_uploader || '未知用户'} 上传过`, 'error', 4000)
-          saving.value = false
-          return
+        if (receiptRes.data.code !== 200) {
+          throw new Error(receiptRes.data.message || '购物凭证上传失败')
         }
+        const d = receiptRes.data.data
+        receiptFiles.push({
+          file_key: d.file_key || d.image_url,
+          preview_key: d.preview_key || '',
+          original_filename: item.original_filename || item.file.name,
+          file_md5: d.file_md5 || item.file_md5 || ''
+        })
+      } else if (item.file_key) {
+        receiptFiles.push({
+          file_key: item.file_key,
+          preview_key: item.preview_key || '',
+          original_filename: item.original_filename || '',
+          file_md5: item.file_md5 || ''
+        })
+      }
+    }
+    if (!receiptFiles.length) {
+      throw new Error('请至少上传一张购物凭证图片')
+    }
 
-        if (invoiceRes.data.code === 200) {
-          const d = invoiceRes.data.data
-          payload.invoice_file_key = d.file_key
-          payload.invoice_preview_key = d.preview_key
-          payload.invoice_md5 = d.file_md5
-          payload._preview_display_url = d.preview_url || d.file_url || ''
-          payload._is_pdf = d.is_pdf || false
-
-          // 填充AI解析结果
-          if (d.parsed_info) {
-            const info = d.parsed_info
-            if (info.item_name && !payload.item_name) payload.item_name = info.item_name
-            if (info.item_name) payload.item_name_from_invoice = info.item_name
-            if (info.invoice_number) payload.invoice_number = info.invoice_number
-            if (info.invoice_tax_number) payload.invoice_tax_number = info.invoice_tax_number
-            if (info.amount) {
-              payload.total_amount = parseFloat(info.amount)
-              payload.amount = parseFloat(info.amount)
-            }
-            if (info.date) payload.invoice_date = info.date
-          } else if (!d.parsed_info && !d.is_pdf) {
-            // AI解析失败（非PDF），显示错误提示但不阻止提交
-            aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
+    // === 步骤2: 逐个上传发票文件（仅第一份用于AI解析） ===
+    const invoiceFiles = []
+    if (!payload.cannot_invoice) {
+      for (const item of invoiceDrafts.value) {
+        if (item.file) {
+          const invoiceForm = new FormData()
+          invoiceForm.append('file', item.file)
+          // 附带客户端生成的预览图（PDF转图片），供服务端在自身转换失败时使用
+          if (item.preview_blob) {
+            const previewName = item.file.name.replace(/\.pdf$/i, '.jpg')
+            invoiceForm.append('preview_file', item.preview_blob, previewName)
           }
-        } else {
-          // 非409的其他错误
-          aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
+          let invoiceRes
+          try {
+            invoiceRes = await $api.post('/parse-invoice', invoiceForm, {
+              headers: { Authorization: `Bearer ${token}` },
+              timeout: 120000
+            })
+          } catch (invErr) {
+            if (invErr.response?.status === 409) {
+              const d = invErr.response.data?.data || {}
+              showToast(`检测到重复发票，已由 ${d.original_uploader || '其他用户'} 上传过`, 'error', 4000)
+              saving.value = false
+              return
+            }
+            // AI 解析接口异常时回退为普通上传，确保发票文件本身不丢失
+            console.error('发票解析接口失败，回退为普通上传:', invErr.message)
+            const fallbackData = await uploadInvoiceFileOnly(item, token)
+            if (fallbackData) {
+              invoiceFiles.push(fallbackData)
+            } else {
+              aiParseError.value = '发票保存失败，请重试或手动填写信息'
+              continue
+            }
+            invoiceRes = null
+          }
+
+          if (invoiceRes) {
+            if (invoiceRes.data.code === 409) {
+              const d = invoiceRes.data.data || {}
+              showToast(`检测到重复发票，已由 ${d.original_uploader || '其他用户'} 上传过`, 'error', 4000)
+              saving.value = false
+              return
+            }
+            if (invoiceRes.data.code !== 200) {
+              // 接口未按预期保存文件时，同样回退普通上传
+              const fallbackData = await uploadInvoiceFileOnly(item, token)
+              if (fallbackData) {
+                invoiceFiles.push(fallbackData)
+              } else {
+                aiParseError.value = '发票保存失败，请重试或手动填写信息'
+              }
+              continue
+            }
+          }
+
+          if (invoiceRes) {
+            const d = invoiceRes.data.data
+            invoiceFiles.push({
+              file_key: d.file_key,
+              preview_key: d.preview_key || '',
+              original_filename: item.original_filename || item.file.name,
+              file_md5: d.file_md5 || item.file_md5 || ''
+            })
+
+            // 仅用第一份发票的AI解析结果填充表单
+            if (invoiceFiles.length === 1 && d.parsed_info) {
+              const info = d.parsed_info
+              if (info.item_name && !payload.item_name) payload.item_name = info.item_name
+              if (info.item_name) payload.item_name_from_invoice = info.item_name
+              if (info.invoice_number) payload.invoice_number = info.invoice_number
+              if (info.invoice_tax_number) payload.invoice_tax_number = info.invoice_tax_number
+              if (info.amount) {
+                payload.total_amount = parseFloat(info.amount)
+                payload.amount = parseFloat(info.amount)
+              }
+              if (info.date) payload.invoice_date = info.date
+            } else if (invoiceFiles.length === 1 && !d.parsed_info) {
+              // 文件已保存但 AI 未解析成功，提示手动填写
+              aiParseError.value = '发票已保存，但 AI 解析失败，请手动填写发票信息'
+            }
+          }
+        } else if (item.file_key) {
+          invoiceFiles.push({
+            file_key: item.file_key,
+            preview_key: item.preview_key || '',
+            original_filename: item.original_filename || '',
+            file_md5: item.file_md5 || ''
+          })
         }
-      } catch (invErr) {
-        console.error('发票上传/解析失败:', invErr.message)
-        if (invErr.response?.status === 409) {
-          showToast('检测到重复发票文件，请勿重复上传', 'error')
-          saving.value = false
-          return
-        }
-        // 网络错误等，显示提示但允许手动填写
-        aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
       }
     }
 
-    // === 步骤3: 提交表单数据 ===
+    // === 步骤3: 组装多文件数组，并同步旧单文件字段（兼容导出/单文件逻辑） ===
+    payload.receipt_files = receiptFiles
+    payload.invoice_files = invoiceFiles
+    payload.cannot_invoice = Boolean(payload.cannot_invoice)
+    payload.has_invoice = !payload.cannot_invoice && invoiceFiles.length > 0
+
+    payload.receipt_image_url = receiptFiles[0].file_key
+    payload.receipt_image_name = receiptFiles[0].original_filename
+    payload.receipt_file_md5 = receiptFiles[0].file_md5 || ''
+
+    const firstInvoice = invoiceFiles[0]
+    payload.invoice_file_key = firstInvoice ? firstInvoice.file_key : ''
+    payload.invoice_preview_key = firstInvoice ? (firstInvoice.preview_key || '') : ''
+    payload.invoice_original_filename = firstInvoice ? firstInvoice.original_filename : ''
+    payload.invoice_md5 = firstInvoice ? (firstInvoice.file_md5 || '') : ''
+    if (firstInvoice) {
+      payload._preview_display_url = form.value._preview_display_url || ''
+      payload._is_pdf = form.value._is_pdf || false
+    }
+
+    // === 步骤4: 提交表单数据 ===
     delete payload._preview_display_url
     delete payload._is_pdf
 
@@ -4050,6 +4366,60 @@ const formatMoney = (val) => {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 2rem; color: #9ca3af; font-size: 0.8rem;
 }
+
+/* ============ 多文件上传网格 ============ */
+.multi-file-area { align-items: stretch; justify-content: flex-start; padding: .75rem; min-height: 130px; }
+.file-grid { display: flex; flex-wrap: wrap; gap: .6rem; width: 100%; align-content: flex-start; }
+.file-grid-item { position: relative; width: 96px; display: flex; flex-direction: column; gap: 4px; }
+.file-grid-thumb {
+  width: 96px; height: 96px; object-fit: cover;
+  border-radius: 10px; border: 1px solid #e2e8f0; background: #f8fafc; cursor: pointer;
+}
+.file-grid-doc {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: #b45309; background: #fffbeb; border: 1px dashed #fcd34d; font-size: 11px; font-weight: 600;
+}
+.file-grid-name { font-size: 11px; color: #64748b; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-grid-remove {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+  background: #ef4444; color: #fff; border: none; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.25); padding: 0;
+}
+.file-grid-add {
+  width: 96px; height: 96px; border-radius: 10px; border: 1.5px dashed #cbd5e1; color: #94a3b8;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  font-size: 11px; cursor: pointer; transition: all .15s ease; background: #fff;
+}
+.file-grid-add:hover { border-color: #10b981; color: #10b981; background: #f0fdf4; }
+.file-count-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; color: #047857; background: #d1fae5; }
+.file-count-badge.amber { color: #92400e; background: #fef3c7; }
+.invoice-upload-tip { margin: 8px 0 0; font-size: 11px; color: #94a3b8; line-height: 1.5; }
+
+/* ============ 「无法开票」单选框 ============ */
+.invoice-status-checkbox { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; user-select: none; }
+.invoice-status-checkbox input[type="checkbox"] { display: none; }
+.invoice-status-checkbox .status-box {
+  width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid #d1d5db; background: #fff;
+  display: inline-flex; align-items: center; justify-content: center; color: #fff; transition: all .15s ease;
+}
+.invoice-status-checkbox.is-checked .status-box { background: #ef4444; border-color: #ef4444; }
+.invoice-status-checkbox .status-text { font-size: 12px; font-weight: 600; color: #64748b; }
+.invoice-status-checkbox.is-checked .status-text { color: #b91c1c; }
+
+/* ============ 详情附件网格 ============ */
+.detail-file-group { display: flex; flex-direction: column; gap: 8px; }
+.detail-file-group-title { display: flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 700; color: #475569; }
+.detail-file-group-title.amber { color: #92400e; }
+.detail-file-count { padding: 1px 7px; border-radius: 8px; background: #f1f5f9; font-size: 11px; }
+.detail-file-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.detail-file-tile { position: relative; width: 108px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
+.detail-file-tile .detail-preview-img { width: 108px; height: 108px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb; }
+.detail-file-pdf {
+  width: 108px; height: 108px; border-radius: 8px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 4px; background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 600;
+}
+.detail-file-pdf.amber { background: #fffbeb; color: #b45309; border: 1px dashed #fcd34d; }
+.detail-file-name { font-size: 11px; color: #64748b; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 @media (max-width: 768px) {
   .form-row, .detail-grid, .detail-images, .invoice-fields-grid { grid-template-columns: 1fr; }

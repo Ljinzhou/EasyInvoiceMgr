@@ -207,6 +207,49 @@ class PurchaseRecord(db.Model):
 
     event = db.relationship('Event', backref='purchase_records')
     uploader = db.relationship('User', foreign_keys=[uploader_id], backref='uploaded_purchase_records')
+    files = db.relationship(
+        'PurchaseRecordFile',
+        back_populates='record',
+        cascade='all, delete-orphan',
+        order_by='PurchaseRecordFile.sort_order, PurchaseRecordFile.file_id',
+        lazy='select',
+    )
+
+    # 附件类型常量：购物凭证 / 发票
+    FILE_TYPE_RECEIPT = 'receipt'
+    FILE_TYPE_INVOICE = 'invoice'
+
+
+class PurchaseRecordFile(db.Model):
+    """购买记录附件（购物凭证、发票均支持多文件）。
+
+    旧版单文件列（receipt_image_url / invoice_file_key / invoice_preview_key /
+    invoice_original_filename / invoice_md5）继续保留，并同步为「第一个文件」的
+    兼容镜像，导出、旧备份等只认单文件列的逻辑仍可工作。
+    """
+
+    __tablename__ = 'purchase_record_files'
+    __table_args__ = (
+        db.Index('ix_purchase_record_files_record_type', 'record_id', 'file_type'),
+    )
+
+    file_id = db.Column(BigIntPK, primary_key=True, autoincrement=True)
+    record_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey('purchase_records.record_id'),
+        nullable=False,
+        index=True,
+    )
+    file_type = db.Column(db.String(20), nullable=False)
+    file_key = db.Column(db.Text, nullable=False)
+    preview_key = db.Column(db.Text)
+    original_filename = db.Column(db.String(255))
+    file_md5 = db.Column(db.String(64))
+    file_size = db.Column(db.BigInteger)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(UTCDateTime(), default=_utcnow)
+
+    record = db.relationship('PurchaseRecord', back_populates='files')
 
 
 class SystemConfig(db.Model):

@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, Response, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import db, PurchaseRecord, Event, User, EventMember
+from models import db, PurchaseRecord, PurchaseRecordFile, Event, User, EventMember
 from datetime import datetime, timezone
 from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
@@ -11,6 +11,7 @@ import logging
 import os
 from utils.operation_log import log_operation
 from utils.event_stats import recalc_event_stats
+import uuid
 
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,364 @@ def get_presigned_url(file_key: str, expires: int = 3600 * 24) -> str:
         return file_key
     
     return None
+
+
+# ---------------------------------------------------------------------------
+# 附件（购物凭证 / 发票）多文件支持
+# ---------------------------------------------------------------------------
+
+def _clean_text(value):
+    """去掉首尾空白；空值统一返回 None。"""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _serialize_record_file(row):
+    """附件行 → 前端可直接展示/下载的结构。"""
+    if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE:
+        file_url = get_presigned_url(row.file_key)
+        preview_url = get_presigned_url(row.preview_key) or file_url
+    else:
+        file_url = get_presigned_url(row.file_key) or row.file_key
+        preview_url = file_url
+
+    return {
+        'file_id': row.file_id,
+        'file_type': row.file_type,
+        'file_key': row.file_key,
+        'preview_key': row.preview_key,
+        'file_url': file_url,
+        'preview_url': preview_url,
+        'original_filename': row.original_filename,
+        'file_md5': row.file_md5,
+        'sort_order': row.sort_order or 0,
+        'is_pdf': bool(row.file_key and row.file_key.lower().endswith('.pdf')),
+        'download_url': (f'/api/records/{row.record_id}/files/{row.file_id}/download'
+                         if row.file_id else None),
+    }
+
+
+def _legacy_record_files(record):
+    """旧库（附件表还没回填）时用单文件列兜底，保证旧数据仍能展示。"""
+    receipt_files = []
+    if record.receipt_image_url:
+        receipt_url = get_presigned_url(record.receipt_image_url) or record.receipt_image_url
+        receipt_files.append({
+            'file_id': None,
+            'file_type': PurchaseRecord.FILE_TYPE_RECEIPT,
+            'file_key': record.receipt_image_url,
+            'preview_key': None,
+            'file_url': receipt_url,
+            'preview_url': receipt_url,
+            'original_filename': record.receipt_image_name,
+            'file_md5': record.receipt_file_md5,
+            'sort_order': 0,
+            'is_pdf': False,
+            'download_url': None,
+        })
+
+    invoice_files = []
+    if record.invoice_file_key:
+        invoice_url = get_presigned_url(record.invoice_file_key)
+        invoice_files.append({
+            'file_id': None,
+            'file_type': PurchaseRecord.FILE_TYPE_INVOICE,
+            'file_key': record.invoice_file_key,
+            'preview_key': record.invoice_preview_key,
+            'file_url': invoice_url,
+            'preview_url': get_presigned_url(record.invoice_preview_key) or invoice_url,
+            'original_filename': record.invoice_original_filename,
+            'file_md5': record.invoice_md5,
+            'sort_order': 0,
+            'is_pdf': bool(record.invoice_file_key.lower().endswith('.pdf')),
+            'download_url': None,
+        })
+
+    return receipt_files, invoice_files
+
+
+def _record_files_payload(record):
+    """返回 (购物凭证列表, 发票列表)。"""
+    rows = list(record.files or [])
+    receipt_files = [
+        _serialize_record_file(row) for row in rows
+        if row.file_type == PurchaseRecord.FILE_TYPE_RECEIPT
+    ]
+    invoice_files = [
+        _serialize_record_file(row) for row in rows
+        if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE
+    ]
+
+    legacy_receipts, legacy_invoices = _legacy_record_files(record)
+    if not receipt_files:
+        receipt_files = legacy_receipts
+    if not invoice_files:
+        invoice_files = legacy_invoices
+    return receipt_files, invoice_files
+
+
+def _normalize_file_entries(raw_files):
+    """把前端提交的附件数组整理成统一结构（过滤空项、按 file_key 去重、保持顺序）。"""
+    if not isinstance(raw_files, list):
+        return []
+
+    entries = []
+    seen = set()
+    for item in raw_files:
+        if isinstance(item, str):
+            item = {'file_key': item}
+        if not isinstance(item, dict):
+            continue
+
+        file_key = _clean_text(
+            item.get('file_key') or item.get('receipt_image_url') or item.get('key')
+        )
+        if not file_key or file_key in seen:
+            continue
+        seen.add(file_key)
+        entries.append({
+            'file_key': file_key,
+            'preview_key': _clean_text(item.get('preview_key') or item.get('invoice_preview_key')),
+            'original_filename': _clean_text(
+                item.get('original_filename')
+                or item.get('receipt_image_name')
+                or item.get('invoice_original_filename')
+            ),
+            'file_md5': _clean_text(item.get('file_md5') or item.get('invoice_md5')),
+        })
+    return entries
+
+
+def _collect_submitted_files(data, file_type):
+    """从请求体里取某一类附件。
+
+    - 返回 None：本次请求没有提交该类附件，保持数据库里的现状；
+    - 返回 []：明确提交了空列表，表示要清空该类附件；
+    - 返回条目列表：以本次提交为准整体替换。
+
+    同时兼容旧客户端的单文件字段（receipt_image_url / invoice_file_key）。
+    """
+    if file_type == PurchaseRecord.FILE_TYPE_RECEIPT:
+        if 'receipt_files' in data:
+            return _normalize_file_entries(data.get('receipt_files'))
+        if 'receipt_image_url' in data:
+            return _normalize_file_entries([{
+                'file_key': data.get('receipt_image_url'),
+                'original_filename': data.get('receipt_image_name'),
+                'file_md5': data.get('receipt_file_md5'),
+            }])
+        return None
+
+    if 'invoice_files' in data:
+        return _normalize_file_entries(data.get('invoice_files'))
+    if 'invoice_file_key' in data:
+        return _normalize_file_entries([{
+            'file_key': data.get('invoice_file_key'),
+            'preview_key': data.get('invoice_preview_key'),
+            'original_filename': data.get('invoice_original_filename'),
+            'file_md5': data.get('invoice_md5'),
+        }])
+    return None
+
+
+def _replace_record_files(record, file_type, entries):
+    """用新的附件列表整体替换某一类附件（entries 为 None 时保持原样）。"""
+    if entries is None:
+        return
+
+    for row in list(record.files):
+        if row.file_type == file_type:
+            record.files.remove(row)
+
+    for index, entry in enumerate(entries):
+        record.files.append(PurchaseRecordFile(
+            file_type=file_type,
+            file_key=entry['file_key'],
+            preview_key=entry['preview_key'],
+            original_filename=entry['original_filename'],
+            file_md5=entry['file_md5'],
+            sort_order=index,
+        ))
+
+
+def _sync_legacy_file_columns(record):
+    """附件表 → 旧单文件列（只保留第一个文件），导出等旧逻辑继续可用。"""
+    receipt = next(
+        (row for row in record.files if row.file_type == PurchaseRecord.FILE_TYPE_RECEIPT),
+        None,
+    )
+    invoice = next(
+        (row for row in record.files if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE),
+        None,
+    )
+
+    if receipt is not None:
+        record.receipt_image_url = receipt.file_key
+        record.receipt_image_name = receipt.original_filename
+        record.receipt_file_md5 = receipt.file_md5
+
+    if invoice is not None and not record.cannot_invoice:
+        record.has_invoice = True
+        record.invoice_file_key = invoice.file_key
+        record.invoice_preview_key = invoice.preview_key
+        record.invoice_original_filename = invoice.original_filename
+        record.invoice_md5 = invoice.file_md5
+    else:
+        record.has_invoice = False
+        record.invoice_file_key = None
+        record.invoice_preview_key = None
+        record.invoice_original_filename = None
+        record.invoice_md5 = None
+
+
+def _apply_submitted_files(record, data):
+    """把请求里的附件写入附件表，并同步旧单文件列。
+
+    返回 (购物凭证数量, 发票数量)。购物凭证至少要有一份。
+    """
+    changed = False
+
+    receipt_entries = _collect_submitted_files(data, PurchaseRecord.FILE_TYPE_RECEIPT)
+    if receipt_entries is not None:
+        if not receipt_entries:
+            raise ValueError('必须至少上传一张购物凭证')
+        _replace_record_files(record, PurchaseRecord.FILE_TYPE_RECEIPT, receipt_entries)
+        changed = True
+
+    invoice_entries = _collect_submitted_files(data, PurchaseRecord.FILE_TYPE_INVOICE)
+    if record.cannot_invoice:
+        # 「无法开票」时不允许挂发票，顺手清空历史发票
+        invoice_entries = []
+    if invoice_entries is not None:
+        _replace_record_files(record, PurchaseRecord.FILE_TYPE_INVOICE, invoice_entries)
+        changed = True
+
+    _sync_legacy_file_columns(record)
+
+    if changed:
+        # 附件变动必须刷新记录的 updated_at，否则导出缓存会误判为「数据未变」，
+        # 继续命中旧的单文件版本导出结果。
+        record.updated_at = datetime.now(timezone.utc)
+
+    receipt_count = sum(
+        1 for row in record.files if row.file_type == PurchaseRecord.FILE_TYPE_RECEIPT
+    )
+    invoice_count = sum(
+        1 for row in record.files if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE
+    )
+    return receipt_count, invoice_count
+
+
+def _first_invoice_file(record):
+    """第一条发票附件（附件表优先，旧单文件列兜底）。"""
+    for row in record.files:
+        if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE:
+            return {
+                'file_key': row.file_key,
+                'preview_key': row.preview_key,
+                'original_filename': row.original_filename or row.file_key.split('/')[-1],
+            }
+
+    if record.invoice_file_key:
+        return {
+            'file_key': record.invoice_file_key,
+            'preview_key': record.invoice_preview_key,
+            'original_filename': record.invoice_original_filename
+            or record.invoice_file_key.split('/')[-1],
+        }
+    return None
+
+
+def _read_file_bytes(file_key):
+    """从 COS 或本地 uploads 目录读取文件内容。找不到返回 None。"""
+    if storage_manager.is_available() and (
+        file_key.startswith('invoices/') or file_key.startswith('uploads/')
+    ):
+        try:
+            return storage_manager.download_file(file_key)
+        except Exception as e:
+            logger.error(f'从COS下载文件失败: {str(e)}')
+            return None
+
+    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+    filename = file_key.replace('/uploads/', '').replace('uploads/', '')
+    local_path = os.path.join(uploads_dir, filename)
+    if os.path.exists(local_path):
+        with open(local_path, 'rb') as f:
+            return f.read()
+    return None
+
+
+def _store_preview_image(jpg_bytes):
+    """保存发票预览 JPG（COS 优先、本地兜底），返回可持久化的 file_key。"""
+    if not jpg_bytes:
+        return None
+
+    unique_id = uuid.uuid4().hex
+    if storage_manager.is_available():
+        preview_key = f"invoices/{unique_id}_preview.jpg"
+        try:
+            storage_manager.upload_bytes(jpg_bytes, preview_key)
+            return preview_key
+        except Exception as e:
+            logger.error(f'发票预览图上传失败: {str(e)}')
+            return None
+
+    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+    try:
+        os.makedirs(uploads_dir, exist_ok=True)
+        filename = f"{unique_id}_preview.jpg"
+        with open(os.path.join(uploads_dir, filename), 'wb') as f:
+            f.write(jpg_bytes)
+        return f"/uploads/{filename}"
+    except Exception as e:
+        logger.error(f'发票预览图本地保存失败: {str(e)}')
+        return None
+
+
+def _persist_invoice_preview(record, file_key, preview_key):
+    """把发票预览 key 落库（附件行 + 旧单文件列），已有则覆盖。"""
+    if not preview_key:
+        return
+
+    changed = False
+    for row in record.files:
+        if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE and row.file_key == file_key:
+            if row.preview_key != preview_key:
+                row.preview_key = preview_key
+                changed = True
+            break
+
+    if record.invoice_file_key == file_key and not record.cannot_invoice:
+        if record.invoice_preview_key != preview_key:
+            record.invoice_preview_key = preview_key
+            changed = True
+
+    if changed:
+        db.session.commit()
+
+
+def _file_download_response(file_key, original_filename):
+    """构造附件下载响应（COS 直出字节流，本地文件 send_file）。"""
+    if storage_manager.is_available() and (
+        file_key.startswith('invoices/') or file_key.startswith('uploads/')
+    ):
+        file_bytes = storage_manager.download_file(file_key)
+        content_type = 'application/pdf' if file_key.lower().endswith('.pdf') else 'image/jpeg'
+        return Response(
+            file_bytes,
+            mimetype=content_type,
+            headers={'Content-Disposition': f'attachment; filename="{original_filename}"'},
+        )
+
+    uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+    filename = file_key.replace('/uploads/', '').replace('uploads/', '')
+    file_path = os.path.join(uploads_dir, filename)
+    if not os.path.exists(file_path):
+        return None
+    return send_file(file_path, as_attachment=True, download_name=original_filename)
 
 
 @purchase_records_bp.route('/events/<int:event_id>/records', methods=['GET'])
@@ -79,7 +438,8 @@ def get_purchase_records(event_id):
             invoice_file_url = get_presigned_url(record.invoice_file_key)
             invoice_preview_url = get_presigned_url(record.invoice_preview_key) or invoice_file_url
             receipt_image_url = get_presigned_url(record.receipt_image_url) or record.receipt_image_url
-            
+            receipt_files, invoice_files = _record_files_payload(record)
+
             records_data.append({
                 'record_id': record.record_id,
                 'event_id': record.event_id,
@@ -89,8 +449,12 @@ def get_purchase_records(event_id):
                 'amount': float(record.amount),
                 'receipt_image_url': receipt_image_url,
                 'receipt_image_name': record.receipt_image_name,
+                'receipt_files': receipt_files,
+                'receipt_count': len(receipt_files),
                 'cannot_invoice': record.cannot_invoice,
                 'has_invoice': record.has_invoice,
+                'invoice_files': invoice_files,
+                'invoice_count': len(invoice_files),
                 'invoice_file_key': record.invoice_file_key,
                 'invoice_preview_key': record.invoice_preview_key,
                 'invoice_url': invoice_file_url,
@@ -156,9 +520,6 @@ def create_purchase_record(event_id):
             if field not in data or data[field] is None or (isinstance(data[field], str) and not data[field].strip()):
                 return jsonify({'code': 400, 'message': f'{field}不能为空', 'data': None}), 400
         
-        if 'receipt_image_url' not in data or not data['receipt_image_url']:
-            return jsonify({'code': 400, 'message': '必须上传购物凭证图片', 'data': None}), 400
-
         # 检查学生是否有权限访问该项目
         if not check_student_event_access(event_id, user):
             return jsonify({'code': 403, 'message': '您未加入该项目，无法上传记录', 'data': None}), 403
@@ -167,7 +528,15 @@ def create_purchase_record(event_id):
         ensure_event_membership(event_id, int(current_user_id))
 
         cannot_invoice = bool(data.get('cannot_invoice'))
-        has_invoice = bool(data.get('invoice_file_key')) if not cannot_invoice else False
+        receipt_entries = _collect_submitted_files(data, PurchaseRecord.FILE_TYPE_RECEIPT) or []
+        if not receipt_entries:
+            return jsonify({'code': 400, 'message': '必须至少上传一张购物凭证图片', 'data': None}), 400
+
+        # 「可开票」但一份发票文件都没传时，直接按「无发票」状态落库
+        invoice_entries = []
+        if not cannot_invoice:
+            invoice_entries = _collect_submitted_files(data, PurchaseRecord.FILE_TYPE_INVOICE) or []
+        has_invoice = bool(invoice_entries)
 
         # 发票金额自动填充：有发票时，实际开销以发票解析结果为准
         invoice_total = float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0
@@ -176,6 +545,9 @@ def create_purchase_record(event_id):
         else:
             actual_amount = float(data['amount']) if data.get('amount') is not None else 0.0
 
+        first_receipt = receipt_entries[0]
+        first_invoice = invoice_entries[0] if invoice_entries else None
+
         record = PurchaseRecord(
             event_id=event_id,
             uploader_id=current_user_id,
@@ -183,15 +555,15 @@ def create_purchase_record(event_id):
             purchase_platform=data['purchase_platform'],
             purchase_date=datetime.strptime(data['purchase_date'], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date'],
             amount=actual_amount,
-            receipt_image_url=data['receipt_image_url'],
-            receipt_image_name=data.get('receipt_image_name'),
-            receipt_file_md5=data.get('receipt_file_md5'),
+            receipt_image_url=first_receipt['file_key'],
+            receipt_image_name=first_receipt['original_filename'],
+            receipt_file_md5=first_receipt['file_md5'],
             cannot_invoice=cannot_invoice,
             has_invoice=has_invoice,
-            invoice_file_key=data.get('invoice_file_key'),
-            invoice_preview_key=data.get('invoice_preview_key'),
-            invoice_original_filename=data.get('invoice_original_filename'),
-            invoice_md5=data.get('invoice_md5'),
+            invoice_file_key=first_invoice['file_key'] if first_invoice else None,
+            invoice_preview_key=first_invoice['preview_key'] if first_invoice else None,
+            invoice_original_filename=first_invoice['original_filename'] if first_invoice else None,
+            invoice_md5=first_invoice['file_md5'] if first_invoice else None,
             invoice_type=data.get('invoice_type'),
             invoice_number=data.get('invoice_number'),
             invoice_tax_number=data.get('invoice_tax_number'),
@@ -199,9 +571,13 @@ def create_purchase_record(event_id):
             invoice_date=datetime.strptime(data['invoice_date'], '%Y-%m-%d').date() if data.get('invoice_date') else None,
             remarks=data.get('remarks')
         )
-        
+
         db.session.add(record)
         db.session.flush()  # 在提交前获取 record_id
+
+        # 写入多文件附件（旧单文件列同步为第一个文件）
+        _replace_record_files(record, PurchaseRecord.FILE_TYPE_RECEIPT, receipt_entries)
+        _replace_record_files(record, PurchaseRecord.FILE_TYPE_INVOICE, invoice_entries)
 
         # 更新赛事统计（统一按明细表重算）
         recalc_event_stats(record.event_id)
@@ -296,36 +672,23 @@ def update_purchase_record(record_id):
             record.purchase_platform = data['purchase_platform']
         if 'purchase_date' in data and data['purchase_date']:
             record.purchase_date = datetime.strptime(data['purchase_date'][:10], '%Y-%m-%d').date() if isinstance(data['purchase_date'], str) else data['purchase_date']
-        if 'receipt_image_url' in data and data['receipt_image_url'] is not None:
-            record.receipt_image_url = data['receipt_image_url']
-        if 'receipt_image_name' in data:
-            record.receipt_image_name = data['receipt_image_name']
-
         if 'cannot_invoice' in data:
             record.cannot_invoice = bool(data['cannot_invoice'])
             if record.cannot_invoice:
                 record.has_invoice = False
-                record.invoice_file_key = None
-                record.invoice_preview_key = None
-                record.invoice_original_filename = None
-                record.invoice_md5 = None
                 record.invoice_type = None
                 record.invoice_number = None
                 record.invoice_tax_number = None
                 record.total_amount = 0
                 record.invoice_date = None
 
-        if 'invoice_file_key' in data and not record.cannot_invoice:
-            has_invoice = bool(data['invoice_file_key'])
-            record.has_invoice = has_invoice
-            record.invoice_file_key = data['invoice_file_key'] if has_invoice else None
+        # 多文件附件：本次提交的附件整体替换旧数据，并同步旧单文件列
+        try:
+            _apply_submitted_files(record, data)
+        except ValueError as e:
+            db.session.rollback()
+            return jsonify({'code': 400, 'message': str(e), 'data': None}), 400
 
-        if 'invoice_preview_key' in data:
-            record.invoice_preview_key = data['invoice_preview_key']
-        if 'invoice_original_filename' in data:
-            record.invoice_original_filename = data['invoice_original_filename']
-        if 'invoice_md5' in data:
-            record.invoice_md5 = data['invoice_md5']
         if 'invoice_type' in data:
             record.invoice_type = data['invoice_type']
         if 'invoice_number' in data:
@@ -848,40 +1211,52 @@ def download_invoice(record_id):
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
         
-        if not record.invoice_file_key:
+        invoice_file = _first_invoice_file(record)
+        if not invoice_file:
             return jsonify({'code': 404, 'message': '该记录没有发票文件', 'data': None}), 404
-        
-        file_key = record.invoice_file_key
-        original_filename = record.invoice_original_filename or file_key.split('/')[-1]
-        
-        if storage_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
-            file_bytes = storage_manager.download_file(file_key)
-            
-            content_type = 'application/pdf' if file_key.endswith('.pdf') else 'image/jpeg'
-            
-            logger.info(f'发票文件下载成功: {file_key}')
-            
-            return Response(
-                file_bytes,
-                mimetype=content_type,
-                headers={
-                    'Content-Disposition': f'attachment; filename="{original_filename}"'
-                }
-            )
-        else:
-            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
-            filename = file_key.replace('/uploads/', '').replace('uploads/', '')
-            file_path = os.path.join(uploads_dir, filename)
-            
-            if not os.path.exists(file_path):
-                logger.error(f'本地文件不存在: {file_path}')
-                return jsonify({'code': 404, 'message': '文件不存在', 'data': None}), 404
-            
-            logger.info(f'本地发票文件下载: {file_path}')
-            return send_file(file_path, as_attachment=True, download_name=original_filename)
+
+        response = _file_download_response(invoice_file['file_key'], invoice_file['original_filename'])
+        if response is None:
+            logger.error(f'发票文件不存在: {invoice_file["file_key"]}')
+            return jsonify({'code': 404, 'message': '文件不存在', 'data': None}), 404
+
+        logger.info(f'发票文件下载成功: {invoice_file["file_key"]}')
+        return response
             
     except Exception as e:
         logger.error(f'下载发票文件异常: {str(e)}', exc_info=True)
+        return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
+
+
+@purchase_records_bp.route('/records/<int:record_id>/files/<int:file_id>/download', methods=['GET'])
+@jwt_required()
+def download_record_file(record_id, file_id):
+    """下载购买记录附件（多文件场景：购物凭证或发票指定 file_id）"""
+    logger.info(f'=== 下载购买记录附件: record_id={record_id}, file_id={file_id} ===')
+    try:
+        get_jwt_identity()
+
+        record = PurchaseRecord.query.filter_by(record_id=record_id, is_deleted=False).first()
+        if not record:
+            return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
+
+        record_file = PurchaseRecordFile.query.filter_by(
+            file_id=file_id, record_id=record_id
+        ).first()
+        if not record_file:
+            return jsonify({'code': 404, 'message': '附件不存在', 'data': None}), 404
+
+        original_filename = (record_file.original_filename
+                             or record_file.file_key.split('/')[-1])
+        response = _file_download_response(record_file.file_key, original_filename)
+        if response is None:
+            logger.error(f'附件文件不存在: {record_file.file_key}')
+            return jsonify({'code': 404, 'message': '文件不存在', 'data': None}), 404
+
+        return response
+
+    except Exception as e:
+        logger.error(f'下载购买记录附件异常: {str(e)}', exc_info=True)
         return jsonify({'code': 500, 'message': str(e), 'data': None}), 500
 
 
@@ -897,10 +1272,24 @@ def get_invoice_preview(record_id):
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
         
-        if not record.has_invoice:
+        invoice_file = _first_invoice_file(record)
+        if not invoice_file:
             return jsonify({'code': 404, 'message': '该记录没有发票', 'data': None}), 404
-        
-        preview_key = record.invoice_preview_key or record.invoice_file_key
+
+        preview_key = invoice_file['preview_key'] or invoice_file['file_key']
+
+        if not invoice_file['preview_key'] and invoice_file['file_key'].lower().endswith('.pdf'):
+            # 兼容历史数据：早期上传的 PDF 发票没有预览图，这里按需补生成并落库
+            pdf_bytes = _read_file_bytes(invoice_file['file_key'])
+            if pdf_bytes:
+                jpg_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(pdf_bytes)
+                if jpg_bytes:
+                    generated_key = _store_preview_image(jpg_bytes)
+                    if generated_key:
+                        _persist_invoice_preview(record, invoice_file['file_key'], generated_key)
+                        preview_key = generated_key
+                        logger.info(f'历史 PDF 发票预览图已补生成: record_id={record_id}')
+
         preview_url = get_presigned_url(preview_key, expires=3600)
         
         if not preview_url:
@@ -911,7 +1300,7 @@ def get_invoice_preview(record_id):
             'message': 'success',
             'data': {
                 'preview_url': preview_url,
-                'is_pdf': record.invoice_file_key.endswith('.pdf') if record.invoice_file_key else False
+                'is_pdf': invoice_file['file_key'].lower().endswith('.pdf')
             }
         }), 200
         
@@ -932,35 +1321,25 @@ def re_parse_invoice(record_id):
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
 
-        if not record.has_invoice or not record.invoice_file_key:
+        invoice_file = _first_invoice_file(record)
+        if not invoice_file:
             return jsonify({'code': 400, 'message': '该记录没有发票文件', 'data': None}), 400
 
-        file_key = record.invoice_file_key
-        is_pdf = file_key.endswith('.pdf')
-        original_filename = record.invoice_original_filename or file_key.split('/')[-1]
+        file_key = invoice_file['file_key']
+        is_pdf = file_key.lower().endswith('.pdf')
+        original_filename = invoice_file['original_filename']
 
         # 从对象存储或本地下载文件
-        file_bytes = None
-        if storage_manager.is_available() and (file_key.startswith('invoices/') or file_key.startswith('uploads/')):
-            try:
-                file_bytes = storage_manager.download_file(file_key)
-                logger.info(f'从COS下载文件成功: {file_key}')
-            except Exception as e:
-                logger.error(f'从COS下载文件失败: {str(e)}')
-        else:
-            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
-            filename = file_key.replace('/uploads/', '').replace('uploads/', '')
-            local_path = os.path.join(uploads_dir, filename)
-            if os.path.exists(local_path):
-                with open(local_path, 'rb') as f:
-                    file_bytes = f.read()
-                logger.info(f'从本地读取文件成功: {local_path}')
+        file_bytes = _read_file_bytes(file_key)
+        if file_bytes:
+            logger.info(f'发票文件读取成功: {file_key}')
 
         if not file_bytes:
             return jsonify({'code': 404, 'message': '无法获取发票文件', 'data': None}), 404
 
         # PDF文件：先转换为JPG图片再用GLM解析
         image_bytes_for_ai = file_bytes
+        jpg_bytes = None
         if is_pdf:
             jpg_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(file_bytes)
             if jpg_bytes:
@@ -968,6 +1347,18 @@ def re_parse_invoice(record_id):
                 logger.info('PDF转换为JPG成功，使用JPG进行AI解析')
             else:
                 logger.warning('PDF转换JPG失败，尝试直接解析')
+
+        # 预览图：与解析结果解耦——只要发票是 PDF 且还没有预览图，就先转图保存
+        preview_key = invoice_file.get('preview_key')
+        if is_pdf and jpg_bytes and not preview_key:
+            preview_key = _store_preview_image(jpg_bytes)
+            if preview_key:
+                _persist_invoice_preview(record, file_key, preview_key)
+                logger.info(f'补生成发票预览图: {preview_key}')
+        elif not is_pdf and not preview_key:
+            # 图片发票本身即预览图
+            preview_key = file_key
+            _persist_invoice_preview(record, file_key, preview_key)
 
         # 调用解析服务
         parsed_info = None
@@ -986,16 +1377,25 @@ def re_parse_invoice(record_id):
                     'date': raw_data.get('invoice_date', '')
                 }
             else:
-                logger.warning(f'发票重新解析失败: {result.get("message")}')
-                return jsonify({'code': 422, 'message': result.get('message', '解析失败'), 'data': None}), 422
+                logger.warning(f'发票重新解析失败（预览图已保存）: {result.get("message")}')
+                return jsonify({
+                    'code': 422,
+                    'message': result.get('message', '解析失败'),
+                    'data': {'preview_key': preview_key}
+                }), 422
         else:
-            return jsonify({'code': 503, 'message': 'AI解析服务不可用', 'data': None}), 503
+            return jsonify({
+                'code': 503,
+                'message': 'AI解析服务不可用',
+                'data': {'preview_key': preview_key}
+            }), 503
 
         return jsonify({
             'code': 200,
             'message': '重新解析成功',
             'data': {
                 'parsed_info': parsed_info,
+                'preview_key': preview_key,
                 'extraction_method': 'glm_vision'
             }
         }), 200

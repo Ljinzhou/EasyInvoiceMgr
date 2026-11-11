@@ -10,6 +10,7 @@
     <div class="export-section">
       <h3 class="section-title">选择导出列</h3>
       <p class="section-desc">勾选需要导出的数据列，至少选择一项</p>
+      <p class="section-tip">每条记录的购物凭证与发票都可能有多个文件：「购物图片 / 发票图片」列在 Excel 中嵌入第一张，全部文件会另存在 ZIP 文件夹里，并在 Excel「附件清单」工作表中逐条列出。</p>
       <div class="columns-grid">
         <div
           v-for="col in columns"
@@ -36,21 +37,21 @@
           <input type="checkbox" v-model="options.mergedPdf" />
           <div class="option-content">
             <span class="option-label">合并发票PDF</span>
-            <span class="option-desc">将所有发票文件按数据顺序合并为一个PDF文件</span>
+            <span class="option-desc">把所有记录的发票按数据顺序合并为一个PDF（图片发票自动转为PDF）</span>
           </div>
         </label>
         <label class="option-item">
           <input type="checkbox" v-model="options.individualInvoices" />
           <div class="option-content">
             <span class="option-label">单独发票文件</span>
-            <span class="option-desc">每个发票作为单独文件保存，文件名以发票税号命名</span>
+            <span class="option-desc">每张发票单独保存为一个文件，文件名含记录编号、销售方税号与原始文件名</span>
           </div>
         </label>
         <label class="option-item">
           <input type="checkbox" v-model="options.receiptImages" />
           <div class="option-content">
             <span class="option-label">购物凭证图片</span>
-            <span class="option-desc">导出所有购物凭证截图到独立文件夹</span>
+            <span class="option-desc">导出所有购物凭证文件（含同一记录的多张）到独立文件夹</span>
           </div>
         </label>
         <label class="option-item">
@@ -93,7 +94,7 @@
       <h3>导出完成</h3>
       <p class="download-info">共 {{ recordCount }} 条记录 &middot; {{ formatFileSize(fileSize) }}</p>
       <button @click="downloadFile" class="btn-download">下载ZIP文件</button>
-      <p class="download-hint">文件将在30分钟后自动删除</p>
+      <p class="download-hint">ZIP 内包含「购物信息.xlsx」（含附件清单工作表）、发票汇总与各附件文件夹；相同配置且数据未变时会复用上次导出结果。文件将在30分钟后自动删除</p>
     </div>
 
     <!-- 错误显示 -->
@@ -123,9 +124,12 @@ const columns = [
   { key: 'purchase_date', label: '购物日期', icon: '📅', desc: '购买日期' },
   { key: 'invoice_date', label: '开票日期', icon: '🗓', desc: '发票开票日期' },
   { key: 'uploader', label: '上传人', icon: '👤', desc: '记录上传者姓名' },
-  { key: 'invoice_tax_number', label: '发票税号', icon: '🔢', desc: '发票上的纳税人识别号' },
-  { key: 'receipt_image', label: '购物图片', icon: '🖼', desc: '购物凭证截图' },
-  { key: 'invoice_image', label: '发票图片', icon: '📄', desc: '发票文件' },
+  { key: 'invoice_tax_number', label: '销售方税号', icon: '🔢', desc: '发票销售方的纳税人识别号' },
+  { key: 'invoice_number', label: '发票号码', icon: '🔠', desc: '发票号码（无发票显示无）' },
+  { key: 'receipt_count', label: '凭证张数', icon: '🔖', desc: '该记录上传的购物凭证数量' },
+  { key: 'invoice_count', label: '发票张数', icon: '📑', desc: '该记录上传的发票数量' },
+  { key: 'receipt_image', label: '购物图片', icon: '🖼', desc: '购物凭证截图（多张时展示第一张）' },
+  { key: 'invoice_image', label: '发票图片', icon: '📄', desc: '发票文件（多张时展示第一张）' },
 ]
 
 const selectedColumns = ref(['item_name', 'purchase_platform', 'amount', 'purchase_date', 'uploader'])
@@ -375,6 +379,17 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   color: #95a5a6;
   margin: 0 0 1rem 0;
+}
+
+.section-tip {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #64748b;
+  background: #f8fafc;
+  border-left: 3px solid #667eea;
+  border-radius: 4px;
+  padding: 0.55rem 0.75rem;
+  margin: -0.5rem 0 1rem 0;
 }
 
 .columns-grid {

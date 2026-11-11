@@ -4,6 +4,7 @@
 必须跨层 import 路由模块。现下沉为独立工具，路由层之间不再有横向依赖。
 """
 
+import io
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,16 +15,22 @@ class PDFConverter:
 
     @staticmethod
     def is_pdf_available():
-        """检查PDF渲染库是否可用（PyPDF2不支持渲染，需要额外安装fitz或pdf2image）"""
+        """检查PDF渲染库是否可用（PyPDF2不支持渲染，需要额外安装pymupdf或pdf2image）"""
         try:
-            import fitz
+            import pymupdf  # noqa: F401
             return True
         except ImportError:
-            try:
-                from pdf2image import convert_from_bytes
-                return True
-            except ImportError:
-                return False
+            pass
+        try:
+            import fitz  # noqa: F401
+            return True
+        except ImportError:
+            pass
+        try:
+            from pdf2image import convert_from_bytes  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
     @staticmethod
     def convert_pdf_to_jpg(pdf_bytes: bytes, dpi: float = 2.0) -> tuple:
@@ -38,8 +45,11 @@ class PDFConverter:
             tuple: (jpg_bytes, width, height, page_count) 或 (None, None, None, 0) 失败时
         """
         try:
-            import fitz
-            from PIL import Image
+            try:
+                import pymupdf as fitz
+            except ImportError:
+                import fitz
+            from PIL import Image  # noqa: F401  # pil_save 需要 Pillow
 
             pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
             page_count = len(pdf_document)

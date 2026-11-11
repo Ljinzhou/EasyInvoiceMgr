@@ -144,6 +144,11 @@ def upload_file():
     
     unique_id = uuid.uuid4().hex
     file_key = f"invoices/{unique_id}.{file_ext}"
+
+    # 与 AI 解析无关的预览图：PDF 转 JPG，图片文件直接复用原图。
+    preview_bytes = None
+    if file_ext == 'pdf':
+        preview_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(file_bytes)
     
     content_type_map = {
         'pdf': 'application/pdf',
@@ -168,12 +173,31 @@ def upload_file():
         file_key = f"/uploads/{local_filename}"
     
     file_md5 = hashlib.md5(file_bytes).hexdigest()
-    
-    preview_url = None
+
+    # 保存预览图（PDF → JPG，图片文件复用原图），解析失败也不影响预览落盘
+    preview_file_key = None
     if storage_manager.is_available() and file_key.startswith('invoices/'):
-        preview_url = storage_manager.get_presigned_url(file_key, expires=3600 * 24)
+        if preview_bytes:
+            preview_file_key = f"invoices/{unique_id}_preview.jpg"
+            if not InvoiceUploadService.upload_to_storage(preview_bytes, preview_file_key, 'image/jpeg'):
+                logger.warning('预览图上传失败')
+                preview_file_key = None
+        else:
+            preview_file_key = file_key
     elif file_key.startswith('/uploads/'):
-        preview_url = file_key
+        if preview_bytes:
+            preview_name = f"{unique_id}_preview.jpg"
+            uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
+            if InvoiceUploadService.save_to_local(preview_bytes, preview_name, uploads_dir):
+                preview_file_key = f"/uploads/{preview_name}"
+        else:
+            preview_file_key = file_key
+
+    preview_url = None
+    if preview_file_key and preview_file_key.startswith('invoices/'):
+        preview_url = storage_manager.get_presigned_url(preview_file_key, expires=3600 * 24)
+    elif preview_file_key and preview_file_key.startswith('/uploads/'):
+        preview_url = preview_file_key
     
     return jsonify({
         'code': 200,
@@ -181,6 +205,7 @@ def upload_file():
         'data': {
             'image_url': preview_url,
             'file_key': file_key,
+            'preview_key': preview_file_key,
             'preview_url': preview_url,
             'file_md5': file_md5,
             'original_filename': original_filename,
@@ -316,6 +341,8 @@ def parse_invoice():
                 logger.warning('PDF渲染转换失败（渲染库不可用且无客户端预览图）')
         
         invoice_file_key = f"invoices/{unique_id}.{file_ext}"
+        # 发票预览图：PDF 用渲染出的 JPG，图片发票直接复用原图。
+        # 预览图生成与 AI 解析完全解耦——即使解析失败，也要保证预览图落盘。
         preview_file_key = None
         
         content_type_map = {
@@ -350,6 +377,9 @@ def parse_invoice():
                 if not preview_success:
                     logger.warning('预览图上传失败，将使用原始PDF')
                     preview_file_key = None
+            elif not is_pdf:
+                # 图片发票本身就是图片，原图即可作为预览
+                preview_file_key = invoice_file_key
             
             logger.info(f'文件上传成功: 原始文件={invoice_file_key}, 预览图={preview_file_key}')
         else:
@@ -365,6 +395,9 @@ def parse_invoice():
                 preview_filename = f"{unique_id}_preview.jpg"
                 if InvoiceUploadService.save_to_local(jpg_bytes, preview_filename, uploads_dir):
                     preview_file_key = f"/uploads/{preview_filename}"
+            elif not is_pdf:
+                # 图片发票本身就是图片，原图即可作为预览
+                preview_file_key = invoice_file_key
             
             logger.info(f'本地存储: 原始文件={invoice_file_key}, 预览图={preview_file_key}')
         
@@ -377,30 +410,38 @@ def parse_invoice():
         else:
             image_bytes_for_ai = file_bytes
 
+        # AI 解析：与文件保存彻底解耦。解析链路任何异常都不影响已保存的发票/预览图。
         parsed_info = None
-        if image_bytes_for_ai and invoice_parser.is_available():
-            logger.info('开始调用AI模型解析发票...')
+        ai_parse_error = None
+        try:
+            if image_bytes_for_ai and invoice_parser.is_available():
+                logger.info('开始调用AI模型解析发票...')
 
-            ai_filename = f'{unique_id}.jpg' if is_pdf else original_filename
-            result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
-            
-            if result.get('success'):
-                logger.info('AI发票解析成功')
-                parsed_info = result.get('data')
-                
-                if parsed_info:
-                    parsed_info = {
-                        'item_name': parsed_info.get('project_name', '') or parsed_info.get('item_name', ''),
-                        'invoice_number': parsed_info.get('invoice_number', ''),
-                        'invoice_tax_number': parsed_info.get('invoice_tax_number', '') or parsed_info.get('tax_number', ''),
-                        'amount': parsed_info.get('total_amount', 0) or parsed_info.get('amount', 0),
-                        'date': parsed_info.get('invoice_date', '')
-                    }
-                    logger.info(f'解析结果: {parsed_info}')
+                ai_filename = f'{unique_id}.jpg' if is_pdf else original_filename
+                result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
+
+                if result.get('success'):
+                    logger.info('AI发票解析成功')
+                    parsed_info = result.get('data')
+
+                    if parsed_info:
+                        parsed_info = {
+                            'item_name': parsed_info.get('project_name', '') or parsed_info.get('item_name', ''),
+                            'invoice_number': parsed_info.get('invoice_number', ''),
+                            'invoice_tax_number': parsed_info.get('invoice_tax_number', '') or parsed_info.get('tax_number', ''),
+                            'amount': parsed_info.get('total_amount', 0) or parsed_info.get('amount', 0),
+                            'date': parsed_info.get('invoice_date', '')
+                        }
+                        logger.info(f'解析结果: {parsed_info}')
+                else:
+                    ai_parse_error = result.get('message') or 'AI解析失败'
+                    logger.warning(f'AI解析失败（发票文件与预览图已保存）: {ai_parse_error}')
             else:
-                logger.warning(f'AI解析失败: {result.get("message")}')
-        else:
-            logger.warning('AI解析服务不可用')
+                ai_parse_error = 'AI解析服务不可用'
+                logger.warning(f'AI解析服务不可用（发票文件与预览图已保存）: image_bytes={bool(image_bytes_for_ai)}')
+        except Exception as parse_error:
+            ai_parse_error = str(parse_error)
+            logger.error(f'AI解析异常（发票文件与预览图已保存）: {parse_error}', exc_info=True)
         
         preview_url = None
         file_url = None
@@ -415,10 +456,17 @@ def parse_invoice():
         else:
             file_url = invoice_file_key
             preview_url = preview_file_key or invoice_file_key
+
+        if parsed_info:
+            message = '解析完成'
+        elif ai_parse_error:
+            message = '发票文件已保存，但AI解析失败，请手动填写发票信息'
+        else:
+            message = '发票文件已保存'
         
         return jsonify({
             'code': 200,
-            'message': '解析完成' if parsed_info else '文件上传成功',
+            'message': message,
             'data': {
                 'file_key': invoice_file_key,
                 'preview_key': preview_file_key,
@@ -430,6 +478,8 @@ def parse_invoice():
                 'pdf_page_count': pdf_page_count,
                 'file_md5': original_md5,
                 'parsed_info': parsed_info,
+                'ai_parse_success': bool(parsed_info),
+                'ai_parse_error': ai_parse_error,
                 'extraction_method': 'glm_vision' if parsed_info else None
             }
         }), 200

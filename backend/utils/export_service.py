@@ -19,7 +19,10 @@ COLUMN_DEFINITIONS = {
     'purchase_date': {'label': '购物日期', 'width': 14},
     'invoice_date': {'label': '开票日期', 'width': 14},
     'uploader': {'label': '上传人', 'width': 12},
-    'invoice_tax_number': {'label': '发票税号', 'width': 22},
+    'invoice_tax_number': {'label': '销售方税号', 'width': 22},
+    'invoice_number': {'label': '发票号码', 'width': 22},
+    'receipt_count': {'label': '凭证张数', 'width': 10},
+    'invoice_count': {'label': '发票张数', 'width': 10},
     'receipt_image': {'label': '购物图片', 'width': 20},
     'invoice_image': {'label': '发票图片', 'width': 20},
 }
@@ -30,6 +33,79 @@ IMAGE_COLUMNS = {'receipt_image', 'invoice_image'}
 # 在 Excel 中嵌入图片的目标像素尺寸
 IMG_TARGET_WIDTH_PX = 160
 IMG_TARGET_HEIGHT_PX = 100
+
+# 导出产物格式版本：附件多文件、图片发票转 PDF 合并等行为变化时递增，
+# check_cache 会拒绝旧版本产生的导出文件，避免命中过期结果。
+EXPORT_FORMAT_VERSION = 2
+
+# 可以直接作为图片嵌入 Excel 的扩展名
+IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
+
+# Windows / Linux 文件名非法字符
+_ILLEGAL_FILENAME_CHARS = '<>:"/\\|?*'
+
+
+def _sanitize_filename(name, fallback='附件', max_length=80):
+    """清理成文件系统安全的文件名片段（不含扩展名）。"""
+    text = (name or '').split('?')[0].strip()
+    text = ''.join('_' if c in _ILLEGAL_FILENAME_CHARS or ord(c) < 32 else c for c in text)
+    text = text.strip(' .')
+    if len(text) > max_length:
+        text = text[:max_length].rstrip(' .')
+    return text or fallback
+
+
+def _file_extension(file_key, original_filename='', fallback='.pdf'):
+    """从文件 key 或原始文件名推断扩展名（带点、小写）。"""
+    for candidate in (original_filename, file_key or ''):
+        if not candidate:
+            continue
+        candidate = candidate.split('?')[0]
+        ext = os.path.splitext(os.path.basename(candidate))[1].lower()
+        if ext and len(ext) <= 6:
+            return ext
+    return fallback
+
+
+def _unique_file_path(directory, filename):
+    """同名文件自动追加序号，避免多附件导出时相互覆盖。"""
+    stem, ext = os.path.splitext(filename)
+    candidate = os.path.join(directory, filename)
+    counter = 2
+    while os.path.exists(candidate):
+        candidate = os.path.join(directory, f'{stem}_{counter}{ext}')
+        counter += 1
+    return candidate
+
+
+# 导出开关的规范键名（内部统一 snake_case + 布尔值）
+_EXPORT_OPTION_KEYS = ('merged_pdf', 'individual_invoices', 'receipt_images', 'only_mine')
+
+
+def normalize_export_options(options):
+    """统一导出开关：前端 camelCase → 后端 snake_case，并规范成布尔值。
+
+    导出缓存按 options 精确比较，必须保证「同一种选择」只有一种表示形式，
+    否则缓存会一直未命中。
+    """
+    mapping = {
+        'mergedPdf': 'merged_pdf',
+        'individualInvoices': 'individual_invoices',
+        'receiptImages': 'receipt_images',
+        'onlyMine': 'only_mine',
+    }
+    raw = options if isinstance(options, dict) else {}
+    result = {key: False for key in _EXPORT_OPTION_KEYS}
+    for key, value in raw.items():
+        normalized_key = mapping.get(key, key)
+        if normalized_key not in result:
+            continue
+        if isinstance(value, str):
+            value = value.strip().lower() in ('1', 'true', 'yes', 'on', '是')
+        else:
+            value = bool(value)
+        result[normalized_key] = value
+    return result
 
 
 class ExportService:
@@ -139,21 +215,51 @@ class ExportService:
                     pass
 
     def _normalize_options(self, options):
-        """将前端 camelCase 键转换为后端 snake_case 键。"""
-        mapping = {
-            'mergedPdf': 'merged_pdf',
-            'individualInvoices': 'individual_invoices',
-            'receiptImages': 'receipt_images',
-            'onlyMine': 'only_mine',
-        }
-        result = {}
-        for k, v in options.items():
-            key = mapping.get(k, k)
-            result[key] = v
-        return result
+        """将前端 camelCase 键转换为后端 snake_case 键（兼容旧任务）。"""
+        return normalize_export_options(options)
+
+    # ------------------------------------------------------------------
+    # 附件读取：明细表优先，旧单文件列兜底
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _file_rows_to_attachments(rows):
+        """把 PurchaseRecordFile 行转换成导出用的附件字典。"""
+        return [
+            {
+                'file_key': row.file_key or '',
+                'preview_key': row.preview_key or '',
+                'original_filename': row.original_filename or '',
+                'file_size': row.file_size,
+            }
+            for row in rows
+            if row.file_key
+        ]
+
+    @staticmethod
+    def _legacy_attachments(record):
+        """没有附件明细行时，退回旧单文件列（兼容历史数据/旧库）。"""
+        receipts = []
+        if record.receipt_image_url:
+            receipts.append({
+                'file_key': record.receipt_image_url,
+                'preview_key': '',
+                'original_filename': record.receipt_image_name or '',
+                'file_size': None,
+            })
+
+        invoices = []
+        if not record.cannot_invoice and record.has_invoice and record.invoice_file_key:
+            invoices.append({
+                'file_key': record.invoice_file_key,
+                'preview_key': record.invoice_preview_key or '',
+                'original_filename': record.invoice_original_filename or '',
+                'file_size': None,
+            })
+        return receipts, invoices
 
     def _fetch_data(self, event_id, uploader_id=None):
-        from models import db, PurchaseRecord, Invoice, User
+        from models import db, PurchaseRecord, PurchaseRecordFile, Invoice, User
 
         purchase_query = PurchaseRecord.query.filter_by(event_id=event_id, is_deleted=False)
         invoice_query = Invoice.query.filter_by(event_id=event_id, is_deleted=False)
@@ -164,16 +270,62 @@ class ExportService:
         purchase_records = purchase_query.all()
         invoices = invoice_query.all()
 
-        logger.info(f'获取数据: event_id={event_id}, purchase_records={len(purchase_records)}, invoices={len(invoices)}')
+        # 批量取上传人，避免逐条查询（附件多文件后记录数更多，N+1 放大明显）
+        user_ids = {r.uploader_id for r in purchase_records} | {i.uploader_id for i in invoices}
+        users = {}
+        if user_ids:
+            users = {
+                user.user_id: user
+                for user in User.query.filter(User.user_id.in_(user_ids)).all()
+            }
+
+        # 一次取出全部附件明细，按 记录 → 类型 → 顺序 归组
+        attachment_rows = {}
+        record_ids = [record.record_id for record in purchase_records]
+        if record_ids:
+            rows = (
+                PurchaseRecordFile.query
+                .filter(PurchaseRecordFile.record_id.in_(record_ids))
+                .order_by(
+                    PurchaseRecordFile.record_id,
+                    PurchaseRecordFile.sort_order,
+                    PurchaseRecordFile.file_id,
+                )
+                .all()
+            )
+            for row in rows:
+                attachment_rows.setdefault(row.record_id, []).append(row)
+
+        logger.info(
+            f'获取数据: event_id={event_id}, purchase_records={len(purchase_records)}, '
+            f'invoices={len(invoices)}, attachment_rows={sum(len(v) for v in attachment_rows.values())}'
+        )
 
         all_records = []
         max_updated = None
 
         for record in purchase_records:
-            uploader = db.session.get(User, record.uploader_id)
+            uploader = users.get(record.uploader_id)
             updated = record.updated_at or record.created_at
             if max_updated is None or (updated and updated > max_updated):
                 max_updated = updated
+
+            rows = attachment_rows.get(record.record_id, [])
+            receipt_files = self._file_rows_to_attachments(
+                [row for row in rows if row.file_type == PurchaseRecord.FILE_TYPE_RECEIPT]
+            )
+            invoice_files = self._file_rows_to_attachments(
+                [row for row in rows if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE]
+            )
+
+            legacy_receipts, legacy_invoices = self._legacy_attachments(record)
+            if not receipt_files:
+                receipt_files = legacy_receipts
+            if not invoice_files:
+                invoice_files = legacy_invoices
+
+            primary_receipt = receipt_files[0] if receipt_files else {}
+            primary_invoice = invoice_files[0] if invoice_files else {}
 
             rec = {
                 'type': 'purchase',
@@ -186,23 +338,40 @@ class ExportService:
                 'uploader_name': uploader.real_name if uploader else '未知',
                 'invoice_tax_number': record.invoice_tax_number or '',
                 'invoice_number': record.invoice_number or '',
-                'has_invoice': record.has_invoice or False,
-                'invoice_file_key': record.invoice_file_key or '',
-                'invoice_preview_key': record.invoice_preview_key or '',
-                'invoice_original_filename': record.invoice_original_filename or '',
-                'receipt_image_url': record.receipt_image_url or '',
-                'receipt_image_name': record.receipt_image_name or '',
+                'has_invoice': bool(invoice_files),
+                'receipt_files': receipt_files,
+                'invoice_files': invoice_files,
+                'receipt_count': len(receipt_files),
+                'invoice_count': len(invoice_files),
+                # 兼容字段：仍指向「第一个文件」，供图片列/旧逻辑使用
+                'invoice_file_key': primary_invoice.get('file_key', ''),
+                'invoice_preview_key': primary_invoice.get('preview_key', ''),
+                'invoice_original_filename': primary_invoice.get('original_filename', ''),
+                'receipt_image_url': primary_receipt.get('file_key', ''),
+                'receipt_image_name': primary_receipt.get('original_filename', ''),
                 'created_at': record.created_at.strftime('%Y-%m-%d %H:%M:%S') if record.created_at else '',
                 'raw_created_at': record.created_at,
             }
             all_records.append(rec)
-            logger.debug(f'  购买记录 {rec["id"]}: receipt_key={rec["receipt_image_url"][:80] if rec["receipt_image_url"] else "空"}, invoice_key={rec["invoice_file_key"][:80] if rec["invoice_file_key"] else "空"}, tax={rec["invoice_tax_number"]}')
+            logger.debug(
+                f'  购买记录 {rec["id"]}: 凭证={rec["receipt_count"]} 张, '
+                f'发票={rec["invoice_count"]} 张, has_invoice={rec["has_invoice"]}'
+            )
 
         for invoice in invoices:
-            uploader = db.session.get(User, invoice.uploader_id)
+            uploader = users.get(invoice.uploader_id)
             updated = invoice.updated_at or invoice.created_at
             if max_updated is None or (updated and updated > max_updated):
                 max_updated = updated
+
+            invoice_files = []
+            if invoice.image_url:
+                invoice_files.append({
+                    'file_key': invoice.image_url,
+                    'preview_key': invoice.preview_image_url or '',
+                    'original_filename': invoice.file_name or '',
+                    'file_size': None,
+                })
 
             rec = {
                 'type': 'invoice',
@@ -215,16 +384,21 @@ class ExportService:
                 'uploader_name': uploader.real_name if uploader else '未知',
                 'invoice_tax_number': '',  # Invoice 模型没有 tax_number 字段
                 'invoice_number': invoice.invoice_number or '',
-                'has_invoice': True,
-                'invoice_file_key': invoice.image_url or '',
-                'invoice_original_filename': invoice.file_name or '',
+                'has_invoice': bool(invoice_files),
+                'receipt_files': [],
+                'invoice_files': invoice_files,
+                'receipt_count': 0,
+                'invoice_count': len(invoice_files),
+                'invoice_file_key': invoice_files[0]['file_key'] if invoice_files else '',
+                'invoice_preview_key': invoice_files[0]['preview_key'] if invoice_files else '',
+                'invoice_original_filename': invoice_files[0]['original_filename'] if invoice_files else '',
                 'receipt_image_url': '',
                 'receipt_image_name': '',
                 'created_at': invoice.created_at.strftime('%Y-%m-%d %H:%M:%S') if invoice.created_at else '',
                 'raw_created_at': invoice.created_at,
             }
             all_records.append(rec)
-            logger.debug(f'  发票记录 {rec["id"]}: invoice_key={rec["invoice_file_key"][:80] if rec["invoice_file_key"] else "空"}, tax={rec["invoice_tax_number"]}')
+            logger.debug(f'  发票记录 {rec["id"]}: 发票={rec["invoice_count"]} 张')
 
         all_records.sort(key=lambda x: x.get('raw_created_at') or datetime.min.replace(tzinfo=timezone.utc))
         return all_records, max_updated
@@ -288,6 +462,9 @@ class ExportService:
 
             for col_idx, col_key in enumerate(selected_columns, 1):
                 if col_key in IMAGE_COLUMNS:
+                    files = self._get_image_files(record, col_key)
+                    file_count = len(files)
+
                     # invoice_image 列的 has_invoice 保护判断
                     if col_key == 'invoice_image' and not record.get('has_invoice', False):
                         cell = ws.cell(row=row_idx, column=col_idx, value='无发票信息')
@@ -310,12 +487,11 @@ class ExportService:
                     img_path = self._download_and_save_image(file_key, temp_dir, record, col_key)
                     if img_path and os.path.exists(img_path):
                         try:
-                            img = XlImage(img_path)
-                            img.width = IMG_TARGET_WIDTH_PX
-                            img.height = IMG_TARGET_HEIGHT_PX
+                            img = self._fit_xl_image(img_path)
                             cell_ref = f'{get_column_letter(col_idx)}{row_idx}'
                             ws.add_image(img, cell_ref)
-                            cell = ws.cell(row=row_idx, column=col_idx, value='[图片]')
+                            placeholder = '[图片]' if file_count <= 1 else f'[图片 1/{file_count}]'
+                            cell = ws.cell(row=row_idx, column=col_idx, value=placeholder)
                             cell.font = img_fallback_font
                             cell.alignment = cell_alignment
                             cell.border = thin_border
@@ -346,20 +522,98 @@ class ExportService:
                         cell.alignment = cell_alignment
 
         logger.info(f'Excel图片统计: 成功={img_success_count}, 失败={img_fail_count}')
+        self._write_attachment_sheet(wb, records, header_fill, header_font, header_alignment, thin_border, data_font, cell_alignment)
         excel_path = os.path.join(output_dir, '购物信息.xlsx')
         wb.save(excel_path)
         return excel_path
 
-    def _get_image_file_key(self, record, col_key):
-        """获取图片列的存储文件 key。"""
+    @staticmethod
+    def _fit_xl_image(img_path):
+        """按目标像素框等比缩放图片，避免凭证/发票被拉伸变形。"""
+        img = XlImage(img_path)
+        try:
+            origin_width, origin_height = img.width, img.height
+        except Exception:
+            origin_width, origin_height = None, None
+
+        if not origin_width or not origin_height:
+            img.width = IMG_TARGET_WIDTH_PX
+            img.height = IMG_TARGET_HEIGHT_PX
+            return img
+
+        scale = min(
+            IMG_TARGET_WIDTH_PX / float(origin_width),
+            IMG_TARGET_HEIGHT_PX / float(origin_height),
+        )
+        img.width = max(1, int(origin_width * scale))
+        img.height = max(1, int(origin_height * scale))
+        return img
+
+    @staticmethod
+    def _write_attachment_sheet(wb, records, header_fill, header_font, header_alignment,
+                                thin_border, data_font, cell_alignment):
+        """把每条记录的全部附件列成「附件清单」工作表，多文件时便于核对。"""
+        rows = []
+        for record in records:
+            for file_type, label, files in (
+                ('receipt', '购物凭证', record.get('receipt_files') or []),
+                ('invoice', '发票', record.get('invoice_files') or []),
+            ):
+                for index, attachment in enumerate(files, 1):
+                    rows.append((
+                        record.get('id', ''),
+                        record.get('item_name', ''),
+                        label,
+                        index,
+                        attachment.get('original_filename') or os.path.basename(
+                            (attachment.get('file_key') or '').split('?')[0]
+                        ),
+                        attachment.get('file_key', ''),
+                    ))
+
+        if not rows:
+            return
+
+        ws = wb.create_sheet(title='附件清单')
+        headers = ['记录编号', '记录名称', '附件类型', '序号', '文件名', '存储键']
+        widths = [12, 25, 12, 8, 40, 60]
+        for col_idx, (header, width) in enumerate(zip(headers, widths), 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = thin_border
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        for row_idx, row_values in enumerate(rows, 2):
+            for col_idx, value in enumerate(row_values, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.font = data_font
+                cell.border = thin_border
+                cell.alignment = cell_alignment
+
+        ws.freeze_panes = 'A2'
+        logger.info(f'附件清单: 共 {len(rows)} 个附件文件')
+
+    @staticmethod
+    def _get_image_files(record, col_key):
+        """图片列对应的附件列表（多文件全部返回）。"""
         if col_key == 'receipt_image':
-            return record.get('receipt_image_url', '')
-        elif col_key == 'invoice_image':
+            return record.get('receipt_files') or []
+        if col_key == 'invoice_image':
+            return record.get('invoice_files') or []
+        return []
+
+    def _get_image_file_key(self, record, col_key):
+        """获取图片列嵌入 Excel 时使用的第一个文件 key。"""
+        files = self._get_image_files(record, col_key)
+        if not files:
+            return ''
+        if col_key == 'invoice_image':
             # 嵌入 Excel 时优先使用预览 JPG，而非原始 PDF
-            return (record.get('invoice_preview_key', '')
-                    or record.get('invoice_file_key', '')
-                    or record.get('image_url', ''))
-        return ''
+            primary = files[0]
+            return primary.get('preview_key') or primary.get('file_key') or ''
+        return files[0].get('file_key') or ''
 
     def _download_and_save_image(self, file_key, temp_dir, record, col_key):
         """下载图片文件并保存到临时目录，返回本地路径。"""
@@ -367,11 +621,14 @@ class ExportService:
             return None
 
         # 确定文件名与扩展名
+        files = self._get_image_files(record, col_key)
+        original_name = ''
+        if files:
+            original_name = files[0].get('original_filename') or ''
         if col_key == 'receipt_image':
-            original_name = record.get('receipt_image_name', '')
             prefix = 'receipt'
         else:
-            original_name = record.get('invoice_original_filename', '') or record.get('file_name', '')
+            original_name = original_name or record.get('file_name', '')
             prefix = 'invoice'
 
         # 优先从 file_key（实际文件）取扩展名，其次从原始文件名取，最后用默认值
@@ -418,7 +675,7 @@ class ExportService:
                 return None
 
         # 非图片文件则跳过
-        if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'):
+        if ext not in IMAGE_EXTENSIONS:
             logger.warning(f'不支持的图片格式: ext={ext}, record={record.get("id")}, file_key={file_key[:80]}')
             return None
 
@@ -442,6 +699,14 @@ class ExportService:
                 return '无发票信息'
             tax = record.get('invoice_tax_number', '') or record.get('invoice_number', '')
             return tax if tax else '无'
+        elif col_key == 'invoice_number':
+            if not record.get('has_invoice', False):
+                return '无发票信息'
+            return record.get('invoice_number', '') or '无'
+        elif col_key == 'receipt_count':
+            return record.get('receipt_count', 0)
+        elif col_key == 'invoice_count':
+            return record.get('invoice_count', 0)
         return ''
 
     def _extract_cos_key(self, file_key):
@@ -518,99 +783,137 @@ class ExportService:
         return None
 
     def _process_invoices(self, records, temp_dir, options):
+        """导出全部发票附件（购买记录的多个发票 + 独立发票上传记录）。"""
         invoice_files = []
         invoices_dir = os.path.join(temp_dir, '发票单独')
         os.makedirs(invoices_dir, exist_ok=True)
 
         download_count = 0
         skip_count = 0
+        sequence = 0
 
-        for idx, record in enumerate(records):
-            if not record.get('has_invoice') or not record.get('invoice_file_key'):
-                skip_count += 1
-                continue
+        for record in records:
+            tax_number = _sanitize_filename(record.get('invoice_tax_number', ''), fallback='')
+            for file_index, attachment in enumerate(record.get('invoice_files') or [], 1):
+                file_key = attachment.get('file_key')
+                if not file_key:
+                    skip_count += 1
+                    continue
 
-            file_bytes = self._download_file(record['invoice_file_key'])
-            if not file_bytes:
-                skip_count += 1
-                continue
+                file_bytes = self._download_file(file_key)
+                if not file_bytes:
+                    skip_count += 1
+                    continue
 
-            download_count += 1
-            tax_number = record.get('invoice_tax_number', '')
-            if tax_number:
-                filename = f'{tax_number}_{idx + 1}.pdf'
-            else:
-                original = record.get('invoice_original_filename', '')
-                if not original:
-                    filename = f'发票_{idx + 1}.pdf'
-                else:
-                    # 去掉 URL 查询参数并做文件系统安全处理
-                    original = original.split('?')[0]
-                    # 移除 Windows/Linux 下的非法字符
-                    original = "".join(c for c in original if c not in '<>:"/\\|?*')
-                    name, ext = os.path.splitext(original)
-                    filename = f'{name}.pdf' if ext.lower() != '.pdf' else original
+                sequence += 1
+                download_count += 1
+                original = attachment.get('original_filename', '')
+                ext = _file_extension(file_key, original, fallback='.pdf')
+                base = _sanitize_filename(
+                    os.path.splitext(original.split('?')[0])[0] if original else '',
+                    fallback=f'发票{file_index}',
+                )
+                parts = [f'{sequence:03d}', record.get('id', '')]
+                if tax_number:
+                    parts.append(tax_number)
+                parts.append(base)
+                filename = '_'.join(part for part in parts if part) + ext
 
-            filepath = os.path.join(invoices_dir, filename)
-            with open(filepath, 'wb') as f:
-                f.write(file_bytes)
-            invoice_files.append(filepath)
+                filepath = _unique_file_path(invoices_dir, filename)
+                with open(filepath, 'wb') as f:
+                    f.write(file_bytes)
+                invoice_files.append(filepath)
 
         logger.info(f'发票处理: 下载={download_count}, 跳过={skip_count}, 总文件={len(invoice_files)}')
 
         merged_pdf_path = None
         if options.get('merged_pdf') and invoice_files:
-            merger = PdfMerger()
-            successful_merges = 0
-            for pdf_file in invoice_files:
-                try:
-                    merger.append(pdf_file)
-                    successful_merges += 1
-                except Exception as e:
-                    logger.warning(f'合并PDF失败: {pdf_file}, error={str(e)}')
-            if successful_merges > 0:
-                merged_pdf_path = os.path.join(temp_dir, '发票汇总.pdf')
-                merger.write(merged_pdf_path)
-                merger.close()
-                logger.info(f'PDF合并成功: {successful_merges}/{len(invoice_files)} 个文件')
-            else:
-                merger.close()
-                logger.warning('PDF合并失败: 所有文件都无法合并，已跳过生成合并PDF')
+            merged_pdf_path = self._merge_invoice_files(invoice_files, temp_dir)
 
         return invoice_files, merged_pdf_path
 
+    def _merge_invoice_files(self, invoice_paths, temp_dir):
+        """按导出顺序把全部发票合并成一个 PDF；图片型发票先转成 PDF。"""
+        merger = PdfMerger()
+        merged_count = 0
+        for pdf_file in invoice_paths:
+            try:
+                source_path = pdf_file
+                if os.path.splitext(pdf_file)[1].lower() != '.pdf':
+                    source_path = self._convert_image_to_pdf(pdf_file, temp_dir)
+                if not source_path:
+                    continue
+                merger.append(source_path)
+                merged_count += 1
+            except Exception as e:
+                logger.warning(f'合并PDF失败: {pdf_file}, error={str(e)}')
+
+        if merged_count == 0:
+            merger.close()
+            logger.warning('PDF合并失败: 所有文件都无法合并，已跳过生成合并PDF')
+            return None
+
+        merged_pdf_path = os.path.join(temp_dir, '发票汇总.pdf')
+        merger.write(merged_pdf_path)
+        merger.close()
+        logger.info(f'PDF合并成功: {merged_count}/{len(invoice_paths)} 个文件')
+        return merged_pdf_path
+
+    @staticmethod
+    def _convert_image_to_pdf(image_path, temp_dir):
+        """把图片发票转成单页 PDF，供汇总 PDF 使用。"""
+        try:
+            import fitz  # PyMuPDF
+
+            pix = fitz.Pixmap(image_path)
+            width, height = pix.width, pix.height
+            pix = None
+
+            doc = fitz.open()
+            page = doc.new_page(width=width, height=height)
+            page.insert_image(page.rect, filename=image_path)
+            pdf_path = os.path.join(temp_dir, '图片转PDF', os.path.basename(image_path) + '.pdf')
+            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+            doc.save(pdf_path)
+            doc.close()
+            return pdf_path
+        except Exception as e:
+            logger.warning(f'图片转PDF失败: {image_path}, error={str(e)}')
+            return None
+
     def _process_receipt_images(self, records, temp_dir):
+        """导出全部购物凭证文件（多文件全部导出）。"""
         receipt_dir = os.path.join(temp_dir, '购物凭证')
         os.makedirs(receipt_dir, exist_ok=True)
 
         download_count = 0
         skip_count = 0
+        sequence = 0
 
-        for idx, record in enumerate(records):
-            if not record.get('receipt_image_url'):
-                skip_count += 1
-                continue
+        for record in records:
+            item_name = _sanitize_filename(record.get('item_name', ''), fallback='购物凭证')
+            for file_index, attachment in enumerate(record.get('receipt_files') or [], 1):
+                file_key = attachment.get('file_key')
+                if not file_key:
+                    skip_count += 1
+                    continue
 
-            file_bytes = self._download_file(record['receipt_image_url'])
-            if not file_bytes:
-                skip_count += 1
-                continue
+                file_bytes = self._download_file(file_key)
+                if not file_bytes:
+                    skip_count += 1
+                    continue
 
-            download_count += 1
-            original_name = record.get('receipt_image_name', '')
-            if original_name:
-                original_name = original_name.split('?')[0]
-                ext = os.path.splitext(original_name)[1] or '.jpg'
-                safe_name = "".join(c for c in record.get("item_name", "凭证") if c.isalnum() or c in (' ', '-', '_')).strip()
-                filename = f'{safe_name}_{idx + 1}{ext}'
-            else:
-                filename = f'凭证_{idx + 1}.jpg'
+                sequence += 1
+                download_count += 1
+                original = attachment.get('original_filename', '')
+                ext = _file_extension(file_key, original, fallback='.jpg')
+                filename = f'{sequence:03d}_{record.get("id", "")}_{item_name}_{file_index}{ext}'
 
-            filepath = os.path.join(receipt_dir, filename)
-            with open(filepath, 'wb') as f:
-                f.write(file_bytes)
+                filepath = _unique_file_path(receipt_dir, filename)
+                with open(filepath, 'wb') as f:
+                    f.write(file_bytes)
 
-        logger.info(f'购物凭证处理: 下载={download_count}, 跳过={skip_count}')
+        logger.info(f'购物凭证处理: 下载={download_count}, 跳过={skip_count}, 总文件={download_count}')
         return receipt_dir
 
     def _create_zip(self, event_name, excel_path, merged_pdf_path, invoice_files, receipt_folder, task_id):
@@ -653,7 +956,7 @@ class ExportService:
         self._cleanup_expired()
 
         columns_hash = str(sorted(columns_config.get('columns', [])))
-        options = columns_config.get('options', {})
+        options = normalize_export_options(columns_config.get('options', {}))
 
         recent_task = ExportTask.query.filter_by(
             event_id=event_id,
@@ -670,9 +973,12 @@ class ExportService:
             return None
 
         stored_config = recent_task.columns_config or {}
+        # 导出产物格式升级（附件多文件、图片发票转 PDF 合并等）后，旧任务全部作废
+        if stored_config.get('format_version') != EXPORT_FORMAT_VERSION:
+            return None
         if str(sorted(stored_config.get('columns', []))) != columns_hash:
             return None
-        if stored_config.get('options', {}) != options:
+        if normalize_export_options(stored_config.get('options', {})) != options:
             return None
 
         max_updated = db.session.query(
