@@ -727,7 +727,7 @@
                   @click="openDetailFile(file)"
                 >
                   <img
-                    v-if="!file.is_pdf"
+                    v-if="!file.is_pdf || file.preview_is_image"
                     :src="file.preview_url || file.file_url"
                     class="detail-preview-img"
                     loading="lazy"
@@ -759,7 +759,7 @@
                   @click="openDetailFile(file)"
                 >
                   <img
-                    v-if="!file.is_pdf"
+                    v-if="!file.is_pdf || file.preview_is_image"
                     :src="file.preview_url || file.file_url"
                     class="detail-preview-img"
                     loading="lazy"
@@ -1010,6 +1010,8 @@ function normalizeDetailFile(file) {
   const rawPreview = file.preview_url || file.file_url || ''
   const rawFile = file.file_url || file.preview_url || ''
   const isPdf = Boolean(file.is_pdf) || /\.pdf(\?|$)/i.test(String(rawFile))
+  // 后端会把 PDF 渲染成 PNG 作为预览图：有真实图片预览时优先显示图片
+  const previewIsImage = Boolean(rawPreview) && !/\.pdf(\?|$)/i.test(String(rawPreview))
   return {
     file_id: file.file_id || null,
     file_key: file.file_key || '',
@@ -1017,7 +1019,8 @@ function normalizeDetailFile(file) {
     file_url: rawFile ? getFullImageUrl(rawFile) : '',
     download_url: file.download_url ? getFullImageUrl(file.download_url) : '',
     original_filename: file.original_filename || '',
-    is_pdf: isPdf
+    is_pdf: isPdf,
+    preview_is_image: previewIsImage
   }
 }
 
@@ -1535,10 +1538,65 @@ const changePageSize = () => {
 
 const toggleSelectAll = () => {}
 
+// 历史 PDF 发票没有预览图时，请后端按需渲染一张 PNG（与 AI 解析是否成功无关）
+const previewBackfillTried = new Set()
+
+const ensureInvoicePreview = async (record, force = false) => {
+  if (!record?.record_id || !record.has_invoice) return
+  if (!force && previewBackfillTried.has(record.record_id)) return
+
+  const invoiceFile = (Array.isArray(record.invoice_files) && record.invoice_files[0]) || null
+  const fileKey = String(invoiceFile?.file_key || record.invoice_file_key || '')
+  if (!/\.pdf$/i.test(fileKey)) return
+
+  const previewKey = String(invoiceFile?.preview_key || record.invoice_preview_key || '')
+  if (previewKey && !/\.pdf$/i.test(previewKey)) return
+
+  previewBackfillTried.add(record.record_id)
+  try {
+    const { data } = await $api.get(`/records/${record.record_id}/preview-invoice`)
+    if (data?.code !== 200) return
+    const url = data.data?.preview_url
+    const key = data.data?.preview_key || ''
+    // 后端渲染失败时会回退成 PDF 地址，此时保留 PDF 占位卡
+    if (!url || /\.pdf(\?|$)/i.test(String(url))) return
+
+    record.invoice_preview_url = url
+    if (key) record.invoice_preview_key = key
+    if (invoiceFile) {
+      invoiceFile.preview_url = url
+      if (key) invoiceFile.preview_key = key
+    }
+
+    if (currentRecord.value?.record_id === record.record_id) {
+      currentRecord.value.invoice_preview_url = url
+      if (key) currentRecord.value.invoice_preview_key = key
+      const detailFile = Array.isArray(currentRecord.value.invoice_files) && currentRecord.value.invoice_files[0]
+      if (detailFile) {
+        detailFile.preview_url = url
+        if (key) detailFile.preview_key = key
+      }
+    }
+
+    if (editingRecord.value?.record_id === record.record_id) {
+      const draft = invoiceDrafts.value[0]
+      if (draft && !draft.blob_url) {
+        draft.preview_url = url
+        if (key) draft.preview_key = key
+      }
+      form.value._preview_display_url = url
+      imageLoadingError.value = false
+    }
+  } catch (e) {
+    // 补生成失败不阻断详情/编辑，仍显示 PDF 占位卡
+  }
+}
+
 const viewRecord = (record) => {
   currentRecord.value = record
   invoiceDetailPreviewError.value = false
   showDetailModal.value = true
+  ensureInvoicePreview(record)
 }
 
 const editRecord = (record) => {
@@ -1631,6 +1689,9 @@ const editRecord = (record) => {
 
   // 加载可用于转移的目标比赛列表
   loadTransferEvents()
+
+  // 历史 PDF 发票：异步补一张 PNG 预览，避免只看到 PDF 占位卡
+  ensureInvoicePreview(record)
 }
 
 const loadTransferEvents = async () => {
@@ -2389,13 +2450,17 @@ const parseInvoiceFromUrl = async () => {
 
       parseApplied.value = true
       showToast('发票重新解析完成', 'success')
+      await ensureInvoicePreview(editingRecord.value, true)
     } else {
       showToast(response.data.message || '解析失败', 'error')
+      // 解析失败也可能已生成预览图，刷新一次
+      await ensureInvoicePreview(editingRecord.value, true)
     }
   } catch (err) {
     console.error('解析失败:', err.message)
     const msg = err.response?.data?.message || '解析失败，请重试'
     showToast(msg, 'error')
+    await ensureInvoicePreview(editingRecord.value, true)
   } finally {
     parsingInvoice.value = false
   }

@@ -15,7 +15,7 @@
 | 后端    | Flask 3.1 + SQLAlchemy 3.1 + Flask-JWT-Extended 4.7 + Flask-Migrate（Alembic）+ APScheduler。**入口 `backend/app.py`（`create_app()` 工厂），开发端口 5000**                |
 | 数据库   | SQLite（单文件 `backend/data/easy_invoice_mgr.sqlite`），ORM 模型集中在 `backend/models.py`；建表由 Alembic + `db.create_all()` 完成                          |
 | 对象存储  | 本地文件系统（默认，`backend/uploads`）或腾讯云 COS（`STORAGE_BACKEND=cos`），由 `backend/utils/storage.py` 做统一抽象                                                                |
-| AI 能力 | 智谱 GLM 视觉模型（默认 `GLM-4V-Flash`）做发票图片识别；PDF 文本兜底解析用 PyPDF2/PyMuPDF                                                                                              |
+| AI 能力 | AI 视觉模型做发票图片识别：默认 DeepSeek 官方 `deepseek-flash`，可切换硅基流动 `zai-org/GLM-5.3-Flash`；PDF 文本兜底解析用 PyPDF2/PyMuPDF，PDF 预览统一渲染为 PNG                                                                                              |
 | 导出    | openpyxl 生成 Excel（主表 + 「附件清单」工作表），PyPDF2 合并 PDF（图片发票先转 PDF），zip 打包，异步任务表 `export_tasks`                                                                                            |
 | 部署    | `docker-compose.yml` 两服务（backend / frontend），数据落在具名卷 dbdata/uploads/exports；生产建议 Nginx 反代 3000→/、5000→/api、/uploads                                 |
 | 本地开发  | 根目录 `dev.ps1`（`dev.bat` 为双击入口）：Flask:5000 → Nuxt:3000（数据库为本地 SQLite 文件，无需外部服务）。后端优先 conda 环境 `py311`，不可用时回退 `backend/venv`                 |
@@ -40,7 +40,7 @@
 EasyInvoiceMgr/
 ├── backend/                     Flask 后端（Python）
 │   ├── app.py                 ★ 入口：create_app() 工厂、蓝图注册、静态文件路由、启动时自动迁移 + 种子管理员
-│   ├── config.py              ★ 环境变量 → Config 类（SECRET/JWT/DATABASE_URL/STORAGE_BACKEND/COS/GLM）
+│   ├── config.py              ★ 环境变量 → Config 类（SECRET/JWT/DATABASE_URL/STORAGE_BACKEND/COS/AI）
 │   ├── models.py              ★ 全部 ORM 模型（10 张表）
 │   ├── generate_password.py   小工具：生成 admin 密码 hash
 │   ├── requirements.txt / Dockerfile / VERSION
@@ -61,7 +61,8 @@ EasyInvoiceMgr/
 │   │   ├── local_storage.py   LocalStorageManager：uploads 目录读写、头像、预签名
 │   │   ├── cos_manager.py     COSManager：同接口的 COS 实现 + 单例 cos_manager
 │   │   ├── invoice_parser.py  PDF 文本兜底解析（InvoiceParser）
-│   │   ├── glm_vision_service.py GLM 视觉识别 + DB 配置优先的模型/密钥解析
+│   │   ├── ai_config.py        服务商预设（DeepSeek / 硅基流动）、模型与密钥解析、旧 GLM 配置迁移
+│   │   ├── ai_vision_service.py AI 视觉识别（OpenAI 兼容多模态）+ DB 配置优先的模型/密钥解析
 │   │   ├── export_service.py  异步导出：取数（多文件附件）→ Excel（含附件清单）→ 图片嵌入 → PDF 合并 → zip；缓存按 format_version
 │   │   ├── backup_service.py  备份/恢复（SQLite 在线备份 + uploads + system_configs），APScheduler 定时
 │   │   ├── legacy_pg_dump.py  旧版 PostgreSQL 备份包（db_dump.sql.gz）解析导入
@@ -95,7 +96,7 @@ EasyInvoiceMgr/
 
 **主调用链路（读）**：浏览器 → `frontend/pages/**` → `plugins/axios.ts` 的 `$api` → `runtimeConfig.public.apiBase`（默认 `http://localhost:5000/api`）→ Flask 蓝图 `backend/routes/*.py` → `backend/models.py` → SQLite；图片/文件 URL 走 `/uploads/**`，由 Nitro 中间件原样反代。
 
-**主调用链路（写/上传）**：`pages/purchases/[id].vue` → `POST /api/upload-file`（`routes/parse.py`）→ `storage_manager.upload_file()` 落盘 → `POST /api/parse-image`（GLM 视觉）或 `/api/parse-invoice`（PDF 文本）→ 返回结构化发票字段 → 用户确认后 `POST /api/events/<id>/records` 入库。**预览图与 AI 解析解耦**：`/parse-invoice` 与 `/upload-file` 都会把 PDF 发票转成 JPG 预览（`preview_key`）并落盘，AI 解析失败只影响 `parsed_info`（返回 `ai_parse_success=false` + `ai_parse_error`），不影响发票文件与预览图保存。
+**主调用链路（写/上传）**：`pages/purchases/[id].vue` → `POST /api/upload-file`（`routes/parse.py`）→ `storage_manager.upload_file()` 落盘 → `POST /api/parse-image`（AI 视觉）或 `/api/parse-invoice`（PDF 文本）→ 返回结构化发票字段 → 用户确认后 `POST /api/events/<id>/records` 入库。**预览图与 AI 解析解耦**：`/parse-invoice` 与 `/upload-file` 都会把 PDF 发票转成 PNG 预览（`preview_key`）并落盘，AI 解析失败只影响 `parsed_info`（返回 `ai_parse_success=false` + `ai_parse_error`），不影响发票文件与预览图保存。
 
 ---
 
@@ -110,11 +111,11 @@ EasyInvoiceMgr/
 | `routes/events.py`                   | 项目是全系统的聚合根：CRUD + 成员角色 + 预算变更后调用 `recalc_event_stats()` 重算；`ensure_event_membership` 已下沉至 `utils/permissions.py`；`_normalize_event_value`/`_format_event_value` 处理 `extra_fields` JSON 扩展字段；**加入申请审核**：`create_join_request`（`auto` 模式当场通过、审核人记为管理员）/`get_join_requests`/`review_join_request`，权限判定 `utils.permissions.is_event_reviewer`，通过后由 `_grant_membership()` 落 `EventMember.joined_by`+`join_source`                                                                                                                         | 见 §5 接口表                                                       | `models`、`utils.operation_log`、`utils.permissions`、`utils.event_stats`                            |                                                       |
 | `routes/purchase_records.py`         | 购买记录全链路；`transfer_purchase_record`/`batch_transfer_purchase_records` 在项目间迁移并重算预算；`re_parse_invoice` 触发二次 OCR；`get_presigned_url` 统一签发图片临时链接；**多文件附件**：`_collect_submitted_files`/`_replace_record_files`/`_sync_legacy_file_columns` 维护 `purchase_record_files` 明细表（请求体 `receipt_files`/`invoice_files` 数组，兼容旧单文件字段），旧单文件列同步为第一个文件供导出/备份使用；`_store_preview_image`/`_persist_invoice_preview` 保证发票预览图在解析失败时也能补存落库                                                                                                                                | 同上                                                             | `models`、`utils.storage`、`utils.operation_log`            |                                                       |
 | `routes/invoices.py` / `vouchers.py` | 结构几乎同构（列表/创建/删除/更新/批量报销/下载），发票额外有 `approve_invoice`、`generate_preview`；凭证额外有 `check_file_md5` 秒传                                                                                                                                                                           | 同上                                                             | 同上                                                        |                                                       |
-| `routes/parse.py`                    | PDF 转图（`PDFConverter` 已下沉至 `utils/pdf_converter.py`）→ GLM 识别或 `InvoiceParser` 文本兜底；**预览图与解析解耦**：`/parse-invoice` 与 `/upload-file` 均先把 PDF 发票转 JPG 并落盘（`preview_key`），AI 解析失败只返回 `ai_parse_success=false`/`ai_parse_error`，不影响文件与预览图保存；图片发票 `preview_key = file_key`；\`/invoices/<file_key>/preview                                                                                                                                                                             | download\` 按 key 取文件                                           | 同上                                                        | `utils.storage`、`glm_vision_service`、`invoice_parser` |
+| `routes/parse.py`                    | PDF 转图（`PDFConverter` 已下沉至 `utils/pdf_converter.py`）→ AI 视觉识别或 `InvoiceParser` 文本兜底；**预览图与解析解耦**：`/parse-invoice` 与 `/upload-file` 均先把 PDF 发票转 PNG 并落盘（`preview_key`），AI 解析失败只返回 `ai_parse_success=false`/`ai_parse_error`，不影响文件与预览图保存；图片发票 `preview_key = file_key`；\`/invoices/<file_key>/preview                                                                                                                                                                             | download\` 按 key 取文件                                           | 同上                                                        | `utils.storage`、`ai_vision_service`、`invoice_parser` |
 | `routes/system.py`                   | 系统配置读写（`ai_model` / `ai_api_key`(加密) / `ai_api_url`）、备份列表与下载/恢复、备份配置（启用、频率、时间、保留数）、`check_update` 返回运维命令清单、`test_model`、`ai_summary`                                                                                                                                       | 同上                                                             | `utils.backup_service`、`crypto_utils`                     |                                                       |
 | `routes/export.py`                   | 创建 `ExportTask` 后台线程执行 `ExportService.run_export`，前端轮询 `/export/status` 后 `/export/download`；入参先 `normalize_export_options` 归一化、校验列名并去重，`columns_config` 里带 `format_version`（缓存失效用）                                                                                                                                                                               | 同上                                                             | `utils.export_service`                                    |                                                       |
 | `utils/storage.py`                   | 导入即初始化单例 `storage_manager`，按 `STORAGE_BACKEND` 选择 `LocalStorageManager` 或 `cos_manager`。**两实现需保持同名方法**：`generate_file_key/generate_avatar_key/upload_file/upload_file_from_bytes/upload_bytes/upload_avatar/download_file/get_presigned_url/delete_file/check_file_exists` | `storage_manager`                                              | `local_storage` / `cos_manager`                           |                                                       |
-| `utils/glm_vision_service.py`        | 配置解析优先级：**DB(system_configs) > 环境变量**；`extract_invoice_info` 组装 base64 图 + prompt 调 GLM，`_parse_response` 归一化字段                                                                                                                                                            | `resolve_ai_model/api_key/api_url`、`GLMVisionService`          | `models.SystemConfig`、`utils.crypto_utils`                |                                                       |
+| `utils/ai_vision_service.py`         | 配置解析优先级：**DB(system_configs) > 环境变量 > 服务商默认值**；`extract_invoice_info` 组装 base64 图 + prompt 调所选视觉模型，`_parse_response` 归一化字段                                                                                                                                                            | `AIVisionService`；解析函数见 `utils/ai_config.py`          | `models.SystemConfig`、`utils.crypto_utils`                |                                                       |
 | `utils/export_service.py`            | `_fetch_data` 汇总购买记录/独立发票（`receipt_files`/`invoice_files` 多附件 + 计数，旧单文件列兜底）→ `_generate_excel`（图片列只嵌第一张并标注 `[图片 1/N]`，另生成「附件清单」工作表）→ `_process_invoices`/`_process_receipt_images`（导出全部附件，文件名含序号/记录编号并去重）→ `_merge_invoice_files`（图片发票经 `_convert_image_to_pdf` 转 PDF 后合并）→ `_create_zip`；`check_cache` 除列/选项/数据时间外还校验 `EXPORT_FORMAT_VERSION`，格式升级后旧产物自动失效      | `ExportService(app).run_export(task_id)`                       | `utils.storage`、openpyxl、PyPDF2、PyMuPDF                             |                                                       |
 | `utils/backup_service.py`            | `BackupService`：`run_backup`（SQLite 在线备份 + 打包 uploads + 导出 system_configs JSON）、`restore_backup`、`list_backups`；`_import_legacy_pg_dump` 让旧版 PostgreSQL 备份包仍可恢复；`init_backup_service` 注册 APScheduler 并读 `backup_schedule_*` 配置；`recover_stale_backups` 把长期停在 `pending/running` 的僵尸记录标记失败（启动时无条件回收，接口/定时任务里按 `STALE_BACKUP_MINUTES=30` 超时回收），避免一条历史记录让备份永远返回 409 | `init_backup_service`、`get_backup_service`、`reschedule_backup` | `utils.legacy_pg_dump`、`crypto_utils`                          |                                                       |
 | `utils/operation_log.py`             | `OperationLog` 模型 + `LogService.log/get_logs/delete_log(s)/get_action_types`；所有路由通过本地 import 调用                                                                                                                                                                            | `LogService`                                                   | `models.db`                                               |                                                       |
@@ -149,7 +150,8 @@ EasyInvoiceMgr/
 | `JWT_ACCESS_TOKEN_EXPIRES`                                                     | 3600（代码内固定）                                                  | token 有效期（秒）           |       |
 | `STORAGE_BACKEND`                                                              | `local`                                                      | `local`                | `cos` |
 | `COS_SECRET_ID` / `COS_SECRET_KEY` / `COS_REGION`(ap-guangzhou) / `COS_BUCKET` | 空                                                            | COS 凭据，仅 cos 模式需要      |       |
-| `GLM_API_KEY` / `GLM_MODEL`(GLM-4V-Flash) / `GLM_API_URL`                      | 空 / 默认                                                       | AI 兜底配置，**DB 配置优先**    |       |
+| `AI_PROVIDER` / `AI_MODEL` / `AI_API_URL`                                      | `deepseek` / `deepseek-flash` / 空                              | AI 兜底配置，**DB 配置优先**    |       |
+| `DEEPSEEK_API_KEY` / `SILICONFLOW_API_KEY`                                     | 空                                                            | 两家服务商各自的密钥            |       |
 | `CORS_ORIGINS`                                                                 | `http://localhost:3000,3001,127.0.0.1:3000,3001`             | 逗号分隔，`config.py` 解析为列表 |       |
 | `ADMIN_PASSWORD`                                                               | `admin`                                                      | 每次启动强制重置 admin 密码      |       |
 | `HOST_PROJECT_DIR`                                                             | 无                                                            | 容器内映射的项目目录，备份范围用       |       |
@@ -164,7 +166,7 @@ EasyInvoiceMgr/
 
 | config_key                  | 读取位置                                              | 说明                                                                |
 | --------------------------- | ------------------------------------------------- | ----------------------------------------------------------------- |
-| `ai_model`                  | `glm_vision_service.resolve_ai_model`、`system.py` | 模型名                                                               |
+| `ai_model`                  | `ai_config.resolve_ai_model`、`system.py` | 模型名                                                               |
 | `ai_api_key`                | 同上                                                | **加密存储**（`ENCRYPTED_KEYS = {'ai_api_key'}`，`crypto_utils` Fernet） |
 | `ai_api_url`                | `resolve_ai_url`                                  | 推理接口地址                                                            |
 | `backup_schedule_enabled`   | `backup_service._setup_schedule`                  | 定时备份开关（默认 'false'）                                                |
@@ -176,7 +178,8 @@ EasyInvoiceMgr/
 
 | 服务                                                              | 调用位置                                             | 用途                                                    |
 | --------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------- |
-| 智谱 GLM（`https://open.bigmodel.cn/api/paas/v4/chat/completions`） | `backend/utils/glm_vision_service.py`            | 发票图片识别、`system/ai-summary`                            |
+| DeepSeek（`https://api.deepseek.com/chat/completions`）            | `backend/utils/ai_vision_service.py`             | 发票图片识别、`system/ai-summary`                            |
+| 硅基流动（`https://api.siliconflow.cn/v1/chat/completions`）        | `backend/utils/ai_vision_service.py`             | 同上，切换服务商后生效                                        |
 | 腾讯云 COS                                                         | `backend/utils/cos_manager.py`                   | `STORAGE_BACKEND=cos` 时的文件存储                          |
 | sqlite3 备份 API（进程内）                                          | `backend/utils/backup_service.py`、`utils/legacy_pg_dump.py` | 备份与恢复；旧版 PostgreSQL 备份包仍可导入                        |
 | Docker CLI（子进程）                                                 | `backend/routes/system.py:check_update` 附近       | 仅返回命令文本供用户执行，不自动执行                                    |
@@ -195,8 +198,8 @@ EasyInvoiceMgr/
 | 新增整张表                        | `backend/models.py` + Alembic 迁移                                                                                    | 同上                                                                                                                 |
 | 改文件存储行为（key 规则、目录结构）         | `backend/utils/local_storage.py` **和** `backend/utils/cos_manager.py`                                                                        | 两边方法名必须一致，`utils/storage.py` 才能正常分派                                                                                |
 | 切换/接入对象存储                    | `backend/utils/storage.py: _init_storage()`                                                                                                  | 新后端实现同名方法并在 `_init_storage` 注册                                                                                     |
-| 改发票 AI 识别字段或 prompt          | `backend/utils/glm_vision_service.py`                                                                                                        | `_build_prompt()`、`_parse_response()`；文本兜底同步改 `utils/invoice_parser.py:_extract_invoice_data()`                    |
-| 改 AI 模型 / 密钥                 | DB `system_configs`（页面 `frontend/pages/settings/index.vue`）优先，其次 `backend/config.py` 环境变量                                                    | `glm_vision_service.resolve_ai_*` 的优先级链                                                                            |
+| 改发票 AI 识别字段或 prompt          | `backend/utils/ai_vision_service.py`                                                                                                        | `_build_prompt()`、`_parse_response()`；文本兜底同步改 `utils/invoice_parser.py:_extract_invoice_data()`                    |
+| 改 AI 模型 / 密钥                 | DB `system_configs`（页面 `frontend/pages/settings/index.vue`）优先，其次 `backend/config.py` 环境变量                                                    | `utils/ai_config.py` 里 `resolve_ai_*` 的优先级链                                                                            |
 | 改导出内容或打包格式                   | `backend/utils/export_service.py`、`backend/routes/export.py`（列校验）                                                                                                            | `_fetch_data`（取哪些字段）、`_generate_excel`、`_process_invoices`/`_process_receipt_images`（全部附件）、`_write_attachment_sheet`、`_create_zip`；增删列时同步改 `COLUMN_DEFINITIONS` 与前端 `export.vue` 的 columns，并递增 `EXPORT_FORMAT_VERSION`                                           |
 | 改备份范围/保留策略                   | `backend/utils/backup_service.py`                                                                                                            | `run_backup`、`restore_backup`、`_setup_schedule`（读 `backup_schedule_*`）、`backup_retention_count`                    |
 | 改角色可见菜单                      | `frontend/layouts/default.vue`                                                                                                               | 导航项的 `v-if`（`canManageUsers`/`canManageInvitationCodes`/`isAdmin`），角色映射在 `frontend/stores/userStore.ts` `userRole` |
@@ -235,7 +238,7 @@ EasyInvoiceMgr/
 
 **vouchers（`/api`）**：GET/POST `/vouchers`｜PUT/DELETE `/vouchers/<id>`｜GET `/vouchers/<id>/download`、`/check-file-md5`｜POST `/vouchers/batch-reimburse`
 
-**parse（`/api`）**：POST `/upload-file`（返回 `file_key` + `preview_key`，PDF 自动转 JPG 预览）、`/parse-image`、`/parse-invoice`（返回 `parsed_info` + `ai_parse_success`/`ai_parse_error`，解析失败也保存文件与预览图）｜GET `/invoices/<file_key>/preview`、`/download`
+**parse（`/api`）**：POST `/upload-file`（返回 `file_key` + `preview_key`，PDF 自动转 PNG 预览）、`/parse-image`、`/parse-invoice`（返回 `parsed_info` + `ai_parse_success`/`ai_parse_error`，解析失败也保存文件与预览图）｜GET `/invoices/<file_key>/preview`、`/download`
 
 **invitation_codes（`/api`）**：GET/POST `/invitation-codes`｜POST `/invitation-codes/verify`、`/invitation-codes/<id>/toggle`｜DELETE `/invitation-codes/<id>`
 
@@ -264,7 +267,7 @@ EasyInvoiceMgr/
 | 前端数据获取 | **优先走 `eventStore`**，其次 `useUserSearch`；禁止在页面里裸调 `GET /events`（会绕过缓存导致数据不一致）                                                                  |
 | 前端样式   | 页面内 `<style scoped>` 手写 CSS + 响应式断点（768px / 509px 等），无 UI 框架；全局重置在 `app.vue`                                                                  |
 | 类型     | `nuxt.config.ts` 开启 `strict: true` 但 `typeCheck: false`（不阻塞构建）；`types/index.d.ts` 声明 `$api`                                                   |
-| 测试     | 后端有 pytest 套件：`backend/pytest.ini` 指向 `backend/tests/`（`conftest.py` 提供最小 Flask app + SQLite 夹具），运行 `cd backend && python -m pytest tests`（**必须在 backend 目录下运行**，否则 flask_migrate 的相对 `migrations` 路径会报错）；`test_purchase_record_files.py` 覆盖多文件附件接口，`test_export_service.py` 覆盖多文件导出/选项归一化/缓存版本，`test_pdf_converter.py` 覆盖 PDF→JPG、发票预览图落库与历史 PDF 发票预览回填（防止 `import io` 类回归）；`backend/test_image_access.py` 是 requests 诊断脚本；`frontend` 无测试。README 的「未来计划」提到要补测试体系                                             |
+| 测试     | 后端有 pytest 套件：`backend/pytest.ini` 指向 `backend/tests/`（`conftest.py` 提供最小 Flask app + SQLite 夹具），运行 `cd backend && python -m pytest tests`（**必须在 backend 目录下运行**，否则 flask_migrate 的相对 `migrations` 路径会报错）；`test_purchase_record_files.py` 覆盖多文件附件接口，`test_export_service.py` 覆盖多文件导出/选项归一化/缓存版本，`test_pdf_converter.py` 覆盖 PDF→PNG、发票预览图落库与历史 PDF 发票预览回填（防止 `import io` 类回归），`test_ai_config.py` 覆盖双服务商预设与旧 GLM 配置迁移，`test_ai_vision_service.py` 覆盖两家服务商的请求地址/模型/图片编码；`backend/test_image_access.py` 是 requests 诊断脚本；`frontend` 无测试。README 的「未来计划」提到要补测试体系                                             |
 | 日志文件   | `backend/_verify_*.log`、`frontend/_verify_*.log`、`frontend/pnpm-install*.log` 是本地遗留产物，已被 `.gitignore` 的 `*.log` 忽略                            |
 
 ---
@@ -283,7 +286,7 @@ EasyInvoiceMgr/
 | 前端代理    | `nuxt.config.ts` 的 `routeRules.proxy` 会剥掉 `/uploads` 前缀（注释已记录），故改用 `server/middleware/proxy-uploads.ts`；改代理时勿退回 routeRules                                                                                                                     |
 | 附件单一真源 | 购买记录的购物凭证/发票真源是明细表 `purchase_record_files`；`purchase_records.receipt_image_url / invoice_file_key / invoice_preview_key / invoice_original_filename / invoice_md5` 只是「第一个文件」的兼容镜像，导出、旧快照恢复仍读旧列。改附件逻辑必须同时维护两边（`_replace_record_files` + `_sync_legacy_file_columns`）                                                                                 |
 | 恢复后迁移    | 恢复旧备份快照后 `backup_service._upgrade_schema_after_restore()` 会立即 `ensure_schema()` 升级结构；否则缺少新表（如 `purchase_record_files`）会一直报 `no such table` 直到重启                                                                                   |
-| 发票预览图   | 预览图必须与 AI 解析解耦：`/parse-invoice`、`/upload-file`（导出兜底也用）都先把 PDF 发票转成 JPG 并落盘（`preview_key`），解析失败只返回 `ai_parse_success=false` + `ai_parse_error`，不得影响文件与预览图保存；`re-parse-invoice` 发现无预览图会补存并写回 `purchase_record_files` / 旧列；`GET /records/<id>/preview-invoice` 对历史 PDF 发票在预览图缺失时也会按需补生成并落库。`utils/pdf_converter.py` 曾因缺 `import io` 导致 PDF 转图永远静默失败，改动后务必跑 `backend/tests/test_pdf_converter.py` |
+| 发票预览图   | 预览图必须与 AI 解析解耦：`/parse-invoice`、`/upload-file`（导出兜底也用）都先把 PDF 发票转成 PNG 并落盘（`preview_key`），解析失败只返回 `ai_parse_success=false` + `ai_parse_error`，不得影响文件与预览图保存；`re-parse-invoice` 发现无预览图会补存并写回 `purchase_record_files` / 旧列；`GET /records/<id>/preview-invoice` 对历史 PDF 发票在预览图缺失时也会按需补生成并落库。详情弹窗与编辑弹窗都按「preview_url 是否为图片」决定显示 PNG 还是 PDF 占位卡（`normalizeDetailFile().preview_is_image`）；`utils/pdf_converter.py` 曾因缺 `import io` 导致 PDF 转图永远静默失败，改动后务必跑 `backend/tests/test_pdf_converter.py` |
 | 导出缓存版本 | 导出产物格式/内容发生变化（如多文件附件、图片发票转 PDF）后必须递增 `utils/export_service.py: EXPORT_FORMAT_VERSION`；`check_cache` 只认相同 `format_version` 的最新完成任务，否则会命中旧格式 zip。附件变更还需刷新 `PurchaseRecord.updated_at`（`_apply_submitted_files` 已处理），否则缓存判定数据未变 |
 | 超大文件    | `pages/purchases/[id].vue` 4491 行、`pages/projects/index.vue` 1982 行、`pages/settings/index.vue` 2068 行，混合了列表/表单/弹窗/预览/上传逻辑。修改前先用 grep 定位，避免整文件重写                                                                                                |
 | 本地未入库文件 | `dev.ps1` / `dev.bat` 出现在 `.gitignore` 末尾，新克隆的仓库**拿不到本地启动脚本**，需按 README 手工起服务或 `docker compose up -d`                                                                                                                                          |
@@ -302,4 +305,4 @@ EasyInvoiceMgr/
 5. **复核而不改动**：若 HEAD 与上次统计一致且 `git status --porcelain` 源码区为空，只需把页脚「复核于」顺延，**不要重写内容**。
 6. 数字口径保持一致：行数用「实际行数（含末行）」脚本产出，勿手工估算。
 
-*统计于 2026-10-11（HEAD `fd8a456`）。复核于 2026-10-20（管理员密码查看功能）；复核于 2026-10-30（购买记录附件多文件、平台选项、可开票单选框；导出多附件与缓存版本）；复核于 2026-11-12（发票预览图与 AI 解析解耦/落盘、税号更名为「销售方税号」）。*
+*统计于 2026-10-11（HEAD `fd8a456`）。复核于 2026-10-20（管理员密码查看功能）；复核于 2026-10-30（购买记录附件多文件、平台选项、可开票单选框；导出多附件与缓存版本）；复核于 2026-11-12（发票预览图与 AI 解析解耦/落盘、税号更名为「销售方税号」）；复核于 2026-11-17（PDF 预览统一 PNG、双视觉服务商 DeepSeek / 硅基流动、移除智谱 GLM 官方接口）。*

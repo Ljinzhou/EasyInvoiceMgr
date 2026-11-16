@@ -7,20 +7,20 @@ from typing import Dict, Optional, Any
 logger = logging.getLogger(__name__)
 
 try:
-    from utils.glm_vision_service import glm_vision_service as _glm_svc
-    GLM_IMPORTED = True
-    logger.info('GLM视觉模型服务模块加载成功')
+    from utils.ai_vision_service import ai_vision_service as _ai_svc
+    AI_IMPORTED = True
+    logger.info('AI 视觉模型服务模块加载成功')
 except ImportError:
-    _glm_svc = None
-    GLM_IMPORTED = False
-    logger.warning('GLM视觉模型服务模块未加载')
+    _ai_svc = None
+    AI_IMPORTED = False
+    logger.warning('AI 视觉模型服务模块未加载')
 
 
-def _glm_available() -> bool:
-    """动态检查 GLM 可用性（不在导入时检查）。"""
-    if not GLM_IMPORTED or _glm_svc is None:
+def _ai_available() -> bool:
+    """动态检查 AI 视觉服务可用性（不在导入时检查）。"""
+    if not AI_IMPORTED or _ai_svc is None:
         return False
-    return _glm_svc.is_available()
+    return _ai_svc.is_available()
 
 try:
     from PyPDF2 import PdfReader
@@ -35,7 +35,7 @@ class InvoiceParser:
         pass
     
     def is_available(self) -> bool:
-        return PDF_AVAILABLE or _glm_available()
+        return PDF_AVAILABLE or _ai_available()
     
     def parse_file(self, file_bytes: bytes, filename: str) -> Dict[str, Any]:
         if not self.is_available():
@@ -80,18 +80,18 @@ class InvoiceParser:
                 }
                 
             elif ext in ['.png', '.jpg', '.jpeg']:
-                if _glm_available():
-                    logger.info('使用GLM-4V-Flash视觉模型识别图片发票')
-                    result = _glm_svc.extract_invoice_info(file_bytes, filename)
+                if _ai_available():
+                    logger.info('使用已配置的视觉模型识别图片发票')
+                    result = _ai_svc.extract_invoice_info(file_bytes, filename)
                     if result.get('success'):
                         return result
                     else:
-                        logger.warning(f'GLM视觉模型提取失败: {result.get("message")}')
+                        logger.warning(f'视觉模型提取失败: {result.get("message")}')
                         return result
                 
                 return {
                     'success': False,
-                    'message': '图片格式需要GLM视觉模型服务才能识别',
+                    'message': '图片格式需要配置视觉模型服务才能识别',
                     'data': None
                 }
             else:

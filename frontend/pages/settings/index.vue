@@ -21,13 +21,26 @@
             <span class="card-icon">🤖</span>
             <div>
               <h2>AI 模型配置</h2>
-              <p class="card-desc">配置发票识别的视觉模型参数</p>
+              <p class="card-desc">配置发票识别的视觉模型参数（DeepSeek / 硅基流动）</p>
             </div>
             <span v-if="aiSaved" class="status-pill saved">已配置</span>
             <span v-else class="status-pill empty">未配置</span>
           </div>
 
           <form @submit.prevent="saveAiConfig" class="config-form">
+            <div class="field">
+              <label class="field-label">服务商</label>
+              <div class="select-wrapper">
+                <select v-model="aiForm.provider" class="field-select" @change="onProviderChange">
+                  <option v-for="p in providerOptions" :key="p.value" :value="p.value">
+                    {{ p.label }}
+                  </option>
+                </select>
+                <svg class="select-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <span class="field-hint">两家均为 OpenAI 兼容接口，切换后记得重新填写对应平台的密钥</span>
+            </div>
+
             <div class="field">
               <label class="field-label">模型选择</label>
               <div class="select-wrapper">
@@ -38,7 +51,7 @@
                 </select>
                 <svg class="select-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
               </div>
-              <span class="field-hint">选择用于发票识别的 GLM 视觉模型</span>
+              <span class="field-hint">选择用于发票识别的视觉模型</span>
             </div>
 
             <div class="field">
@@ -56,13 +69,13 @@
                   <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                 </button>
               </div>
-              <span class="field-hint">当前密钥：{{ aiStatus.maskedKey || '未设置' }}</span>
+              <span class="field-hint">{{ currentPreset.label }} 当前密钥：{{ aiStatus.maskedKey || '未设置' }}</span>
             </div>
 
             <div class="field">
               <label class="field-label">API 地址</label>
-              <input v-model="aiForm.apiUrl" type="text" class="field-input" placeholder="https://open.bigmodel.cn/api/paas/v4/chat/completions" />
-              <span class="field-hint">可选，留空使用默认地址</span>
+              <input v-model="aiForm.apiUrl" type="text" class="field-input" :placeholder="currentPreset.api_url" />
+              <span class="field-hint">可选，留空使用该服务商的默认地址</span>
             </div>
 
             <transition name="msg-fade">
@@ -445,23 +458,63 @@ userStore.loadFromStorage()
 
 const isAdmin = computed(() => userStore.userType === 'admin')
 
-const modelOptions = [
-  { value: 'GLM-4V-Flash', label: 'GLM-4V-Flash（推荐）' },
-  { value: 'GLM-4.7-Flash', label: 'GLM-4.7-Flash' },
-  { value: 'GLM-4.6V-Flash', label: 'GLM-4.6V-Flash' },
-  { value: 'GLM-4.1V-Thinking-Flash', label: 'GLM-4.1V-Thinking-Flash' },
-  { value: 'GLM-4-Flash-250414', label: 'GLM-4-Flash-250414' },
-]
+interface AiPreset {
+  value: string
+  label: string
+  api_url: string
+  default_model: string
+  models: string[]
+  console_url?: string
+}
+
+// 默认值仅作首屏占位，真实预设由后端 /system/config 的 _ai_presets 下发
+const providerOptions = ref<AiPreset[]>([
+  {
+    value: 'deepseek',
+    label: 'DeepSeek 官方',
+    api_url: 'https://api.deepseek.com/chat/completions',
+    default_model: 'deepseek-flash',
+    models: ['deepseek-flash'],
+  },
+  {
+    value: 'siliconflow',
+    label: '硅基流动 SiliconFlow',
+    api_url: 'https://api.siliconflow.cn/v1/chat/completions',
+    default_model: 'zai-org/GLM-5.3-Flash',
+    models: ['zai-org/GLM-5.3-Flash'],
+  },
+])
 
 // ---- AI 配置 ----
-const aiForm = reactive({ model: 'GLM-4V-Flash', apiKey: '', apiUrl: '' })
+const aiForm = reactive({ provider: 'deepseek', model: 'deepseek-flash', apiKey: '', apiUrl: '' })
 const aiStatus = reactive({ maskedKey: '' })
+const aiKeyStatus = reactive<Record<string, string>>({})
 const showKey = ref(false)
 const aiSaving = ref(false)
 const aiSaved = ref(false)
 const aiMsg = ref('')
 const aiMsgType = ref('success')
 let aiMsgTimer: ReturnType<typeof setTimeout> | null = null
+
+const currentPreset = computed<AiPreset>(() =>
+  providerOptions.value.find(p => p.value === aiForm.provider) || providerOptions.value[0]
+)
+
+const modelOptions = computed(() =>
+  currentPreset.value.models.map(m => ({
+    value: m,
+    label: m === currentPreset.value.default_model ? `${m}（推荐）` : m,
+  }))
+)
+
+function onProviderChange() {
+  const preset = currentPreset.value
+  aiForm.model = preset.default_model
+  aiForm.apiUrl = ''
+  aiForm.apiKey = ''
+  showKey.value = false
+  aiStatus.maskedKey = aiKeyStatus[aiForm.provider] || ''
+}
 
 function showAiMsg(text: string, type: 'success' | 'error') {
   aiMsg.value = text
@@ -475,10 +528,32 @@ async function loadAiConfig() {
     const { data } = await $api.get('/system/config')
     if (data.code === 200) {
       const cfg = data.data
-      aiForm.model = cfg.ai_model?.value || 'GLM-4V-Flash'
-      aiForm.apiUrl = cfg.ai_api_url?.value || ''
-      aiStatus.maskedKey = cfg.ai_api_key?.has_value ? cfg.ai_api_key.value : ''
-      aiSaved.value = !!(cfg.ai_model?.has_value || cfg.ai_api_key?.has_value)
+      if (Array.isArray(cfg._ai_presets?.value) && cfg._ai_presets.value.length) {
+        providerOptions.value = cfg._ai_presets.value
+      }
+
+      const savedProvider = cfg.ai_provider?.value || 'deepseek'
+      aiForm.provider = providerOptions.value.some(p => p.value === savedProvider)
+        ? savedProvider
+        : 'deepseek'
+
+      const preset = currentPreset.value
+      const savedModel = cfg.ai_model?.value || ''
+      aiForm.model = preset.models.includes(savedModel) ? savedModel : preset.default_model
+
+      const savedUrl = cfg.ai_api_url?.value || ''
+      // 与预设一致时留空，交由后端按服务商默认值解析
+      aiForm.apiUrl = savedUrl && savedUrl !== preset.api_url ? savedUrl : ''
+
+      const genericKey = cfg.ai_api_key?.has_value ? cfg.ai_api_key.value : ''
+      aiKeyStatus.deepseek = cfg.ai_api_key_deepseek?.has_value
+        ? cfg.ai_api_key_deepseek.value
+        : genericKey
+      aiKeyStatus.siliconflow = cfg.ai_api_key_siliconflow?.has_value
+        ? cfg.ai_api_key_siliconflow.value
+        : genericKey
+      aiStatus.maskedKey = aiKeyStatus[aiForm.provider] || ''
+      aiSaved.value = !!(cfg.ai_api_key_deepseek?.has_value || cfg.ai_api_key_siliconflow?.has_value)
     }
   } catch (e) {
     // 静默处理
@@ -488,10 +563,16 @@ async function loadAiConfig() {
 async function saveAiConfig() {
   aiSaving.value = true
   try {
-    const configs: Record<string, string> = {}
-    if (aiForm.model) configs.ai_model = aiForm.model
-    if (aiForm.apiKey) configs.ai_api_key = aiForm.apiKey
-    if (aiForm.apiUrl) configs.ai_api_url = aiForm.apiUrl
+    const preset = currentPreset.value
+    const configs: Record<string, string> = {
+      ai_provider: aiForm.provider,
+      ai_model: aiForm.model || preset.default_model,
+      // 显式写入地址，切换服务商时才能覆盖上一家的旧地址
+      ai_api_url: aiForm.apiUrl.trim() || preset.api_url,
+    }
+    if (aiForm.apiKey.trim()) {
+      configs[`ai_api_key_${aiForm.provider}`] = aiForm.apiKey.trim()
+    }
 
     const { data } = await $api.put('/system/config', { configs })
     if (data.code === 200) {

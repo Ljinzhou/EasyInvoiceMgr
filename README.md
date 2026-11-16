@@ -82,7 +82,9 @@ NUXT_PUBLIC_API_BASE=http://1.2.3.4:5000/api   # 服务器公网IP
 CORS_ORIGINS=http://1.2.3.4:3000              # 前端访问地址
 SECRET_KEY=$(openssl rand -hex 32)            # 生产环境务必修改
 JWT_SECRET_KEY=$(openssl rand -hex 32)        # 生产环境务必修改
-GLM_API_KEY=your-key              # 智谱AI（可选，用于发票OCR）
+AI_PROVIDER=deepseek              # 视觉服务商：deepseek / siliconflow
+DEEPSEEK_API_KEY=sk-xxx           # DeepSeek 官方密钥（默认，用于发票识别）
+SILICONFLOW_API_KEY=sk-xxx        # 硅基流动密钥（可选，切换服务商时使用）
 USE_CHINA_MIRROR=true              # 国内服务器启用镜像加速
 ```
 
@@ -97,9 +99,16 @@ USE_CHINA_MIRROR=true              # 国内服务器启用镜像加速
 | `JWT_SECRET_KEY` | 内置值 | JWT 签名密钥 |
 | `CORS_ORIGINS` | `http://localhost:3000` | 跨域白名单 |
 | `NUXT_PUBLIC_API_BASE` | `http://localhost:5000/api` | 前端访问后端的地址 |
-| `GLM_API_KEY` | 空 | 智谱AI密钥 |
-| `GLM_MODEL` | `glm-4.6v-flash` | 智谱AI模型 |
+| `AI_PROVIDER` | `deepseek` | 视觉服务商：`deepseek` / `siliconflow` |
+| `AI_MODEL` | `deepseek-flash` | 视觉模型名（硅基流动为 `zai-org/GLM-5.3-Flash`） |
+| `AI_API_URL` | 空 | 自定义接口地址，留空用服务商默认值 |
+| `DEEPSEEK_API_KEY` | 空 | DeepSeek 官方密钥 |
+| `SILICONFLOW_API_KEY` | 空 | 硅基流动密钥 |
 | `USE_CHINA_MIRROR` | `false` | 国内服务器设为 `true`，自动启用 apt/pip/pnpm 镜像 |
+
+> AI 参数也可在「设置 → AI 模型配置」里直接保存（数据库配置优先级高于环境变量），
+> 两个服务商的密钥分开存储，切换服务商时不需要重新填写另一家的 Key。
+> 智谱 GLM 官方接口（`open.bigmodel.cn`）已不再支持，升级后会自动迁移到 DeepSeek。
 
 > 修改 `.env` 后执行 `docker compose up -d --build` 重新构建即可生效。
 

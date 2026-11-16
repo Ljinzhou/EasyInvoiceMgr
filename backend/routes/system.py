@@ -14,7 +14,11 @@ logger = logging.getLogger(__name__)
 system_bp = Blueprint('system', __name__)
 
 # 需要加密存储的配置键
-ENCRYPTED_KEYS = {'ai_api_key'}
+ENCRYPTED_KEYS = {
+    'ai_api_key',
+    'ai_api_key_deepseek',
+    'ai_api_key_siliconflow',
+}
 
 
 def _get_version():
@@ -108,33 +112,28 @@ def _set_config_value(config_key: str, value: str, description: str = None, admi
         db.session.add(record)
 
 
+def get_ai_provider() -> str:
+    """获取当前 AI 视觉服务商（deepseek / siliconflow）。"""
+    from utils.ai_config import resolve_ai_provider
+    return resolve_ai_provider()
+
+
 def get_ai_model() -> str | None:
-    """获取已配置的 AI 模型（优先数据库，回退到环境变量）。需在应用上下文中调用。"""
-    # 优先使用数据库配置
-    model = _get_config_value('ai_model')
-    if model:
-        return model
-    # 回退到环境变量
-    import os
-    return os.environ.get('GLM_MODEL', 'GLM-4V-Flash')
+    """获取已配置的 AI 模型（数据库 > 环境变量 > 服务商默认）。"""
+    from utils.ai_config import resolve_ai_model
+    return resolve_ai_model()
 
 
 def get_ai_api_key() -> str | None:
-    """获取已配置的 AI API 密钥（优先数据库，回退到环境变量）。需在应用上下文中调用。"""
-    key = _get_config_value('ai_api_key')
-    if key:
-        return key
-    import os
-    return os.environ.get('GLM_API_KEY')
+    """获取当前服务商的 API 密钥（专属 Key > 通用 Key > 环境变量）。"""
+    from utils.ai_config import resolve_ai_api_key
+    return resolve_ai_api_key()
 
 
 def get_ai_api_url() -> str:
-    """获取已配置的 AI API 地址（优先数据库，回退到环境变量）。"""
-    url = _get_config_value('ai_api_url')
-    if url:
-        return url
-    import os
-    return os.environ.get('GLM_API_URL', 'https://open.bigmodel.cn/api/paas/v4/chat/completions')
+    """获取当前服务商的 chat/completions 地址。"""
+    from utils.ai_config import resolve_ai_api_url
+    return resolve_ai_api_url()
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +182,10 @@ def get_system_config():
     # 同时返回当前版本信息
     result['_version'] = {'value': CURRENT_VERSION}
 
+    # 供设置页渲染「服务商 / 模型」下拉框，避免前后端各维护一份预设
+    from utils.ai_config import available_providers
+    result['_ai_presets'] = {'value': available_providers()}
+
     return jsonify({'code': 200, 'data': result})
 
 
@@ -202,7 +205,14 @@ def update_system_config():
     if not isinstance(configs, dict):
         return jsonify({'code': 400, 'message': 'configs必须是对象'}), 400
 
-    allowed_keys = {'ai_model', 'ai_api_key', 'ai_api_url'}
+    allowed_keys = {
+        'ai_provider',
+        'ai_model',
+        'ai_api_key',
+        'ai_api_url',
+        'ai_api_key_deepseek',
+        'ai_api_key_siliconflow',
+    }
     admin_id = get_jwt_identity()
 
     updated_keys = []
@@ -756,7 +766,8 @@ def test_model():
 
     import time
 
-    from utils.glm_vision_service import resolve_ai_api_key, resolve_ai_model, resolve_ai_api_url, REQUESTS_AVAILABLE
+    from utils.ai_config import resolve_ai_api_key, resolve_ai_api_url, resolve_ai_model
+    from utils.ai_vision_service import REQUESTS_AVAILABLE
     if not REQUESTS_AVAILABLE:
         return jsonify({'code': 500, 'message': 'requests 库未安装'}), 500
 
@@ -774,12 +785,7 @@ def test_model():
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "这是一条测试消息，用于验证模型连通性。请简短回复'连接测试成功'。"
-                        }
-                    ]
+                    "content": "这是一条测试消息，用于验证模型连通性。请简短回复'连接测试成功'。"
                 }
             ],
             "max_tokens": 32

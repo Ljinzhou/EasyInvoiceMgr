@@ -209,6 +209,10 @@ def create_app():
         register_sqlite_pragmas(db.engine)
         ensure_schema()
 
+        # 清理已下线的智谱 GLM 配置并补齐 AI 服务商字段（幂等）
+        from utils.ai_config import migrate_legacy_ai_config
+        migrate_legacy_ai_config()
+
         _seed_admin_user(app)
 
     # 初始化备份服务和定时调度器（在数据库迁移完成后）

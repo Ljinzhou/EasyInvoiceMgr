@@ -4,7 +4,7 @@ from models import db, PurchaseRecord, PurchaseRecordFile, Event, User, EventMem
 from datetime import datetime, timezone
 from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
-from utils.glm_vision_service import glm_vision_service
+from utils.ai_vision_service import ai_vision_service
 from utils.permissions import ensure_event_membership, check_student_event_access
 from utils.pdf_converter import PDFConverter
 import logging
@@ -325,16 +325,16 @@ def _read_file_bytes(file_key):
     return None
 
 
-def _store_preview_image(jpg_bytes):
-    """保存发票预览 JPG（COS 优先、本地兜底），返回可持久化的 file_key。"""
-    if not jpg_bytes:
+def _store_preview_image(image_bytes):
+    """保存发票预览 PNG（COS 优先、本地兜底），返回可持久化的 file_key。"""
+    if not image_bytes:
         return None
 
     unique_id = uuid.uuid4().hex
     if storage_manager.is_available():
-        preview_key = f"invoices/{unique_id}_preview.jpg"
+        preview_key = f"invoices/{unique_id}_preview.png"
         try:
-            storage_manager.upload_bytes(jpg_bytes, preview_key)
+            storage_manager.upload_bytes(image_bytes, preview_key)
             return preview_key
         except Exception as e:
             logger.error(f'发票预览图上传失败: {str(e)}')
@@ -343,9 +343,9 @@ def _store_preview_image(jpg_bytes):
     uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
     try:
         os.makedirs(uploads_dir, exist_ok=True)
-        filename = f"{unique_id}_preview.jpg"
+        filename = f"{unique_id}_preview.png"
         with open(os.path.join(uploads_dir, filename), 'wb') as f:
-            f.write(jpg_bytes)
+            f.write(image_bytes)
         return f"/uploads/{filename}"
     except Exception as e:
         logger.error(f'发票预览图本地保存失败: {str(e)}')
@@ -380,7 +380,13 @@ def _file_download_response(file_key, original_filename):
         file_key.startswith('invoices/') or file_key.startswith('uploads/')
     ):
         file_bytes = storage_manager.download_file(file_key)
-        content_type = 'application/pdf' if file_key.lower().endswith('.pdf') else 'image/jpeg'
+        lower_key = file_key.lower()
+        if lower_key.endswith('.pdf'):
+            content_type = 'application/pdf'
+        elif lower_key.endswith('.png'):
+            content_type = 'image/png'
+        else:
+            content_type = 'image/jpeg'
         return Response(
             file_bytes,
             mimetype=content_type,
@@ -1276,31 +1282,44 @@ def get_invoice_preview(record_id):
         if not invoice_file:
             return jsonify({'code': 404, 'message': '该记录没有发票', 'data': None}), 404
 
-        preview_key = invoice_file['preview_key'] or invoice_file['file_key']
+        preview_key = invoice_file['preview_key']
+        is_pdf = invoice_file['file_key'].lower().endswith('.pdf')
 
-        if not invoice_file['preview_key'] and invoice_file['file_key'].lower().endswith('.pdf'):
+        if not preview_key and is_pdf:
             # 兼容历史数据：早期上传的 PDF 发票没有预览图，这里按需补生成并落库
             pdf_bytes = _read_file_bytes(invoice_file['file_key'])
             if pdf_bytes:
-                jpg_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(pdf_bytes)
-                if jpg_bytes:
-                    generated_key = _store_preview_image(jpg_bytes)
+                try:
+                    png_bytes, _, _, _ = PDFConverter.convert_pdf_to_png(pdf_bytes)
+                except Exception as e:
+                    png_bytes = None
+                    logger.warning(f'历史 PDF 渲染 PNG 失败: record_id={record_id}, {str(e)}')
+                if png_bytes:
+                    generated_key = _store_preview_image(png_bytes)
                     if generated_key:
                         _persist_invoice_preview(record, invoice_file['file_key'], generated_key)
                         preview_key = generated_key
                         logger.info(f'历史 PDF 发票预览图已补生成: record_id={record_id}')
+        elif not preview_key and not is_pdf:
+            # 图片发票本身即预览图
+            preview_key = invoice_file['file_key']
+            _persist_invoice_preview(record, invoice_file['file_key'], preview_key)
 
-        preview_url = get_presigned_url(preview_key, expires=3600)
-        
+        # 兜底：预览图生成失败时回退到发票文件本身，避免前端拿到空地址
+        preview_url = get_presigned_url(preview_key, expires=3600) if preview_key else None
+        if not preview_url:
+            preview_url = get_presigned_url(invoice_file['file_key'], expires=3600)
+
         if not preview_url:
             return jsonify({'code': 500, 'message': '无法生成预览URL', 'data': None}), 500
-        
+
         return jsonify({
             'code': 200,
             'message': 'success',
             'data': {
                 'preview_url': preview_url,
-                'is_pdf': invoice_file['file_key'].lower().endswith('.pdf')
+                'preview_key': preview_key,
+                'is_pdf': is_pdf
             }
         }), 200
         
@@ -1312,7 +1331,7 @@ def get_invoice_preview(record_id):
 @purchase_records_bp.route('/records/<int:record_id>/re-parse-invoice', methods=['POST'])
 @jwt_required()
 def re_parse_invoice(record_id):
-    """重新解析已上传的发票文件（使用GLM视觉模型）"""
+    """重新解析已上传的发票文件（使用 AI 视觉模型）"""
     logger.info(f'=== 重新解析发票: record_id={record_id} ===')
     try:
         current_user_id = get_jwt_identity()
@@ -1337,21 +1356,23 @@ def re_parse_invoice(record_id):
         if not file_bytes:
             return jsonify({'code': 404, 'message': '无法获取发票文件', 'data': None}), 404
 
-        # PDF文件：先转换为JPG图片再用GLM解析
+        # PDF 文件：先渲染为 PNG 图片，再交给 AI 解析
         image_bytes_for_ai = file_bytes
-        jpg_bytes = None
+        png_bytes = None
         if is_pdf:
-            jpg_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(file_bytes)
-            if jpg_bytes:
-                image_bytes_for_ai = jpg_bytes
-                logger.info('PDF转换为JPG成功，使用JPG进行AI解析')
-            else:
-                logger.warning('PDF转换JPG失败，尝试直接解析')
+            try:
+                png_bytes, _, _, _ = PDFConverter.convert_pdf_to_png(file_bytes)
+            except Exception as e:
+                logger.warning(f'PDF 渲染 PNG 失败，尝试直接解析: {str(e)}')
+                png_bytes = None
+            if png_bytes:
+                image_bytes_for_ai = png_bytes
+                logger.info('PDF 已渲染为 PNG，使用图片进行 AI 解析')
 
         # 预览图：与解析结果解耦——只要发票是 PDF 且还没有预览图，就先转图保存
         preview_key = invoice_file.get('preview_key')
-        if is_pdf and jpg_bytes and not preview_key:
-            preview_key = _store_preview_image(jpg_bytes)
+        if is_pdf and png_bytes and not preview_key:
+            preview_key = _store_preview_image(png_bytes)
             if preview_key:
                 _persist_invoice_preview(record, file_key, preview_key)
                 logger.info(f'补生成发票预览图: {preview_key}')
@@ -1363,7 +1384,7 @@ def re_parse_invoice(record_id):
         # 调用解析服务
         parsed_info = None
         if invoice_parser.is_available():
-            ai_filename = f'{record_id}.jpg' if is_pdf else original_filename
+            ai_filename = f'{record_id}.png' if is_pdf else original_filename
             result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
 
             if result.get('success'):
@@ -1381,13 +1402,13 @@ def re_parse_invoice(record_id):
                 return jsonify({
                     'code': 422,
                     'message': result.get('message', '解析失败'),
-                    'data': {'preview_key': preview_key}
+                    'data': {'preview_key': preview_key, 'is_pdf': is_pdf}
                 }), 422
         else:
             return jsonify({
                 'code': 503,
-                'message': 'AI解析服务不可用',
-                'data': {'preview_key': preview_key}
+                'message': 'AI 解析服务不可用',
+                'data': {'preview_key': preview_key, 'is_pdf': is_pdf}
             }), 503
 
         return jsonify({
@@ -1396,7 +1417,8 @@ def re_parse_invoice(record_id):
             'data': {
                 'parsed_info': parsed_info,
                 'preview_key': preview_key,
-                'extraction_method': 'glm_vision'
+                'is_pdf': is_pdf,
+                'extraction_method': 'ai_vision'
             }
         }), 200
 

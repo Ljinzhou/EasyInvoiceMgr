@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class PDFConverter:
-    """PDF转JPG服务端转换器（需安装PyMuPDF或其他渲染库）"""
+    """PDF 转图片服务端转换器（基于 PyMuPDF；预览默认输出 PNG）"""
 
     @staticmethod
     def is_pdf_available():
@@ -31,6 +31,43 @@ class PDFConverter:
             return True
         except ImportError:
             return False
+
+    @staticmethod
+    def convert_pdf_to_png(pdf_bytes: bytes, dpi: float = 2.0) -> tuple:
+        """将 PDF 首页渲染为 PNG（无损，发票文字比 JPG 更清晰）。
+
+        Returns:
+            tuple: (png_bytes, width, height, page_count) 或 (None, None, None, 0) 失败时
+        """
+        try:
+            try:
+                import pymupdf as fitz
+            except ImportError:
+                import fitz
+
+            pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+            page_count = len(pdf_document)
+
+            if page_count == 0:
+                logger.warning('PDF文件没有页面')
+                pdf_document.close()
+                return None, None, None, 0
+
+            page = pdf_document[0]
+            pix = page.get_pixmap(matrix=fitz.Matrix(dpi, dpi))
+            png_bytes = pix.tobytes('png')
+            width, height = pix.width, pix.height
+            pdf_document.close()
+
+            logger.info(f'PDF转PNG成功: 尺寸={width}x{height}, 页数={page_count}, 大小={len(png_bytes)} bytes')
+            return png_bytes, width, height, page_count
+
+        except ImportError:
+            logger.error('PDF渲染库未安装，无法转换PDF为图片')
+            return None, None, None, 0
+        except Exception as e:
+            logger.error(f'PDF转PNG失败: {str(e)}', exc_info=True)
+            return None, None, None, 0
 
     @staticmethod
     def convert_pdf_to_jpg(pdf_bytes: bytes, dpi: float = 2.0) -> tuple:

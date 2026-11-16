@@ -5,7 +5,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.invoice_parser import invoice_parser
 from utils.storage import storage_manager
 from config import CORS_ORIGINS
-from utils.glm_vision_service import GLMVisionService
+from utils.ai_vision_service import AIVisionService
 import logging
 import uuid
 import os
@@ -14,6 +14,15 @@ import io
 
 logger = logging.getLogger(__name__)
 parse_bp = Blueprint('parse', __name__)
+
+
+def _preview_format(data: bytes) -> tuple[str, str]:
+    """按魔数判断预览图真实格式：客户端兜底预览可能是 JPEG。"""
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'png', 'image/png'
+    if data[:3] == b'\xff\xd8\xff':
+        return 'jpg', 'image/jpeg'
+    return 'png', 'image/png'
 
 
 class InvoiceUploadService:
@@ -145,10 +154,10 @@ def upload_file():
     unique_id = uuid.uuid4().hex
     file_key = f"invoices/{unique_id}.{file_ext}"
 
-    # 与 AI 解析无关的预览图：PDF 转 JPG，图片文件直接复用原图。
+    # 与 AI 解析无关的预览图：PDF 转 PNG，图片文件直接复用原图。
     preview_bytes = None
     if file_ext == 'pdf':
-        preview_bytes, _, _, _ = PDFConverter.convert_pdf_to_jpg(file_bytes)
+        preview_bytes, _, _, _ = PDFConverter.convert_pdf_to_png(file_bytes)
     
     content_type_map = {
         'pdf': 'application/pdf',
@@ -178,15 +187,15 @@ def upload_file():
     preview_file_key = None
     if storage_manager.is_available() and file_key.startswith('invoices/'):
         if preview_bytes:
-            preview_file_key = f"invoices/{unique_id}_preview.jpg"
-            if not InvoiceUploadService.upload_to_storage(preview_bytes, preview_file_key, 'image/jpeg'):
+            preview_file_key = f"invoices/{unique_id}_preview.png"
+            if not InvoiceUploadService.upload_to_storage(preview_bytes, preview_file_key, 'image/png'):
                 logger.warning('预览图上传失败')
                 preview_file_key = None
         else:
             preview_file_key = file_key
     elif file_key.startswith('/uploads/'):
         if preview_bytes:
-            preview_name = f"{unique_id}_preview.jpg"
+            preview_name = f"{unique_id}_preview.png"
             uploads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads')
             if InvoiceUploadService.save_to_local(preview_bytes, preview_name, uploads_dir):
                 preview_file_key = f"/uploads/{preview_name}"
@@ -234,7 +243,7 @@ def parse_image():
         if not file_bytes:
             return jsonify({'code': 400, 'message': '文件为空', 'data': None}), 400
 
-        mime_type = GLMVisionService._detect_mime_type(file_bytes, file.filename)
+        mime_type = AIVisionService._detect_mime_type(file_bytes, file.filename)
         if mime_type == 'application/pdf':
             return jsonify({'code': 400, 'message': '请上传图片文件，不支持PDF', 'data': None}), 400
 
@@ -316,7 +325,7 @@ def parse_invoice():
         unique_id = uuid.uuid4().hex
         
         is_pdf = file_ext == 'pdf'
-        jpg_bytes = None
+        preview_bytes = None
         pdf_page_count = 0
 
         # 接收客户端传来的预览图（可选）
@@ -330,20 +339,23 @@ def parse_invoice():
 
         if is_pdf:
             logger.info('检测到PDF文件，尝试服务端渲染转换...')
-            jpg_bytes, jpg_width, jpg_height, pdf_page_count = PDFConverter.convert_pdf_to_jpg(file_bytes)
+            preview_bytes, preview_width, preview_height, pdf_page_count = PDFConverter.convert_pdf_to_png(file_bytes)
 
             # 服务端转换失败时，使用客户端传来的预览图
-            if jpg_bytes is None and client_preview_bytes:
-                jpg_bytes = client_preview_bytes
+            if preview_bytes is None and client_preview_bytes:
+                preview_bytes = client_preview_bytes
                 logger.info('使用客户端提供的预览图作为PDF预览')
 
-            if jpg_bytes is None:
+            if preview_bytes is None:
                 logger.warning('PDF渲染转换失败（渲染库不可用且无客户端预览图）')
         
         invoice_file_key = f"invoices/{unique_id}.{file_ext}"
-        # 发票预览图：PDF 用渲染出的 JPG，图片发票直接复用原图。
+        # 发票预览图：PDF 用渲染出的图片，图片发票直接复用原图。
         # 预览图生成与 AI 解析完全解耦——即使解析失败，也要保证预览图落盘。
         preview_file_key = None
+        preview_ext, preview_content_type = (
+            _preview_format(preview_bytes) if preview_bytes else ('png', 'image/png')
+        )
         
         content_type_map = {
             'pdf': 'application/pdf',
@@ -366,12 +378,12 @@ def parse_invoice():
                     'data': None
                 }), 500
             
-            if is_pdf and jpg_bytes:
-                preview_file_key = f"invoices/{unique_id}_preview.jpg"
+            if is_pdf and preview_bytes:
+                preview_file_key = f"invoices/{unique_id}_preview.{preview_ext}"
                 preview_success = InvoiceUploadService.upload_to_storage(
-                    jpg_bytes,
+                    preview_bytes,
                     preview_file_key,
-                    'image/jpeg'
+                    preview_content_type
                 )
                 
                 if not preview_success:
@@ -391,9 +403,9 @@ def parse_invoice():
             
             invoice_file_key = f"/uploads/{local_filename}"
             
-            if is_pdf and jpg_bytes:
-                preview_filename = f"{unique_id}_preview.jpg"
-                if InvoiceUploadService.save_to_local(jpg_bytes, preview_filename, uploads_dir):
+            if is_pdf and preview_bytes:
+                preview_filename = f"{unique_id}_preview.{preview_ext}"
+                if InvoiceUploadService.save_to_local(preview_bytes, preview_filename, uploads_dir):
                     preview_file_key = f"/uploads/{preview_filename}"
             elif not is_pdf:
                 # 图片发票本身就是图片，原图即可作为预览
@@ -402,11 +414,11 @@ def parse_invoice():
             logger.info(f'本地存储: 原始文件={invoice_file_key}, 预览图={preview_file_key}')
         
         # 确定用于AI解析的图片字节：PDF必须先转为图片，否则跳过AI解析
-        if is_pdf and not jpg_bytes:
+        if is_pdf and not preview_bytes:
             image_bytes_for_ai = None
             logger.warning('PDF转图片失败，跳过AI解析（视觉模型不支持原始PDF）')
-        elif is_pdf and jpg_bytes:
-            image_bytes_for_ai = jpg_bytes
+        elif is_pdf and preview_bytes:
+            image_bytes_for_ai = preview_bytes
         else:
             image_bytes_for_ai = file_bytes
 
@@ -417,7 +429,7 @@ def parse_invoice():
             if image_bytes_for_ai and invoice_parser.is_available():
                 logger.info('开始调用AI模型解析发票...')
 
-                ai_filename = f'{unique_id}.jpg' if is_pdf else original_filename
+                ai_filename = f'{unique_id}.png' if is_pdf else original_filename
                 result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
 
                 if result.get('success'):
@@ -451,7 +463,7 @@ def parse_invoice():
                 file_url = storage_manager.get_presigned_url(invoice_file_key, expires=3600 * 24)
             if preview_file_key and preview_file_key.startswith('invoices/'):
                 preview_url = storage_manager.get_presigned_url(preview_file_key, expires=3600 * 24)
-            elif not preview_file_key and invoice_file_key.startswith('invoices/'):
+            elif not preview_file_key and not is_pdf and invoice_file_key.startswith('invoices/'):
                 preview_url = file_url
         else:
             file_url = invoice_file_key
@@ -480,7 +492,7 @@ def parse_invoice():
                 'parsed_info': parsed_info,
                 'ai_parse_success': bool(parsed_info),
                 'ai_parse_error': ai_parse_error,
-                'extraction_method': 'glm_vision' if parsed_info else None
+                'extraction_method': 'ai_vision' if parsed_info else None
             }
         }), 200
     

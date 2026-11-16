@@ -53,6 +53,12 @@ class Config:
     COS_REGION = os.environ.get('COS_REGION', 'ap-guangzhou')
     COS_BUCKET = os.environ.get('COS_BUCKET')
 
-    # 智谱AI GLM视觉模型配置
-    GLM_API_KEY = os.environ.get('GLM_API_KEY')
-    GLM_MODEL = os.environ.get('GLM_MODEL', 'GLM-4V-Flash')
+    # AI 视觉模型配置
+    # 默认 DeepSeek 官方 deepseek-flash；可选硅基流动 zai-org/GLM-5.3-Flash。
+    # 运行时的实际取值优先级：数据库 system_configs > 环境变量 > 服务商默认值，
+    # 详见 utils/ai_config.py。
+    AI_PROVIDER = os.environ.get('AI_PROVIDER', 'deepseek')
+    AI_MODEL = os.environ.get('AI_MODEL', 'deepseek-flash')
+    AI_API_URL = os.environ.get('AI_API_URL')
+    DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
+    SILICONFLOW_API_KEY = os.environ.get('SILICONFLOW_API_KEY')

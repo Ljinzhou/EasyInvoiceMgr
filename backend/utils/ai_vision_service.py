@@ -1,4 +1,3 @@
-import os
 import base64
 import re
 import json
@@ -12,41 +11,23 @@ try:
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
-    logger.warning('requests库未安装，GLM视觉模型功能将不可用')
+    logger.warning('requests库未安装，AI 视觉模型功能将不可用')
 
 
-def _get_db_config_value(key: str) -> str | None:
-    """从数据库（SystemConfig 表）读取配置值。"""
-    try:
-        from models import SystemConfig
-        from utils.crypto_utils import decrypt_value
-        record = SystemConfig.query.filter_by(config_key=key).first()
-        if record and record.config_value:
-            if record.is_encrypted:
-                return decrypt_value(record.config_value)
-            return record.config_value
-        return None
-    except Exception as e:
-        logger.debug(f'Failed to read config from DB: {e}')
-        return None
+# 服务商预设、配置解析与旧配置迁移统一由 utils.ai_config 负责。
+# 这里再导出一次，方便调用方只依赖本模块即可拿到解析函数。
+from utils.ai_config import (  # noqa: E402
+    AI_PROVIDER_PRESETS,
+    DEFAULT_AI_PROVIDER,
+    provider_preset,
+    resolve_ai_api_key,
+    resolve_ai_api_url,
+    resolve_ai_model,
+    resolve_ai_provider,
+)
 
 
-def resolve_ai_model() -> str:
-    """解析 AI 模型名称，数据库配置优先于环境变量。"""
-    return _get_db_config_value('ai_model') or os.environ.get('GLM_MODEL', 'GLM-4V-Flash')
-
-
-def resolve_ai_api_key() -> str | None:
-    """解析 AI API 密钥，数据库配置优先于环境变量。"""
-    return _get_db_config_value('ai_api_key') or os.environ.get('GLM_API_KEY')
-
-
-def resolve_ai_api_url() -> str:
-    """解析 AI API 地址，数据库配置优先于环境变量。"""
-    return _get_db_config_value('ai_api_url') or os.environ.get('GLM_API_URL', 'https://open.bigmodel.cn/api/paas/v4/chat/completions')
-
-
-class GLMVisionService:
+class AIVisionService:
     def __init__(self, api_key: str = None):
         self.api_key = api_key
 
@@ -84,11 +65,11 @@ class GLMVisionService:
         return 'image/jpeg'
 
     def extract_invoice_info(self, image_bytes: bytes, filename: str = '') -> Dict[str, Any]:
-        """使用 GLM 视觉模型从图片中提取发票信息。"""
+        """使用已配置的视觉模型（DeepSeek / 硅基流动）提取发票信息。"""
         if not self.is_available():
             return {
                 'success': False,
-                'message': 'GLM视觉模型服务不可用',
+                'message': 'AI 视觉模型服务不可用',
                 'data': None
             }
 
@@ -103,7 +84,7 @@ class GLMVisionService:
             if mime_type == 'application/pdf':
                 return {
                     'success': False,
-                    'message': 'GLM视觉模型不支持原始PDF，请先转换为图片',
+                    'message': 'AI 视觉模型不支持原始PDF，请先转换为图片',
                     'data': None
                 }
 
@@ -128,7 +109,7 @@ class GLMVisionService:
                         ]
                     }
                 ],
-                "max_tokens": 1024
+                "max_tokens": 2048
             }
 
             headers = {
@@ -142,24 +123,24 @@ class GLMVisionService:
                 api_url,
                 headers=headers,
                 json=payload,
-                timeout=30
+                timeout=60
             )
 
             if response.status_code != 200:
-                logger.error(f'GLM API请求失败: {response.status_code}, {response.text}')
+                logger.error(f'AI 接口请求失败: {response.status_code}, {response.text}')
                 return {
                     'success': False,
-                    'message': f'GLM API请求失败: HTTP {response.status_code}',
+                    'message': f'AI 接口请求失败: HTTP {response.status_code}',
                     'data': None
                 }
 
             result = response.json()
 
             if 'choices' not in result or len(result['choices']) == 0:
-                logger.error(f'GLM API返回异常: {result}')
+                logger.error(f'AI 接口返回异常: {result}')
                 return {
                     'success': False,
-                    'message': 'GLM API返回数据异常',
+                    'message': 'AI 接口返回数据异常',
                     'data': None
                 }
 
@@ -169,24 +150,24 @@ class GLMVisionService:
             return self._parse_response(content, model)
 
         except json.JSONDecodeError as e:
-            logger.error(f'GLM返回的JSON解析失败: {str(e)}')
+            logger.error(f'AI 接口返回的JSON解析失败: {str(e)}')
             return {
                 'success': False,
-                'message': f'GLM返回数据格式错误: {str(e)}',
+                'message': f'AI 接口返回数据格式错误: {str(e)}',
                 'data': None
             }
         except requests_lib.exceptions.Timeout:
-            logger.error('GLM API请求超时')
+            logger.error('AI 接口请求超时')
             return {
                 'success': False,
-                'message': 'GLM视觉模型响应超时，请稍后重试',
+                'message': 'AI 视觉模型响应超时，请稍后重试',
                 'data': None
             }
         except Exception as e:
-            logger.error(f'GLM视觉模型调用失败: {str(e)}', exc_info=True)
+            logger.error(f'AI 视觉模型调用失败: {str(e)}', exc_info=True)
             return {
                 'success': False,
-                'message': f'GLM视觉模型调用失败: {str(e)}',
+                'message': f'AI 视觉模型调用失败: {str(e)}',
                 'data': None
             }
 
@@ -220,14 +201,14 @@ class GLMVisionService:
 - 税号通常标注为"纳税人识别号"或"统一社会信用代码"""
 
     def _parse_response(self, content: str, model: str = '') -> Dict[str, Any]:
-        """解析GLM模型的响应内容"""
+        """解析视觉模型返回的响应内容"""
         json_match = re.search(r'\{[^{}]+\}', content, re.DOTALL)
 
         if not json_match:
-            logger.warning(f'无法从GLM响应中解析JSON: {content}')
+            logger.warning(f'无法从AI响应中解析JSON: {content}')
             return {
                 'success': False,
-                'message': '无法解析GLM返回的数据格式',
+                'message': '无法解析AI返回的数据格式',
                 'data': None
             }
 
@@ -251,7 +232,7 @@ class GLMVisionService:
                 'message': f'{model}解析成功',
                 'data': invoice_data,
                 'raw_text': content,
-                'extraction_method': 'glm_vision',
+                'extraction_method': 'ai_vision',
                 'field_permissions': {
                     'readonly': ['invoice_number', 'invoice_date', 'total_amount', 'invoice_tax_number'],
                     'editable': ['project_name', 'invoice_type']
@@ -267,11 +248,11 @@ class GLMVisionService:
             }
 
     def chat_with_image(self, image_bytes: bytes, question: str, model: str = None) -> Dict[str, Any]:
-        """向 GLM 视觉模型发送图片和问题。"""
+        """向已配置的视觉模型发送图片和问题。"""
         if not self.is_available():
             return {
                 'success': False,
-                'message': 'GLM视觉模型服务不可用',
+                'message': 'AI 视觉模型服务不可用',
                 'content': None
             }
 
@@ -343,7 +324,7 @@ class GLMVisionService:
             }
 
         except Exception as e:
-            logger.error(f'GLM视觉模型调用失败: {str(e)}', exc_info=True)
+            logger.error(f'AI 视觉模型调用失败: {str(e)}', exc_info=True)
             return {
                 'success': False,
                 'message': f'调用失败: {str(e)}',
@@ -351,4 +332,4 @@ class GLMVisionService:
             }
 
 
-glm_vision_service = GLMVisionService()
+ai_vision_service = AIVisionService()
