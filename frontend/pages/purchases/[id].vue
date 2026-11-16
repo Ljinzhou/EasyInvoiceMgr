@@ -2183,7 +2183,8 @@ async function processInvoiceFiles(fileList) {
         preview_blob: previewBlob
       })
       invoiceDrafts.value.push(draft)
-      added.push(draft)
+      // 取回数组里的响应式代理：直接改原始对象不会触发 computed 重算
+      added.push(invoiceDrafts.value[invoiceDrafts.value.length - 1])
       invoiceUploadProgress.value = Math.min(95, invoiceUploadProgress.value + Math.round(80 / files.length))
     }
 
