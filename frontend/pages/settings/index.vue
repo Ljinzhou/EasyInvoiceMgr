@@ -553,7 +553,7 @@ async function loadAiConfig() {
         ? cfg.ai_api_key_siliconflow.value
         : genericKey
       aiStatus.maskedKey = aiKeyStatus[aiForm.provider] || ''
-      aiSaved.value = !!(cfg.ai_api_key_deepseek?.has_value || cfg.ai_api_key_siliconflow?.has_value)
+      aiSaved.value = providerOptions.value.some(p => !!aiKeyStatus[p.value])
     }
   } catch (e) {
     // 静默处理
