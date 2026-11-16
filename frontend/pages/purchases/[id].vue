@@ -2181,8 +2181,11 @@ const calculateFileMD5 = (file) => {
  */
 async function convertPdfToImage(file) {
   const pdfjsLib = await import('pdfjs-dist')
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs`
+  // worker 随前端一起打包，避免国内网络访问 CDN 失败导致 PDF 转图整条链路不可用
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    const workerModule = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default
+  }
 
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
@@ -2385,12 +2388,17 @@ const autoParseLocalInvoice = async () => {
       if (info.date) form.value.invoice_date = info.date
       parseApplied.value = true
       showToast('发票解析完成', 'success')
+    } else if (response.data.code === 200) {
+      // 后端返回 200 但没有结果：把真实原因（模型/密钥/接口报错）展示出来
+      aiParseError.value = response.data.data?.ai_parse_error
+        || response.data.message
+        || 'AI 未返回解析结果，请手动填写'
     } else {
-      aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
+      aiParseError.value = response.data.message || 'AI服务暂时不可用，请手动填写信息'
     }
   } catch (err) {
     console.error('发票解析失败:', err.message)
-    aiParseError.value = 'AI服务暂时不可用，请手动填写信息'
+    aiParseError.value = err.response?.data?.message || '发票解析失败，请手动填写信息'
   } finally {
     parsingInvoice.value = false
   }

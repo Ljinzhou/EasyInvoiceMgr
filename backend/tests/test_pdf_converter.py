@@ -250,6 +250,45 @@ def test_preview_invoice_backfills_missing_preview_for_legacy_pdf(api_env, monke
         assert loaded.invoice_preview_key == generated[0]
 
 
+def test_parse_image_renders_pdf_server_side(api_env, monkeypatch):
+    """浏览器端 PDF 转图失败时会把 PDF 发给 /parse-image，服务端应兜底渲染后继续解析。"""
+    application, client, admin_id = api_env
+
+    import routes.parse as parse_module
+    captured = {}
+
+    class _RecordingParser:
+        @staticmethod
+        def is_available():
+            return True
+
+        @staticmethod
+        def parse_file(file_bytes, filename):
+            captured['bytes'] = file_bytes
+            captured['filename'] = filename
+            return {
+                'success': True,
+                'message': 'ok',
+                'data': {'invoice_number': '12345678', 'project_name': '办公用品', 'total_amount': 12.5},
+            }
+
+    monkeypatch.setattr(parse_module, 'invoice_parser', _RecordingParser())
+
+    response = client.post(
+        '/api/parse-image',
+        data={'file': (_bytes_io(_make_pdf_bytes()), 'invoice.pdf')},
+        headers=_auth(application, admin_id),
+        content_type='multipart/form-data',
+    )
+
+    assert response.status_code == 200, response.get_json()
+    data = response.get_json()['data']
+    assert data['parsed_info']['invoice_number'] == '12345678'
+    # 解析器收到的是服务端渲染出的 PNG，而不是原始 PDF
+    assert captured['bytes'][:8] == PNG_MAGIC
+    assert captured['filename'].endswith('.png')
+
+
 def _bytes_io(data):
     import io
     return io.BytesIO(data)

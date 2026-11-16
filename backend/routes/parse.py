@@ -243,15 +243,30 @@ def parse_image():
         if not file_bytes:
             return jsonify({'code': 400, 'message': '文件为空', 'data': None}), 400
 
+        parse_filename = file.filename
         mime_type = AIVisionService._detect_mime_type(file_bytes, file.filename)
         if mime_type == 'application/pdf':
-            return jsonify({'code': 400, 'message': '请上传图片文件，不支持PDF', 'data': None}), 400
+            # 浏览器端 PDF 转图失败（如 worker 加载不了）时会直接把 PDF 发过来，
+            # 这里在服务端兜底渲染成 PNG，避免整条解析链直接失败。
+            logger.info('收到 PDF 而非图片，尝试服务端渲染为 PNG')
+            png_bytes, _, _, _ = PDFConverter.convert_pdf_to_png(file_bytes)
+            if not png_bytes:
+                return jsonify({
+                    'code': 400,
+                    'message': 'PDF 转图片失败，请稍后重试或手动填写',
+                    'data': None
+                }), 400
+            file_bytes = png_bytes
+            mime_type = 'image/png'
+            base_name = os.path.splitext(file.filename)[0] or 'invoice'
+            parse_filename = f'{base_name}.png'
 
-        logger.info(f'收到图片: {file.filename}, 格式: {mime_type}, 大小: {len(file_bytes)} bytes')
+        logger.info(f'收到图片: {parse_filename}, 格式: {mime_type}, 大小: {len(file_bytes)} bytes')
 
         parsed_info = None
+        ai_parse_error = None
         if invoice_parser.is_available():
-            result = invoice_parser.parse_file(file_bytes, file.filename)
+            result = invoice_parser.parse_file(file_bytes, parse_filename)
             if result.get('success'):
                 raw = result.get('data', {})
                 parsed_info = {
@@ -263,14 +278,19 @@ def parse_image():
                 }
                 logger.info(f'AI解析成功: {parsed_info}')
             else:
-                logger.warning(f'AI解析失败: {result.get("message")}')
+                ai_parse_error = result.get('message') or 'AI 解析失败'
+                logger.warning(f'AI解析失败: {ai_parse_error}')
+        else:
+            ai_parse_error = 'AI 解析服务不可用，请检查设置中的模型与 API 密钥'
+            logger.warning(ai_parse_error)
 
         return jsonify({
             'code': 200,
-            'message': '解析完成' if parsed_info else 'AI解析服务不可用',
+            'message': '解析完成' if parsed_info else ai_parse_error,
             'data': {
                 'parsed_info': parsed_info,
-                'filename': file.filename
+                'filename': parse_filename,
+                'ai_parse_error': ai_parse_error
             }
         }), 200
 
