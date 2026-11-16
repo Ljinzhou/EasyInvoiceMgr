@@ -1517,7 +1517,8 @@ def re_parse_invoice(record_id):
 
         invoice_file = _first_invoice_file(record, file_id)
         if not invoice_file:
-            return jsonify({'code': 400, 'message': '该记录没有发票文件', 'data': None}), 400
+            message = '未找到指定的发票附件' if file_id else '该记录没有发票文件'
+            return jsonify({'code': 400, 'message': message, 'data': None}), 400
 
         file_key = invoice_file['file_key']
         is_pdf = file_key.lower().endswith('.pdf')
