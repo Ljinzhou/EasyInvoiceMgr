@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, Response, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, PurchaseRecord, PurchaseRecordFile, Event, User, EventMember
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from utils.storage import storage_manager
 from utils.invoice_parser import invoice_parser
 from utils.ai_vision_service import ai_vision_service
@@ -58,7 +59,7 @@ def _serialize_record_file(row):
         file_url = get_presigned_url(row.file_key) or row.file_key
         preview_url = file_url
 
-    return {
+    data = {
         'file_id': row.file_id,
         'file_type': row.file_type,
         'file_key': row.file_key,
@@ -72,6 +73,20 @@ def _serialize_record_file(row):
         'download_url': (f'/api/records/{row.record_id}/files/{row.file_id}/download'
                          if row.file_id else None),
     }
+
+    if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE:
+        data.update({
+            'invoice_number': row.invoice_number,
+            'invoice_date': row.invoice_date.isoformat() if row.invoice_date else None,
+            'invoice_tax_number': row.invoice_tax_number,
+            'invoice_type': row.invoice_type,
+            'item_name': row.invoice_item_name,
+            'amount': float(row.invoice_amount) if row.invoice_amount is not None else None,
+            'parse_status': row.parse_status,
+            'parse_error': row.parse_error,
+        })
+
+    return data
 
 
 def _legacy_record_files(record):
@@ -108,6 +123,14 @@ def _legacy_record_files(record):
             'sort_order': 0,
             'is_pdf': bool(record.invoice_file_key.lower().endswith('.pdf')),
             'download_url': None,
+            'invoice_number': record.invoice_number,
+            'invoice_date': record.invoice_date.isoformat() if record.invoice_date else None,
+            'invoice_tax_number': record.invoice_tax_number,
+            'invoice_type': record.invoice_type,
+            'item_name': None,
+            'amount': float(record.total_amount) if record.total_amount is not None else None,
+            'parse_status': 'parsed' if record.invoice_number else None,
+            'parse_error': None,
         })
 
     return receipt_files, invoice_files
@@ -133,11 +156,40 @@ def _record_files_payload(record):
     return receipt_files, invoice_files
 
 
-def _normalize_file_entries(raw_files):
-    """把前端提交的附件数组整理成统一结构（过滤空项、按 file_key 去重、保持顺序）。"""
+def _clean_amount(value):
+    """金额归一化为两位小数（分位四舍五入）；空值/非法值/负数返回 None。"""
+    if value is None or value == '':
+        return None
+    try:
+        amount = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    if not amount.is_finite() or amount < 0:
+        return None
+    return float(amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+
+def _clean_date(value):
+    """日期归一化为 date；兼容 'YYYY-MM-DD' 与 ISO 时间串。"""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    try:
+        return datetime.strptime(str(value).strip()[:10], '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_file_entries(raw_files, file_type=None):
+    """把前端提交的附件数组整理成统一结构（过滤空项、按 file_key 去重、保持顺序）。
+
+    发票（file_type='invoice'）额外携带逐张解析结果，用于多张发票各自保存。
+    """
     if not isinstance(raw_files, list):
         return []
 
+    is_invoice = file_type == PurchaseRecord.FILE_TYPE_INVOICE
     entries = []
     seen = set()
     for item in raw_files:
@@ -152,7 +204,7 @@ def _normalize_file_entries(raw_files):
         if not file_key or file_key in seen:
             continue
         seen.add(file_key)
-        entries.append({
+        entry = {
             'file_key': file_key,
             'preview_key': _clean_text(item.get('preview_key') or item.get('invoice_preview_key')),
             'original_filename': _clean_text(
@@ -161,7 +213,23 @@ def _normalize_file_entries(raw_files):
                 or item.get('invoice_original_filename')
             ),
             'file_md5': _clean_text(item.get('file_md5') or item.get('invoice_md5')),
-        })
+        }
+        if is_invoice:
+            entry.update({
+                'invoice_number': _clean_text(item.get('invoice_number')),
+                'invoice_date': _clean_date(item.get('invoice_date') or item.get('date')),
+                'invoice_tax_number': _clean_text(
+                    item.get('invoice_tax_number') or item.get('tax_number')
+                ),
+                'invoice_type': _clean_text(item.get('invoice_type')),
+                'invoice_item_name': _clean_text(
+                    item.get('item_name') or item.get('project_name')
+                ),
+                'invoice_amount': _clean_amount(item.get('amount') or item.get('total_amount')),
+                'parse_status': _clean_text(item.get('parse_status')),
+                'parse_error': _clean_text(item.get('parse_error')),
+            })
+        entries.append(entry)
     return entries
 
 
@@ -176,24 +244,24 @@ def _collect_submitted_files(data, file_type):
     """
     if file_type == PurchaseRecord.FILE_TYPE_RECEIPT:
         if 'receipt_files' in data:
-            return _normalize_file_entries(data.get('receipt_files'))
+            return _normalize_file_entries(data.get('receipt_files'), file_type)
         if 'receipt_image_url' in data:
             return _normalize_file_entries([{
                 'file_key': data.get('receipt_image_url'),
                 'original_filename': data.get('receipt_image_name'),
                 'file_md5': data.get('receipt_file_md5'),
-            }])
+            }], file_type)
         return None
 
     if 'invoice_files' in data:
-        return _normalize_file_entries(data.get('invoice_files'))
+        return _normalize_file_entries(data.get('invoice_files'), file_type)
     if 'invoice_file_key' in data:
         return _normalize_file_entries([{
             'file_key': data.get('invoice_file_key'),
             'preview_key': data.get('invoice_preview_key'),
             'original_filename': data.get('invoice_original_filename'),
             'file_md5': data.get('invoice_md5'),
-        }])
+        }], file_type)
     return None
 
 
@@ -207,14 +275,29 @@ def _replace_record_files(record, file_type, entries):
             record.files.remove(row)
 
     for index, entry in enumerate(entries):
-        record.files.append(PurchaseRecordFile(
+        row = PurchaseRecordFile(
             file_type=file_type,
             file_key=entry['file_key'],
             preview_key=entry['preview_key'],
             original_filename=entry['original_filename'],
             file_md5=entry['file_md5'],
             sort_order=index,
-        ))
+        )
+        if file_type == PurchaseRecord.FILE_TYPE_INVOICE:
+            row.invoice_number = entry.get('invoice_number')
+            row.invoice_date = entry.get('invoice_date')
+            row.invoice_tax_number = entry.get('invoice_tax_number')
+            row.invoice_type = entry.get('invoice_type')
+            row.invoice_item_name = entry.get('invoice_item_name')
+            row.invoice_amount = entry.get('invoice_amount')
+            row.parse_error = entry.get('parse_error')
+            parse_status = entry.get('parse_status')
+            if not parse_status:
+                parse_status = 'parsed' if (row.invoice_number or row.invoice_amount) else None
+            row.parse_status = parse_status
+            if parse_status == 'parsed':
+                row.parsed_at = datetime.now(timezone.utc)
+        record.files.append(row)
 
 
 def _sync_legacy_file_columns(record):
@@ -239,6 +322,36 @@ def _sync_legacy_file_columns(record):
         record.invoice_preview_key = invoice.preview_key
         record.invoice_original_filename = invoice.original_filename
         record.invoice_md5 = invoice.file_md5
+
+        # 多张发票：记录级字段作为汇总镜像
+        invoices = [
+            row for row in record.files
+            if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE
+        ]
+        amounts = [
+            Decimal(str(row.invoice_amount)) for row in invoices
+            if row.invoice_amount is not None
+        ]
+        if amounts:
+            record.total_amount = float(
+                sum(amounts, Decimal('0.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            )
+
+        numbers = [row.invoice_number for row in invoices if row.invoice_number]
+        if numbers:
+            record.invoice_number = numbers[0]
+
+        tax_numbers = [row.invoice_tax_number for row in invoices if row.invoice_tax_number]
+        if tax_numbers:
+            record.invoice_tax_number = tax_numbers[0]
+
+        dates = [row.invoice_date for row in invoices if row.invoice_date]
+        if dates:
+            record.invoice_date = min(dates)
+
+        types = [row.invoice_type for row in invoices if row.invoice_type]
+        if types:
+            record.invoice_type = types[0]
     else:
         record.has_invoice = False
         record.invoice_file_key = None
@@ -285,22 +398,46 @@ def _apply_submitted_files(record, data):
     return receipt_count, invoice_count
 
 
-def _first_invoice_file(record):
-    """第一条发票附件（附件表优先，旧单文件列兜底）。"""
-    for row in record.files:
-        if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE:
-            return {
-                'file_key': row.file_key,
-                'preview_key': row.preview_key,
-                'original_filename': row.original_filename or row.file_key.split('/')[-1],
-            }
+def _first_invoice_file(record, file_id=None):
+    """指定（或第一条）发票附件（附件表优先，旧单文件列兜底）。"""
+    rows = [
+        row for row in record.files
+        if row.file_type == PurchaseRecord.FILE_TYPE_INVOICE
+    ]
+    if file_id is not None:
+        rows = [row for row in rows if str(row.file_id) == str(file_id)]
+
+    if rows:
+        row = rows[0]
+        return {
+            'file_id': row.file_id,
+            'file_key': row.file_key,
+            'preview_key': row.preview_key,
+            'original_filename': row.original_filename or row.file_key.split('/')[-1],
+            'invoice_number': row.invoice_number,
+            'invoice_date': row.invoice_date.isoformat() if row.invoice_date else None,
+            'invoice_tax_number': row.invoice_tax_number,
+            'invoice_type': row.invoice_type,
+            'item_name': row.invoice_item_name,
+            'amount': float(row.invoice_amount) if row.invoice_amount is not None else None,
+        }
+
+    if file_id is not None:
+        return None
 
     if record.invoice_file_key:
         return {
+            'file_id': None,
             'file_key': record.invoice_file_key,
             'preview_key': record.invoice_preview_key,
             'original_filename': record.invoice_original_filename
             or record.invoice_file_key.split('/')[-1],
+            'invoice_number': record.invoice_number,
+            'invoice_date': record.invoice_date.isoformat() if record.invoice_date else None,
+            'invoice_tax_number': record.invoice_tax_number,
+            'invoice_type': record.invoice_type,
+            'item_name': None,
+            'amount': float(record.total_amount) if record.total_amount is not None else None,
         }
     return None
 
@@ -372,6 +509,26 @@ def _persist_invoice_preview(record, file_key, preview_key):
 
     if changed:
         db.session.commit()
+
+
+def _apply_parsed_info_to_row(row, parsed_info):
+    """把一次 AI 解析结果写入指定的发票附件行（逐张发票各自保存）。"""
+    row.invoice_number = _clean_text(parsed_info.get('invoice_number'))
+    row.invoice_date = _clean_date(parsed_info.get('date') or parsed_info.get('invoice_date'))
+    row.invoice_tax_number = _clean_text(
+        parsed_info.get('invoice_tax_number') or parsed_info.get('tax_number')
+    )
+    row.invoice_type = _clean_text(parsed_info.get('invoice_type'))
+    row.invoice_item_name = _clean_text(
+        parsed_info.get('item_name') or parsed_info.get('project_name')
+    )
+    row.invoice_amount = _clean_amount(
+        parsed_info.get('amount') if parsed_info.get('amount') is not None
+        else parsed_info.get('total_amount')
+    )
+    row.parse_status = 'parsed'
+    row.parse_error = None
+    row.parsed_at = datetime.now(timezone.utc)
 
 
 def _file_download_response(file_key, original_filename):
@@ -546,6 +703,14 @@ def create_purchase_record(event_id):
 
         # 发票金额自动填充：有发票时，实际开销以发票解析结果为准
         invoice_total = float(data.get('total_amount')) if data.get('total_amount') is not None else 0.0
+        if not invoice_total:
+            # 多张发票：前端未传合计时，按每张发票的金额累加
+            entry_amounts = [
+                entry.get('invoice_amount') for entry in invoice_entries
+                if entry.get('invoice_amount') is not None
+            ]
+            if entry_amounts:
+                invoice_total = round(sum(entry_amounts), 2)
         if has_invoice and invoice_total > 0:
             actual_amount = invoice_total
         else:
@@ -584,6 +749,12 @@ def create_purchase_record(event_id):
         # 写入多文件附件（旧单文件列同步为第一个文件）
         _replace_record_files(record, PurchaseRecord.FILE_TYPE_RECEIPT, receipt_entries)
         _replace_record_files(record, PurchaseRecord.FILE_TYPE_INVOICE, invoice_entries)
+        # 汇总镜像：合计金额 / 主发票号码与日期
+        _sync_legacy_file_columns(record)
+        if has_invoice and record.total_amount and float(record.total_amount) > 0:
+            record.amount = float(record.total_amount)
+        else:
+            record.amount = actual_amount
 
         # 更新赛事统计（统一按明细表重算）
         recalc_event_stats(record.event_id)
@@ -1278,7 +1449,7 @@ def get_invoice_preview(record_id):
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
         
-        invoice_file = _first_invoice_file(record)
+        invoice_file = _first_invoice_file(record, request.args.get('file_id', type=int))
         if not invoice_file:
             return jsonify({'code': 404, 'message': '该记录没有发票', 'data': None}), 404
 
@@ -1319,6 +1490,7 @@ def get_invoice_preview(record_id):
             'data': {
                 'preview_url': preview_url,
                 'preview_key': preview_key,
+                'file_id': invoice_file.get('file_id'),
                 'is_pdf': is_pdf
             }
         }), 200
@@ -1340,7 +1512,10 @@ def re_parse_invoice(record_id):
         if not record:
             return jsonify({'code': 404, 'message': '记录不存在', 'data': None}), 404
 
-        invoice_file = _first_invoice_file(record)
+        payload = request.get_json(silent=True) or {}
+        file_id = payload.get('file_id')
+
+        invoice_file = _first_invoice_file(record, file_id)
         if not invoice_file:
             return jsonify({'code': 400, 'message': '该记录没有发票文件', 'data': None}), 400
 
@@ -1383,6 +1558,12 @@ def re_parse_invoice(record_id):
 
         # 调用解析服务
         parsed_info = None
+        target_row = None
+        if invoice_file.get('file_id'):
+            target_row = PurchaseRecordFile.query.filter_by(
+                file_id=invoice_file['file_id'], record_id=record.record_id
+            ).first()
+
         if invoice_parser.is_available():
             ai_filename = f'{record_id}.png' if is_pdf else original_filename
             result = invoice_parser.parse_file(image_bytes_for_ai, ai_filename)
@@ -1394,21 +1575,30 @@ def re_parse_invoice(record_id):
                     'item_name': raw_data.get('project_name', '') or raw_data.get('item_name', ''),
                     'invoice_number': raw_data.get('invoice_number', ''),
                     'invoice_tax_number': raw_data.get('invoice_tax_number', '') or raw_data.get('tax_number', ''),
+                    'invoice_type': raw_data.get('invoice_type', ''),
                     'amount': raw_data.get('total_amount', 0) or raw_data.get('amount', 0),
                     'date': raw_data.get('invoice_date', '')
                 }
+                if target_row is not None:
+                    _apply_parsed_info_to_row(target_row, parsed_info)
+                    _sync_legacy_file_columns(record)
+                    db.session.commit()
             else:
                 logger.warning(f'发票重新解析失败（预览图已保存）: {result.get("message")}')
+                if target_row is not None:
+                    target_row.parse_status = 'failed'
+                    target_row.parse_error = result.get('message') or 'AI 解析失败'
+                    db.session.commit()
                 return jsonify({
                     'code': 422,
                     'message': result.get('message', '解析失败'),
-                    'data': {'preview_key': preview_key, 'is_pdf': is_pdf}
+                    'data': {'preview_key': preview_key, 'file_id': invoice_file.get('file_id'), 'is_pdf': is_pdf}
                 }), 422
         else:
             return jsonify({
                 'code': 503,
                 'message': 'AI 解析服务不可用',
-                'data': {'preview_key': preview_key, 'is_pdf': is_pdf}
+                'data': {'preview_key': preview_key, 'file_id': invoice_file.get('file_id'), 'is_pdf': is_pdf}
             }), 503
 
         return jsonify({
@@ -1417,6 +1607,7 @@ def re_parse_invoice(record_id):
             'data': {
                 'parsed_info': parsed_info,
                 'preview_key': preview_key,
+                'file_id': invoice_file.get('file_id'),
                 'is_pdf': is_pdf,
                 'extraction_method': 'ai_vision'
             }

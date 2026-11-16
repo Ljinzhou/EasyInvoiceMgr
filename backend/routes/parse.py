@@ -273,6 +273,7 @@ def parse_image():
                     'item_name': raw.get('project_name', '') or raw.get('item_name', ''),
                     'invoice_number': raw.get('invoice_number', ''),
                     'invoice_tax_number': raw.get('invoice_tax_number', '') or raw.get('tax_number', ''),
+                    'invoice_type': raw.get('invoice_type', ''),
                     'amount': raw.get('total_amount', 0) or raw.get('amount', 0),
                     'date': raw.get('invoice_date', '')
                 }
@@ -343,7 +344,10 @@ def parse_invoice():
             }), 409
         
         unique_id = uuid.uuid4().hex
-        
+
+        # 前端已在选择文件时解析过（多发票逐张解析），保存时可跳过重复的 AI 调用
+        skip_ai = str(request.form.get('skip_ai') or '').lower() in ('1', 'true', 'yes')
+
         is_pdf = file_ext == 'pdf'
         preview_bytes = None
         pdf_page_count = 0
@@ -446,7 +450,9 @@ def parse_invoice():
         parsed_info = None
         ai_parse_error = None
         try:
-            if image_bytes_for_ai and invoice_parser.is_available():
+            if skip_ai:
+                logger.info('skip_ai=1，仅保存发票文件不重复解析')
+            elif image_bytes_for_ai and invoice_parser.is_available():
                 logger.info('开始调用AI模型解析发票...')
 
                 ai_filename = f'{unique_id}.png' if is_pdf else original_filename
@@ -461,6 +467,7 @@ def parse_invoice():
                             'item_name': parsed_info.get('project_name', '') or parsed_info.get('item_name', ''),
                             'invoice_number': parsed_info.get('invoice_number', ''),
                             'invoice_tax_number': parsed_info.get('invoice_tax_number', '') or parsed_info.get('tax_number', ''),
+                            'invoice_type': parsed_info.get('invoice_type', ''),
                             'amount': parsed_info.get('total_amount', 0) or parsed_info.get('amount', 0),
                             'date': parsed_info.get('invoice_date', '')
                         }
@@ -512,6 +519,7 @@ def parse_invoice():
                 'parsed_info': parsed_info,
                 'ai_parse_success': bool(parsed_info),
                 'ai_parse_error': ai_parse_error,
+                'parse_status': 'parsed' if parsed_info else ('skipped' if skip_ai else 'failed'),
                 'extraction_method': 'ai_vision' if parsed_info else None
             }
         }), 200

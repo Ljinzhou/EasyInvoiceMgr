@@ -249,6 +249,19 @@ class PurchaseRecordFile(db.Model):
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(UTCDateTime(), default=_utcnow)
 
+    # 发票逐张解析结果（file_type='invoice' 时有效）：
+    # 一张记录可以挂多张发票，每张的号码/金额/日期等各自独立保存，
+    # 记录级 invoice_number / total_amount 等字段仅作为汇总镜像（兼容导出与旧逻辑）。
+    invoice_number = db.Column(db.String(50))
+    invoice_date = db.Column(db.Date)
+    invoice_tax_number = db.Column(db.String(50))
+    invoice_type = db.Column(db.String(50))
+    invoice_item_name = db.Column(db.String(200))
+    invoice_amount = db.Column(db.Numeric(12, 2))
+    parse_status = db.Column(db.String(20))  # parsed / failed / pending
+    parse_error = db.Column(db.Text)
+    parsed_at = db.Column(UTCDateTime())
+
     record = db.relationship('PurchaseRecord', back_populates='files')
 
 

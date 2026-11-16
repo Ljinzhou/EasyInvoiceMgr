@@ -442,6 +442,11 @@
                             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                             <span>PDF</span>
                           </div>
+                          <span
+                            v-if="item.parse_status"
+                            class="file-grid-status"
+                            :class="'is-' + item.parse_status"
+                          >{{ invoiceParseStatusText(item) }}</span>
                           <span class="file-grid-name" :title="item.original_filename">{{ item.original_filename || '发票文件' }}</span>
                           <button type="button" class="file-grid-remove" @click.stop="removeInvoiceAt(index)" title="移除">
                             <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -455,18 +460,52 @@
                     </div>
                     <p class="invoice-upload-tip">默认需要上传发票；如确实没有发票，可不传，保存后将记录为「无发票」。</p>
 
+                    <!-- 多张发票逐张解析明细 -->
+                    <div v-if="invoiceDrafts.length > 0" class="invoice-parse-list">
+                      <div class="ipl-head">
+                        <span class="ipl-title">发票解析明细</span>
+                        <span class="ipl-summary">
+                          共 {{ invoiceSummary.count }} 张 · 已解析 {{ invoiceSummary.parsedCount }} 张<template v-if="invoiceSummary.totalAmount > 0"> · 合计 &yen;{{ formatAmount(invoiceSummary.totalAmount) }}</template>
+                        </span>
+                      </div>
+                      <div v-for="(item, index) in invoiceDrafts" :key="'parse-' + item.uid" class="ipl-row">
+                        <span class="ipl-index">{{ index + 1 }}</span>
+                        <div class="ipl-main">
+                          <div class="ipl-line-top">
+                            <span class="ipl-name" :title="item.original_filename">{{ item.original_filename || '发票文件' }}</span>
+                            <span class="ipl-status" :class="'is-' + (item.parse_status || 'pending')">{{ invoiceParseStatusText(item) }}</span>
+                          </div>
+                          <div class="ipl-line-meta">
+                            <span v-if="item.invoice_number">号码 {{ item.invoice_number }}</span>
+                            <span v-if="item.invoice_date">{{ item.invoice_date }}</span>
+                            <span v-if="item.item_name" class="ipl-item-name" :title="item.item_name">{{ item.item_name }}</span>
+                            <span v-if="Number(item.amount) > 0" class="ipl-amount">&yen;{{ formatAmount(item.amount) }}</span>
+                            <span v-if="item.parse_error" class="ipl-error" :title="item.parse_error">{{ item.parse_error }}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          class="ipl-parse-btn"
+                          :disabled="parsingInvoice"
+                          @click.stop="parseInvoiceFromUrl(index)"
+                        >
+                          {{ item.parse_status === 'parsed' ? '重新解析' : 'AI解析' }}
+                        </button>
+                      </div>
+                    </div>
+
                     <!-- 发票预览区域（以第一份发票为准） -->
                     <div v-if="invoiceDrafts.length > 0" class="invoice-details">
                       <div v-if="invoiceFilePreviewSrc || form._is_pdf" class="invoice-preview-panel">
                         <div class="preview-panel-header">
                           <div class="preview-panel-title">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                            <span>发票预览</span>
+                            <span>发票预览<template v-if="multiInvoice">（第 1 张 / 共 {{ invoiceDrafts.length }} 张）</template></span>
                           </div>
                           <button
                             v-if="!parsingInvoice && !invoiceImageLoading"
                             type="button"
-                            @click.stop="parseInvoiceFromUrl"
+                            @click.stop="parseInvoiceFromUrl(0)"
                             class="ai-parse-trigger"
                           >
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -750,6 +789,7 @@
               <div class="detail-file-group-title amber">
                 <span>发票预览</span>
                 <span class="detail-file-count">{{ detailInvoiceFiles.length }}</span>
+                <span v-if="detailInvoiceTotal > 0" class="detail-invoice-total">合计 &yen;{{ formatAmount(detailInvoiceTotal) }}</span>
               </div>
               <div v-if="detailInvoiceFiles.length" class="detail-file-grid">
                 <div
@@ -771,6 +811,10 @@
                     <span>PDF</span>
                   </div>
                   <span class="detail-file-name" :title="file.original_filename">{{ file.original_filename || `发票${index + 1}` }}</span>
+                  <span v-if="file.invoice_amount || file.invoice_number" class="detail-file-meta">
+                    <template v-if="file.invoice_amount">&yen;{{ formatAmount(file.invoice_amount) }}</template>
+                    <template v-if="file.invoice_number">{{ file.invoice_amount ? ' · ' : '' }}{{ file.invoice_number }}</template>
+                  </span>
                 </div>
               </div>
               <div v-else class="detail-image-empty">
@@ -969,6 +1013,15 @@ const createFileDraft = (overrides = {}) => {
     is_pdf: false,
     blob_url: '',
     preview_blob: null,
+    // 每张发票各自的解析结果（多张发票时逐张保存）
+    invoice_number: '',
+    invoice_date: '',
+    invoice_tax_number: '',
+    invoice_type: '',
+    item_name: '',
+    amount: null,
+    parse_status: '',
+    parse_error: '',
     ...overrides
   }
 }
@@ -1006,6 +1059,59 @@ const syncPrimaryFormFiles = () => {
   form.value._is_pdf = hasInvoiceFile ? Boolean(firstInvoice.is_pdf) : false
 }
 
+const multiInvoice = computed(() => invoiceDrafts.value.length > 1)
+
+// 多张发票的逐张解析结果汇总（金额累加、号码/日期/税号取首个非空值）
+const invoiceSummary = computed(() => {
+  const items = invoiceDrafts.value
+  const amounts = items
+    .map(item => Number(item.amount))
+    .filter(value => Number.isFinite(value) && value > 0)
+  const dates = items.map(item => item.invoice_date).filter(Boolean).sort()
+  const numbers = items.map(item => item.invoice_number).filter(Boolean)
+  const taxNumbers = items.map(item => item.invoice_tax_number).filter(Boolean)
+  const names = items.map(item => item.item_name).filter(Boolean)
+  return {
+    count: items.length,
+    parsedCount: items.filter(item => item.parse_status === 'parsed').length,
+    totalAmount: Math.round(amounts.reduce((sum, value) => sum + value, 0) * 100) / 100,
+    numbers,
+    invoiceDate: dates[0] || '',
+    taxNumber: taxNumbers[0] || '',
+    itemName: names[0] || ''
+  }
+})
+
+/**
+ * 把逐张发票的结果汇总回记录级字段：
+ * 金额 = 所有发票合计；发票号/日期/税号/商品名取第一张有值的（旧单字段继续可用）。
+ */
+const applyInvoiceSummaryToForm = () => {
+  const summary = invoiceSummary.value
+  if (!summary.count) return
+  if (summary.totalAmount > 0) {
+    form.value.total_amount = summary.totalAmount
+    form.value.amount = summary.totalAmount
+  }
+  if (summary.numbers.length) form.value.invoice_number = summary.numbers[0]
+  if (summary.invoiceDate) form.value.invoice_date = summary.invoiceDate
+  if (summary.taxNumber) form.value.invoice_tax_number = summary.taxNumber
+  if (summary.itemName) form.value.item_name_from_invoice = summary.itemName
+}
+
+const invoiceParseStatusText = (item) => {
+  if (item.parse_status === 'parsing') return '解析中'
+  if (item.parse_status === 'parsed') return '已解析'
+  if (item.parse_status === 'failed') return '解析失败'
+  return '待解析'
+}
+
+const formatAmount = (value) => {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '0.00'
+  return num.toFixed(2)
+}
+
 function normalizeDetailFile(file) {
   const rawPreview = file.preview_url || file.file_url || ''
   const rawFile = file.file_url || file.preview_url || ''
@@ -1020,7 +1126,16 @@ function normalizeDetailFile(file) {
     download_url: file.download_url ? getFullImageUrl(file.download_url) : '',
     original_filename: file.original_filename || '',
     is_pdf: isPdf,
-    preview_is_image: previewIsImage
+    preview_is_image: previewIsImage,
+    // 逐张发票的解析结果（多张发票时详情里逐条展示）
+    invoice_number: file.invoice_number || '',
+    invoice_date: file.invoice_date || '',
+    invoice_tax_number: file.invoice_tax_number || '',
+    invoice_type: file.invoice_type || '',
+    invoice_item_name: file.invoice_item_name || file.item_name || '',
+    invoice_amount: file.invoice_amount ?? file.amount ?? null,
+    parse_status: file.parse_status || '',
+    parse_error: file.parse_error || ''
   }
 }
 
@@ -1081,6 +1196,16 @@ const detailInvoiceFiles = computed(() => {
   }
   return []
 })
+
+// 详情弹窗里多张发票的金额合计
+const detailInvoiceTotal = computed(() => {
+  const total = detailInvoiceFiles.value
+    .map(file => Number(file.invoice_amount))
+    .filter(value => Number.isFinite(value) && value > 0)
+    .reduce((sum, value) => sum + value, 0)
+  return Math.round(total * 100) / 100
+})
+
 const zoomImageStyle = computed(() => ({
   transform: `translate(${zoomPanX.value}px, ${zoomPanY.value}px) scale(${zoomScale.value})`,
   cursor: isDragging.value ? 'grabbing' : 'grab'
@@ -1642,7 +1767,7 @@ const editRecord = (record) => {
           is_pdf: /\.pdf(\?|$)/i.test(String(record.invoice_file_key || record.invoice_url || ''))
         }]
       : [])
-  invoiceDrafts.value = invoiceSource.map((file) => createFileDraft({
+  invoiceDrafts.value = invoiceSource.map((file, index) => createFileDraft({
     file_id: file.file_id || null,
     file_key: file.file_key || '',
     preview_key: file.preview_key || '',
@@ -1651,7 +1776,16 @@ const editRecord = (record) => {
     file_url: file.file_url || '',
     preview_url: file.preview_url || '',
     download_url: file.download_url || '',
-    is_pdf: Boolean(file.is_pdf)
+    is_pdf: Boolean(file.is_pdf),
+    // 逐张发票的解析结果（老数据没有时回退到记录级字段）
+    invoice_number: file.invoice_number || (index === 0 ? record.invoice_number || '' : ''),
+    invoice_date: file.invoice_date || (index === 0 ? record.invoice_date || '' : ''),
+    invoice_tax_number: file.invoice_tax_number || (index === 0 ? record.invoice_tax_number || '' : ''),
+    invoice_type: file.invoice_type || '',
+    item_name: file.invoice_item_name || file.item_name || '',
+    amount: file.invoice_amount ?? file.amount ?? null,
+    parse_status: file.parse_status || '',
+    parse_error: file.parse_error || ''
   }))
 
   form.value = {
@@ -2005,6 +2139,7 @@ async function processInvoiceFiles(fileList) {
   if (!files.length) return
   invoiceUploading.value = true
   invoiceUploadProgress.value = 0
+  const added = []
   try {
     for (const file of files) {
       const ext = file.name.split('.').pop()?.toLowerCase()
@@ -2037,7 +2172,7 @@ async function processInvoiceFiles(fileList) {
         fileMd5 = await calculateFileMD5(file)
       } catch (_) {}
 
-      invoiceDrafts.value.push(createFileDraft({
+      const draft = createFileDraft({
         file,
         original_filename: file.name,
         file_md5: fileMd5,
@@ -2046,7 +2181,9 @@ async function processInvoiceFiles(fileList) {
         preview_url: blobUrl,
         blob_url: blobUrl,
         preview_blob: previewBlob
-      }))
+      })
+      invoiceDrafts.value.push(draft)
+      added.push(draft)
       invoiceUploadProgress.value = Math.min(95, invoiceUploadProgress.value + Math.round(80 / files.length))
     }
 
@@ -2058,9 +2195,10 @@ async function processInvoiceFiles(fileList) {
     parseApplied.value = false
     aiParseError.value = ''
 
-    // 自动触发AI解析（取第一份发票）
-    if (invoiceDrafts.value.length === 1) {
-      await autoParseLocalInvoice()
+    // 逐张自动解析本次新增的发票（已有发票不重复解析）
+    const pending = added.filter(item => item.parse_status !== 'parsed')
+    if (pending.length) {
+      await autoParseLocalInvoice(pending)
     }
   } catch (err) {
     showToast('文件处理失败，请重试', 'error')
@@ -2226,6 +2364,8 @@ const removeInvoiceAt = (index) => {
   invoiceParseResult.value = null
   parseApplied.value = false
   aiParseError.value = ''
+  // 剩余发票重新汇总，避免记录金额/发票号停留在已移除的那张上
+  applyInvoiceSummaryToForm()
   syncPrimaryFormFiles()
 }
 
@@ -2343,15 +2483,54 @@ const retryLoadImage = () => {
 }
 
 /**
- * 对本地发票文件执行AI解析（上传到parse-invoice端点）
+ * 解析单张本地发票（上传到 /parse-image），结果写到该草稿上（多张发票时逐张保存）。
  */
-const autoParseLocalInvoice = async () => {
-  const firstInvoice = invoiceDrafts.value.find((item) => item.file)
-  if (!firstInvoice) return
-
-  // 获取用于AI解析的图片：PDF用转换后的预览图，图片直接用原文件
-  const imageBlob = firstInvoice.preview_blob || firstInvoice.file
+const parseInvoiceDraftFile = async (item) => {
+  if (!item?.file) return
+  const imageBlob = item.preview_blob || item.file
   if (!imageBlob) return
+
+  item.parse_status = 'parsing'
+  item.parse_error = ''
+
+  try {
+    const token = localStorage.getItem('token')
+    const formData = new FormData()
+    const filename = (item.original_filename || item.file.name).replace(/\.pdf$/i, '.jpg')
+    formData.append('file', imageBlob, filename)
+
+    const { data } = await $api.post('/parse-image', formData, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 120000
+    })
+
+    const info = data?.data?.parsed_info
+    if (data?.code === 200 && info) {
+      item.invoice_number = info.invoice_number || ''
+      item.invoice_date = info.date || ''
+      item.invoice_tax_number = info.invoice_tax_number || ''
+      item.invoice_type = info.invoice_type || ''
+      item.item_name = info.item_name || ''
+      item.amount = info.amount ? Number(info.amount) : null
+      item.parse_status = 'parsed'
+      item.parse_error = ''
+    } else {
+      item.parse_status = 'failed'
+      item.parse_error = data?.data?.ai_parse_error || data?.message || 'AI 未返回解析结果'
+    }
+  } catch (err) {
+    console.error('发票解析失败:', err.message)
+    item.parse_status = 'failed'
+    item.parse_error = err.response?.data?.message || '解析请求失败'
+  }
+}
+
+/**
+ * 逐张解析本次新增的本地发票（默认解析全部待解析项）。
+ */
+const autoParseLocalInvoice = async (drafts = null) => {
+  const targets = (drafts || invoiceDrafts.value).filter(item => item.file)
+  if (!targets.length) return
 
   parsingInvoice.value = true
   invoiceParseResult.value = null
@@ -2359,61 +2538,34 @@ const autoParseLocalInvoice = async () => {
   aiParseError.value = ''
 
   try {
-    const token = localStorage.getItem('token')
-    const formData = new FormData()
-    const filename = (firstInvoice.original_filename || firstInvoice.file.name).replace(/\.pdf$/i, '.jpg')
-    formData.append('file', imageBlob, filename)
-
-    const response = await $api.post('/parse-image', formData, {
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 60000
-    })
-
-    if (response.data.code === 200 && response.data.data?.parsed_info) {
-      const info = response.data.data.parsed_info
-      invoiceParseResult.value = {
-        item_name: info.item_name || '',
-        invoice_number: info.invoice_number || '',
-        invoice_tax_number: info.invoice_tax_number || '',
-        amount: info.amount ? String(info.amount) : '',
-        date: info.date || ''
-      }
-      if (info.item_name) form.value.item_name_from_invoice = info.item_name
-      if (info.invoice_number) form.value.invoice_number = info.invoice_number
-      if (info.invoice_tax_number) form.value.invoice_tax_number = info.invoice_tax_number
-      if (info.amount) {
-        form.value.total_amount = parseFloat(info.amount)
-        form.value.amount = parseFloat(info.amount)
-      }
-      if (info.date) form.value.invoice_date = info.date
-      parseApplied.value = true
-      showToast('发票解析完成', 'success')
-    } else if (response.data.code === 200) {
-      // 后端返回 200 但没有结果：把真实原因（模型/密钥/接口报错）展示出来
-      aiParseError.value = response.data.data?.ai_parse_error
-        || response.data.message
-        || 'AI 未返回解析结果，请手动填写'
-    } else {
-      aiParseError.value = response.data.message || 'AI服务暂时不可用，请手动填写信息'
+    for (const item of targets) {
+      await parseInvoiceDraftFile(item)
     }
-  } catch (err) {
-    console.error('发票解析失败:', err.message)
-    aiParseError.value = err.response?.data?.message || '发票解析失败，请手动填写信息'
+    applyInvoiceSummaryToForm()
+    syncPrimaryFormFiles()
+
+    const failed = targets.filter(item => item.parse_status === 'failed')
+    if (failed.length) {
+      aiParseError.value = failed[0].parse_error || `${failed.length} 张发票解析失败，请手动填写`
+    } else {
+      parseApplied.value = true
+      showToast(targets.length > 1 ? `${targets.length} 张发票解析完成` : '发票解析完成', 'success')
+    }
   } finally {
     parsingInvoice.value = false
   }
 }
 
-const parseInvoiceFromUrl = async () => {
-  const firstInvoice = invoiceDrafts.value[0]
-  if (!firstInvoice) {
+const parseInvoiceFromUrl = async (draftIndex = 0) => {
+  const draft = invoiceDrafts.value[draftIndex]
+  if (!draft) {
     showToast('请先上传发票文件', 'error')
     return
   }
 
-  // 本地新文件：直接调用 parse-image 解析
-  if (firstInvoice.file) {
-    await autoParseLocalInvoice()
+  // 本地新文件：只解析这一张
+  if (draft.file) {
+    await autoParseLocalInvoice([draft])
     return
   }
 
@@ -2426,10 +2578,11 @@ const parseInvoiceFromUrl = async () => {
     let response
 
     if (editingRecord.value) {
-      response = await $api.post(`/records/${editingRecord.value.record_id}/re-parse-invoice`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 120000
-      })
+      response = await $api.post(
+        `/records/${editingRecord.value.record_id}/re-parse-invoice`,
+        { file_id: draft.file_id || undefined },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 120000 }
+      )
     } else {
       showToast('发票信息已在上传时自动解析，请查看上方表单', 'info')
       parsingInvoice.value = false
@@ -2439,34 +2592,40 @@ const parseInvoiceFromUrl = async () => {
     if (response.data.code === 200 && response.data.data?.parsed_info) {
       const info = response.data.data.parsed_info
 
+      draft.invoice_number = info.invoice_number || ''
+      draft.invoice_date = info.date || ''
+      draft.invoice_tax_number = info.invoice_tax_number || ''
+      draft.invoice_type = info.invoice_type || ''
+      draft.item_name = info.item_name || ''
+      draft.amount = info.amount ? Number(info.amount) : null
+      draft.parse_status = 'parsed'
+      draft.parse_error = ''
+
       invoiceParseResult.value = {
         item_name: info.item_name || '',
         invoice_number: info.invoice_number || '',
         invoice_tax_number: info.invoice_tax_number || '',
         amount: info.amount ? String(info.amount) : '',
-        date: info.date || ''
+        date: info.date || '',
+        invoice_type: info.invoice_type || ''
       }
 
-      if (info.item_name) form.value.item_name_from_invoice = info.item_name
-      if (info.invoice_number) form.value.invoice_number = info.invoice_number
-      if (info.invoice_tax_number) form.value.invoice_tax_number = info.invoice_tax_number
-      if (info.amount) {
-        form.value.total_amount = parseFloat(info.amount)
-        form.value.amount = parseFloat(info.amount)
-      }
-      if (info.date) form.value.invoice_date = info.date
+      applyInvoiceSummaryToForm()
+      if (draftIndex === 0) syncPrimaryFormFiles()
 
       parseApplied.value = true
       showToast('发票重新解析完成', 'success')
       await ensureInvoicePreview(editingRecord.value, true)
     } else {
-      showToast(response.data.message || '解析失败', 'error')
-      // 解析失败也可能已生成预览图，刷新一次
-      await ensureInvoicePreview(editingRecord.value, true)
+      draft.parse_status = 'failed'
+      draft.parse_error = response.data?.data?.ai_parse_error || response.data.message || '解析失败'
+      showToast(draft.parse_error, 'error')
     }
   } catch (err) {
     console.error('解析失败:', err.message)
-    const msg = err.response?.data?.message || '解析失败，请重试'
+    const msg = err.response?.data?.data?.ai_parse_error || err.response?.data?.message || '解析失败，请重试'
+    draft.parse_status = 'failed'
+    draft.parse_error = msg
     showToast(msg, 'error')
     await ensureInvoicePreview(editingRecord.value, true)
   } finally {
@@ -2499,6 +2658,28 @@ const uploadInvoiceFileOnly = async (item, token) => {
   } catch (e) {
     console.error('发票兜底上传异常:', e?.message || e)
     return null
+  }
+}
+
+/**
+ * 汇总单张发票要落库的字段：草稿里的解析结果优先，服务端返回的解析结果兜底。
+ */
+const invoiceEntryFields = (item, parsedInfo = null) => {
+  const info = parsedInfo || {}
+  const number = item.invoice_number || info.invoice_number || ''
+  const amountRaw = item.amount ?? info.amount ?? null
+  const amount = amountRaw === null || amountRaw === '' ? null : Number(amountRaw)
+  const hasAmount = Number.isFinite(amount) && amount > 0
+  const parseStatus = item.parse_status || (number || hasAmount ? 'parsed' : 'pending')
+  return {
+    invoice_number: number,
+    invoice_date: item.invoice_date || info.date || '',
+    invoice_tax_number: item.invoice_tax_number || info.invoice_tax_number || '',
+    invoice_type: item.invoice_type || info.invoice_type || '',
+    item_name: item.item_name || info.item_name || '',
+    amount: hasAmount ? amount : null,
+    parse_status: parseStatus,
+    parse_error: item.parse_error || ''
   }
 }
 
@@ -2554,7 +2735,7 @@ const saveRecord = async () => {
       throw new Error('请至少上传一张购物凭证图片')
     }
 
-    // === 步骤2: 逐个上传发票文件（仅第一份用于AI解析） ===
+    // === 步骤2: 逐个上传发票文件（每张发票各自保存解析结果） ===
     const invoiceFiles = []
     if (!payload.cannot_invoice) {
       for (const item of invoiceDrafts.value) {
@@ -2566,6 +2747,11 @@ const saveRecord = async () => {
             const previewName = item.file.name.replace(/\.pdf$/i, '.jpg')
             invoiceForm.append('preview_file', item.preview_blob, previewName)
           }
+          // 选文件时已解析过：保存阶段只落盘，不重复调用 AI
+          if (item.parse_status === 'parsed') {
+            invoiceForm.append('skip_ai', '1')
+          }
+
           let invoiceRes
           try {
             invoiceRes = await $api.post('/parse-invoice', invoiceForm, {
@@ -2583,65 +2769,49 @@ const saveRecord = async () => {
             console.error('发票解析接口失败，回退为普通上传:', invErr.message)
             const fallbackData = await uploadInvoiceFileOnly(item, token)
             if (fallbackData) {
-              invoiceFiles.push(fallbackData)
+              invoiceFiles.push({ ...fallbackData, ...invoiceEntryFields(item) })
             } else {
               aiParseError.value = '发票保存失败，请重试或手动填写信息'
-              continue
             }
-            invoiceRes = null
+            continue
           }
 
-          if (invoiceRes) {
-            if (invoiceRes.data.code === 409) {
-              const d = invoiceRes.data.data || {}
-              showToast(`检测到重复发票，已由 ${d.original_uploader || '其他用户'} 上传过`, 'error', 4000)
-              saving.value = false
-              return
+          if (invoiceRes.data.code === 409) {
+            const d = invoiceRes.data.data || {}
+            showToast(`检测到重复发票，已由 ${d.original_uploader || '其他用户'} 上传过`, 'error', 4000)
+            saving.value = false
+            return
+          }
+          if (invoiceRes.data.code !== 200) {
+            // 接口未按预期保存文件时，同样回退普通上传
+            const fallbackData = await uploadInvoiceFileOnly(item, token)
+            if (fallbackData) {
+              invoiceFiles.push({ ...fallbackData, ...invoiceEntryFields(item) })
+            } else {
+              aiParseError.value = '发票保存失败，请重试或手动填写信息'
             }
-            if (invoiceRes.data.code !== 200) {
-              // 接口未按预期保存文件时，同样回退普通上传
-              const fallbackData = await uploadInvoiceFileOnly(item, token)
-              if (fallbackData) {
-                invoiceFiles.push(fallbackData)
-              } else {
-                aiParseError.value = '发票保存失败，请重试或手动填写信息'
-              }
-              continue
-            }
+            continue
           }
 
-          if (invoiceRes) {
-            const d = invoiceRes.data.data
-            invoiceFiles.push({
-              file_key: d.file_key,
-              preview_key: d.preview_key || '',
-              original_filename: item.original_filename || item.file.name,
-              file_md5: d.file_md5 || item.file_md5 || ''
-            })
+          const d = invoiceRes.data.data || {}
+          invoiceFiles.push({
+            file_key: d.file_key,
+            preview_key: d.preview_key || '',
+            original_filename: item.original_filename || item.file.name,
+            file_md5: d.file_md5 || item.file_md5 || '',
+            ...invoiceEntryFields(item, d.parsed_info)
+          })
 
-            // 仅用第一份发票的AI解析结果填充表单
-            if (invoiceFiles.length === 1 && d.parsed_info) {
-              const info = d.parsed_info
-              if (info.item_name && !payload.item_name) payload.item_name = info.item_name
-              if (info.item_name) payload.item_name_from_invoice = info.item_name
-              if (info.invoice_number) payload.invoice_number = info.invoice_number
-              if (info.invoice_tax_number) payload.invoice_tax_number = info.invoice_tax_number
-              if (info.amount) {
-                payload.total_amount = parseFloat(info.amount)
-                payload.amount = parseFloat(info.amount)
-              }
-              if (info.date) payload.invoice_date = info.date
-            } else if (invoiceFiles.length === 1 && !d.parsed_info) {
-              // 文件已保存但 AI 未解析成功，提示手动填写
-              aiParseError.value = '发票已保存，但 AI 解析失败，请手动填写发票信息'
-            }
+          if (d.ai_parse_error) {
+            aiParseError.value = `有发票未能解析：${d.ai_parse_error}`
           }
         } else if (item.file_key) {
           invoiceFiles.push({
             file_key: item.file_key,
             preview_key: item.preview_key || '',
             original_filename: item.original_filename || '',
-            file_md5: item.file_md5 || ''
+            file_md5: item.file_md5 || '',
+            ...invoiceEntryFields(item)
           })
         }
       }
@@ -2652,6 +2822,28 @@ const saveRecord = async () => {
     payload.invoice_files = invoiceFiles
     payload.cannot_invoice = Boolean(payload.cannot_invoice)
     payload.has_invoice = !payload.cannot_invoice && invoiceFiles.length > 0
+
+    // 多张发票：金额合计写回记录金额；号码/日期/税号取第一张有值的
+    if (payload.has_invoice) {
+      const firstFilled = (key) => invoiceFiles
+        .map(item => item[key])
+        .find(value => value !== undefined && value !== null && value !== '')
+      const invoiceAmounts = invoiceFiles
+        .map(item => Number(item.amount))
+        .filter(value => Number.isFinite(value) && value > 0)
+      const invoiceTotal = Math.round(invoiceAmounts.reduce((sum, value) => sum + value, 0) * 100) / 100
+
+      if (invoiceTotal > 0 && !Number(payload.total_amount)) {
+        payload.total_amount = invoiceTotal
+        payload.amount = invoiceTotal
+      }
+      const number = firstFilled('invoice_number')
+      const invoiceDate = firstFilled('invoice_date')
+      const taxNumber = firstFilled('invoice_tax_number')
+      if (number) payload.invoice_number = number
+      if (invoiceDate) payload.invoice_date = invoiceDate
+      if (taxNumber) payload.invoice_tax_number = taxNumber
+    }
 
     payload.receipt_image_url = receiptFiles[0].file_key
     payload.receipt_image_name = receiptFiles[0].original_filename
@@ -4468,6 +4660,68 @@ const formatMoney = (val) => {
 .file-count-badge.amber { color: #92400e; background: #fef3c7; }
 .invoice-upload-tip { margin: 8px 0 0; font-size: 11px; color: #94a3b8; line-height: 1.5; }
 
+/* 磁贴上的逐张解析状态 */
+.file-grid-status {
+  position: absolute; left: 4px; top: 4px; z-index: 2;
+  padding: 1px 6px; border-radius: 8px;
+  font-size: 10px; font-weight: 600; line-height: 1.5;
+  color: #fff; background: rgba(100, 116, 139, .92);
+  pointer-events: none; white-space: nowrap;
+}
+.file-grid-status.is-parsed { background: rgba(16, 185, 129, .95); }
+.file-grid-status.is-failed { background: rgba(239, 68, 68, .95); }
+.file-grid-status.is-parsing { background: rgba(245, 158, 11, .95); }
+.file-grid-status.is-pending { background: rgba(148, 163, 184, .95); }
+
+/* ============ 多张发票逐张解析明细 ============ */
+.invoice-parse-list {
+  margin-top: 10px; border: 1px solid #f1f5f9; border-radius: 10px;
+  background: #fcfcfd; overflow: hidden;
+}
+.ipl-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; background: #f8fafc; border-bottom: 1px solid #f1f5f9;
+}
+.ipl-title { font-size: 12px; font-weight: 700; color: #475569; }
+.ipl-summary { font-size: 11px; color: #94a3b8; }
+.ipl-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-top: 1px solid #f8fafc;
+}
+.ipl-head + .ipl-row { border-top: none; }
+.ipl-index {
+  flex: none; width: 18px; height: 18px; border-radius: 50%;
+  background: #fef3c7; color: #b45309; font-size: 10px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.ipl-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ipl-line-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ipl-name {
+  font-size: 12px; color: #334155; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%;
+}
+.ipl-status {
+  flex: none; padding: 1px 6px; border-radius: 8px;
+  font-size: 10px; font-weight: 600; color: #475569; background: #f1f5f9;
+}
+.ipl-status.is-parsed { color: #047857; background: #d1fae5; }
+.ipl-status.is-failed { color: #b91c1c; background: #fee2e2; }
+.ipl-status.is-parsing { color: #92400e; background: #fef3c7; }
+.ipl-line-meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 11px; color: #94a3b8;
+}
+.ipl-item-name { max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ipl-amount { color: #b45309; font-weight: 700; }
+.ipl-error { color: #ef4444; max-width: 50%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ipl-parse-btn {
+  flex: none; padding: 4px 10px; border-radius: 7px;
+  border: 1px solid #fcd34d; background: #fffbeb; color: #b45309;
+  font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s ease;
+}
+.ipl-parse-btn:hover:not(:disabled) { background: #fef3c7; }
+.ipl-parse-btn:disabled { opacity: .55; cursor: not-allowed; }
+
 /* ============ 「无法开票」单选框 ============ */
 .invoice-status-checkbox { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-left: auto; user-select: none; }
 .invoice-status-checkbox input[type="checkbox"] { display: none; }
@@ -4486,6 +4740,8 @@ const formatMoney = (val) => {
 .detail-file-count { padding: 1px 7px; border-radius: 8px; background: #f1f5f9; font-size: 11px; }
 .detail-file-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .detail-file-tile { position: relative; width: 108px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
+.detail-file-meta { font-size: 10px; color: #b45309; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-invoice-total { font-size: 11px; font-weight: 700; color: #b45309; background: #fef3c7; padding: 1px 7px; border-radius: 8px; }
 .detail-file-tile .detail-preview-img { width: 108px; height: 108px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb; }
 .detail-file-pdf {
   width: 108px; height: 108px; border-radius: 8px; display: flex; flex-direction: column; align-items: center;
