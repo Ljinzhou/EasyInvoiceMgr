@@ -106,12 +106,67 @@ class InvoiceUploadService:
             local_path = os.path.join(uploads_dir, filename)
             with open(local_path, 'wb') as f:
                 f.write(file_bytes)
-            
+
             logger.info(f'文件保存到本地成功: {local_path}')
             return True
         except Exception as e:
             logger.error(f'本地保存失败: {str(e)}', exc_info=True)
             return False
+
+    @staticmethod
+    def find_invoice_by_md5(md5: str, exclude_record_id=None) -> dict:
+        """按 MD5 找已存在的发票附件（附件表逐张 + 记录级镜像两处都查）。
+
+        返回 {'duplicate': bool, 'uploader': str, 'upload_time': str, 'record_id': int}
+        """
+        from models import PurchaseRecord, PurchaseRecordFile, db, db
+
+        record_id = None
+        row = (
+            PurchaseRecordFile.query
+            .filter_by(file_type=PurchaseRecord.FILE_TYPE_INVOICE, file_md5=md5)
+            .order_by(PurchaseRecordFile.file_id.desc())
+            .first()
+        )
+        if row:
+            record_id = row.record_id
+        else:
+            record = PurchaseRecord.query.filter_by(
+                invoice_md5=md5, is_deleted=False
+            ).first()
+            if record:
+                record_id = record.record_id
+
+        if record_id is None or record_id == exclude_record_id:
+            return {'duplicate': False}
+
+        record = db.session.get(PurchaseRecord, record_id)
+        if not record or record.is_deleted:
+            return {'duplicate': False}
+        return {
+            'duplicate': True,
+            'record_id': record_id,
+            'uploader': record.uploader.real_name if record.uploader else '未知用户',
+            'upload_time': record.created_at.strftime('%Y-%m-%d %H:%M') if record.created_at else '未知时间',
+        }
+
+
+@parse_bp.route('/invoices/check-duplicate', methods=['GET'])
+@jwt_required()
+def check_duplicate_invoice():
+    """按 MD5 检查发票是否已被上传（PDF 选文件时先上传换预览，保存不再走 /parse-invoice，
+    重复检测移到这里做，避免重复发票入库）。"""
+    md5 = (request.args.get('md5') or '').strip()
+    if not md5:
+        return jsonify({'code': 400, 'message': '缺少 md5 参数', 'data': None}), 400
+    exclude_record_id = request.args.get('exclude_record_id', type=int)
+    try:
+        result = InvoiceUploadService.find_invoice_by_md5(md5, exclude_record_id)
+    except Exception as e:
+        logger.error(f'查重失败: {str(e)}', exc_info=True)
+        # 查重失败不阻断流程，与 /parse-invoice 的历史行为保持一致
+        result = {'duplicate': False}
+    return jsonify({'code': 200, 'message': 'success', 'data': result}), 200
 
 
 @parse_bp.route('/upload-file', methods=['POST', 'OPTIONS'])

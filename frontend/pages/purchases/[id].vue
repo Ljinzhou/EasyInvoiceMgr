@@ -436,9 +436,9 @@
                             class="file-grid-thumb"
                             loading="lazy"
                             decoding="async"
-                            @click.stop="openInvoiceDraft(index)"
+                            @click.stop="selectInvoiceDraft(index)"
                           />
-                          <div v-else class="file-grid-thumb file-grid-doc" @click.stop="openInvoiceDraft(index)">
+                          <div v-else class="file-grid-thumb file-grid-doc" @click.stop="selectInvoiceDraft(index)">
                             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                             <span>PDF</span>
                           </div>
@@ -494,18 +494,34 @@
                       </div>
                     </div>
 
-                    <!-- 发票预览区域（以第一份发票为准） -->
+                    <!-- 发票预览区域（多张可在面板内切换） -->
                     <div v-if="invoiceDrafts.length > 0" class="invoice-details">
-                      <div v-if="invoiceFilePreviewSrc || form._is_pdf" class="invoice-preview-panel">
+                      <div v-if="invoiceFilePreviewSrc || form._is_pdf || previewDraft?.is_pdf" class="invoice-preview-panel">
                         <div class="preview-panel-header">
                           <div class="preview-panel-title">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                            <span>发票预览<template v-if="multiInvoice">（第 1 张 / 共 {{ invoiceDrafts.length }} 张）</template></span>
+                            <span>发票预览<template v-if="multiInvoice">（第 {{ previewIndex + 1 }} 张 / 共 {{ invoiceDrafts.length }} 张）</template></span>
+                          </div>
+                          <div v-if="multiInvoice" class="preview-switch">
+                            <button
+                              type="button"
+                              class="preview-switch-btn"
+                              :disabled="previewIndex <= 0"
+                              @click.stop="setPreviewIndex(previewIndex - 1)"
+                              title="上一张"
+                            >&lsaquo;</button>
+                            <button
+                              type="button"
+                              class="preview-switch-btn"
+                              :disabled="previewIndex >= invoiceDrafts.length - 1"
+                              @click.stop="setPreviewIndex(previewIndex + 1)"
+                              title="下一张"
+                            >&rsaquo;</button>
                           </div>
                           <button
                             v-if="!parsingInvoice && !invoiceImageLoading"
                             type="button"
-                            @click.stop="parseInvoiceFromUrl(0)"
+                            @click.stop="parseInvoiceFromUrl(previewIndex)"
                             class="ai-parse-trigger"
                           >
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -518,9 +534,9 @@
                         </div>
 
                         <div class="image-container" @click.stop="invoiceFilePreviewSrc && !imageLoadingError ? showImageModal(invoiceFilePreviewSrc) : undefined">
-                          <div v-if="invoiceImageLoading" class="image-loading">
+                          <div v-if="invoiceImageLoading || previewDraft?.preview_pending" class="image-loading">
                             <div class="loading-spinner"></div>
-                            <p>图片加载中...</p>
+                            <p>{{ previewDraft?.preview_pending ? '正在生成发票预览...' : '图片加载中...' }}</p>
                           </div>
 
                           <img
@@ -532,16 +548,16 @@
                             @load="onInvoiceImageLoad"
                             @error="onInvoiceImageError"
                             title="点击查看大图"
-                            :alt="form.invoice_original_filename || '发票图片'"
+                            :alt="previewDraft?.original_filename || '发票图片'"
                           />
 
-                          <div v-else-if="form._is_pdf || isPdfFile(form._preview_display_url)" class="pdf-preview-card">
+                          <div v-else-if="previewDraft?.is_pdf" class="pdf-preview-card">
                             <div class="pdf-icon-wrap">
                               <svg viewBox="0 0 48 48" width="44" height="44" fill="none"><rect x="6" y="2" width="36" height="44" rx="4" fill="#f59e0b" opacity="0.1"/><rect x="6" y="2" width="36" height="44" rx="4" stroke="#f59e0b" stroke-width="1.5"/><path d="M14 16h20M14 22h20M14 28h14" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round"/><text x="24" y="42" text-anchor="middle" font-size="8" font-weight="700" fill="#f59e0b">PDF</text></svg>
                             </div>
                             <div class="pdf-info">
-                              <span class="pdf-filename">{{ form.invoice_original_filename || '发票文件.pdf' }}</span>
-                              <span class="pdf-hint">PDF已上传，可AI解析或手动填写</span>
+                              <span class="pdf-filename">{{ previewDraft?.original_filename || '发票文件.pdf' }}</span>
+                              <span class="pdf-hint">{{ previewDraft?.preview_error || 'PDF 预览暂不可用，可 AI 解析或手动填写' }}</span>
                             </div>
                           </div>
 
@@ -1012,7 +1028,9 @@ const createFileDraft = (overrides = {}) => {
     download_url: '',
     is_pdf: false,
     blob_url: '',
-    preview_blob: null,
+    // PDF 预览由服务端渲染，等待期间置 true
+    preview_pending: false,
+    preview_error: '',
     // 每张发票各自的解析结果（多张发票时逐张保存）
     invoice_number: '',
     invoice_date: '',
@@ -1037,6 +1055,7 @@ const clearDrafts = () => {
   revokeDraftBlobs(invoiceDrafts.value)
   receiptDrafts.value = []
   invoiceDrafts.value = []
+  previewIndex.value = 0
 }
 
 // 把「第一份文件」同步到 form 的旧单文件字段，复用原有 AI 解析/预览逻辑
@@ -1151,12 +1170,28 @@ const invoiceUploading = ref(false)
 const imageLoadedMap = ref({})
 const imageErrorMap = ref({})
 
-// 第一张发票文件的预览源（本地 blob 优先）
+// 预览面板当前查看第几张发票（多张发票时可在面板内切换）
+const previewIndex = ref(0)
+
+const previewDraft = computed(() => {
+  const drafts = invoiceDrafts.value
+  if (!drafts.length) return null
+  return drafts[Math.min(previewIndex.value, drafts.length - 1)] || drafts[0]
+})
+
+const setPreviewIndex = (index) => {
+  if (index < 0 || index >= invoiceDrafts.value.length) return
+  previewIndex.value = index
+  imageLoadingError.value = false
+  invoiceImageLoading.value = Boolean(previewDraft.value?.preview_pending)
+}
+
+// 当前预览的发票图（本地 blob 优先）
 const invoiceFilePreviewSrc = computed(() => {
-  const firstInvoice = invoiceDrafts.value[0]
-  if (!firstInvoice) return ''
-  if (firstInvoice.blob_url) return firstInvoice.blob_url
-  const url = firstInvoice.preview_url || firstInvoice.file_url || form.value._preview_display_url || ''
+  const item = previewDraft.value
+  if (!item) return ''
+  if (item.blob_url) return item.blob_url
+  const url = item.preview_url || item.file_url || ''
   return url ? getFullImageUrl(url) : ''
 })
 
@@ -1223,12 +1258,6 @@ function showToast(msg, type = 'info', duration = 3000) {
   toastVisible.value = true
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => { toastVisible.value = false }, duration)
-}
-
-function isPdfFile(url) {
-  if (!url) return false
-  const clean = url.split('?')[0].toLowerCase()
-  return clean.endsWith('.pdf')
 }
 
 function formatFileSize(bytes) {
@@ -1663,57 +1692,84 @@ const changePageSize = () => {
 
 const toggleSelectAll = () => {}
 
-// 历史 PDF 发票没有预览图时，请后端按需渲染一张 PNG（与 AI 解析是否成功无关）
+// 历史 PDF 发票预览缺失/是浏览器渲染的 JPEG 时，请后端用 PyMuPDF 重渲染 PNG
 const previewBackfillTried = new Set()
+
+// 浏览器端（pdf.js）渲染的预览图缺中文字体兜底，遇到未嵌入字体的票据会整页丢字
+const isLegacyPreviewKey = (key) => /\.jpe?g(\?|$)/i.test(String(key || ''))
 
 const ensureInvoicePreview = async (record, force = false) => {
   if (!record?.record_id || !record.has_invoice) return
   if (!force && previewBackfillTried.has(record.record_id)) return
-
-  const invoiceFile = (Array.isArray(record.invoice_files) && record.invoice_files[0]) || null
-  const fileKey = String(invoiceFile?.file_key || record.invoice_file_key || '')
-  if (!/\.pdf$/i.test(fileKey)) return
-
-  const previewKey = String(invoiceFile?.preview_key || record.invoice_preview_key || '')
-  if (previewKey && !/\.pdf$/i.test(previewKey)) return
-
   previewBackfillTried.add(record.record_id)
-  try {
-    const { data } = await $api.get(`/records/${record.record_id}/preview-invoice`)
-    if (data?.code !== 200) return
-    const url = data.data?.preview_url
-    const key = data.data?.preview_key || ''
-    // 后端渲染失败时会回退成 PDF 地址，此时保留 PDF 占位卡
-    if (!url || /\.pdf(\?|$)/i.test(String(url))) return
 
-    record.invoice_preview_url = url
-    if (key) record.invoice_preview_key = key
-    if (invoiceFile) {
-      invoiceFile.preview_url = url
-      if (key) invoiceFile.preview_key = key
-    }
+  const files = (Array.isArray(record.invoice_files) && record.invoice_files.length)
+    ? record.invoice_files
+    : [{
+        file_id: null,
+        file_key: record.invoice_file_key,
+        preview_key: record.invoice_preview_key
+      }]
 
-    if (currentRecord.value?.record_id === record.record_id) {
-      currentRecord.value.invoice_preview_url = url
-      if (key) currentRecord.value.invoice_preview_key = key
-      const detailFile = Array.isArray(currentRecord.value.invoice_files) && currentRecord.value.invoice_files[0]
-      if (detailFile) {
-        detailFile.preview_url = url
-        if (key) detailFile.preview_key = key
+  for (const invoiceFile of files) {
+    const fileKey = String(invoiceFile?.file_key || '')
+    if (!/\.pdf$/i.test(fileKey)) continue
+
+    const previewKey = String(invoiceFile?.preview_key || '')
+    const needRebuild = !previewKey || /\.pdf(\?|$)/i.test(previewKey) || isLegacyPreviewKey(previewKey)
+    if (!needRebuild) continue
+
+    try {
+      const params = new URLSearchParams({ force: '1' })
+      if (invoiceFile?.file_id) params.set('file_id', invoiceFile.file_id)
+      const { data } = await $api.get(`/records/${record.record_id}/preview-invoice?${params.toString()}`)
+      if (data?.code !== 200) continue
+      const url = data.data?.preview_url
+      const key = data.data?.preview_key || ''
+      // 后端渲染失败时会回退成 PDF 地址，此时保留 PDF 占位卡
+      if (!url || /\.pdf(\?|$)/i.test(String(url))) continue
+
+      if (invoiceFile) {
+        invoiceFile.preview_url = url
+        if (key) invoiceFile.preview_key = key
       }
-    }
-
-    if (editingRecord.value?.record_id === record.record_id) {
-      const draft = invoiceDrafts.value[0]
-      if (draft && !draft.blob_url) {
-        draft.preview_url = url
-        if (key) draft.preview_key = key
+      const isFirstFile = String(record.invoice_file_key || '') === fileKey
+        || (Array.isArray(record.invoice_files) && record.invoice_files[0] === invoiceFile)
+      if (isFirstFile) {
+        record.invoice_preview_url = url
+        if (key) record.invoice_preview_key = key
       }
-      form.value._preview_display_url = url
-      imageLoadingError.value = false
+
+      if (currentRecord.value?.record_id === record.record_id) {
+        const detailFile = (Array.isArray(currentRecord.value.invoice_files) ? currentRecord.value.invoice_files : [])
+          .find(item => String(item.file_id || '') === String(invoiceFile?.file_id || '')
+            || (item.file_key && item.file_key === fileKey))
+        if (detailFile) {
+          detailFile.preview_url = url
+          if (key) detailFile.preview_key = key
+        }
+        if (isFirstFile) {
+          currentRecord.value.invoice_preview_url = url
+          if (key) currentRecord.value.invoice_preview_key = key
+        }
+      }
+
+      if (editingRecord.value?.record_id === record.record_id) {
+        const draft = invoiceDrafts.value.find(item => (invoiceFile?.file_id
+          ? String(item.file_id || '') === String(invoiceFile.file_id)
+          : item.file_key === fileKey))
+        if (draft) {
+          draft.preview_url = url
+          if (key) draft.preview_key = key
+        }
+        if (isFirstFile) {
+          form.value._preview_display_url = url
+        }
+        imageLoadingError.value = false
+      }
+    } catch (e) {
+      // 单张补生成失败不阻断详情/编辑，继续处理下一张
     }
-  } catch (e) {
-    // 补生成失败不阻断详情/编辑，仍显示 PDF 占位卡
   }
 }
 
@@ -2149,22 +2205,10 @@ async function processInvoiceFiles(fileList) {
       }
       const isPdf = file.name.toLowerCase().endsWith('.pdf')
       let blobUrl = ''
-      let previewBlob = null
       if (!isPdf) {
         // 图片：压缩后作为预览
         const compressed = await compressImageForPreview(file)
         blobUrl = URL.createObjectURL(compressed)
-      } else {
-        // PDF文件：转换为图片预览
-        try {
-          invoiceImageLoading.value = true
-          previewBlob = await convertPdfToImage(file)
-          if (previewBlob) blobUrl = URL.createObjectURL(previewBlob)
-        } catch (err) {
-          console.error('PDF转图片失败:', err.message)
-        } finally {
-          invoiceImageLoading.value = false
-        }
       }
 
       let fileMd5 = ''
@@ -2180,12 +2224,38 @@ async function processInvoiceFiles(fileList) {
         file_url: blobUrl,
         preview_url: blobUrl,
         blob_url: blobUrl,
-        preview_blob: previewBlob
+        // PDF 的预览统一等服务端渲染（浏览器端 pdf.js 缺中文字体兜底）
+        preview_pending: isPdf
       })
       invoiceDrafts.value.push(draft)
       // 取回数组里的响应式代理：直接改原始对象不会触发 computed 重算
       added.push(invoiceDrafts.value[invoiceDrafts.value.length - 1])
       invoiceUploadProgress.value = Math.min(95, invoiceUploadProgress.value + Math.round(80 / files.length))
+    }
+
+    // PDF 先上传换服务端 PNG 预览：pdf.js 遇到未嵌入中文字体的票据（如 12306 电子客票）
+    // 会把文字整段丢掉，只剩底纹和二维码。
+    const pdfDrafts = added.filter(item => item.is_pdf)
+    if (pdfDrafts.length) {
+      invoiceImageLoading.value = true
+      const results = await Promise.all(pdfDrafts.map(item => preparePdfPreview(item)))
+      invoiceImageLoading.value = false
+
+      // 与其他记录重复的发票直接移出草稿，不入库
+      pdfDrafts.forEach((item, index) => {
+        if (results[index] !== false) return
+        const pos = invoiceDrafts.value.indexOf(item)
+        if (pos >= 0) invoiceDrafts.value.splice(pos, 1)
+        item.removed = true
+        const info = item.duplicate_info || {}
+        showToast(
+          `「${item.original_filename || '发票'}」已由 ${info.uploader || '其他用户'}上传过，已跳过`,
+          'error', 5000
+        )
+      })
+      if (previewIndex.value >= invoiceDrafts.value.length) {
+        previewIndex.value = Math.max(0, invoiceDrafts.value.length - 1)
+      }
     }
 
     syncPrimaryFormFiles()
@@ -2197,7 +2267,7 @@ async function processInvoiceFiles(fileList) {
     aiParseError.value = ''
 
     // 逐张自动解析本次新增的发票（已有发票不重复解析）
-    const pending = added.filter(item => item.parse_status !== 'parsed')
+    const pending = added.filter(item => !item.removed && item.parse_status !== 'parsed')
     if (pending.length) {
       await autoParseLocalInvoice(pending)
     }
@@ -2316,34 +2386,61 @@ const calculateFileMD5 = (file) => {
 }
 
 /**
- * 将PDF文件的第一页转换为图片Blob
+ * 上传 PDF 到服务端换取 PNG 预览，并把 file_key/preview_key 回填到草稿。
+ *
+ * 不能用浏览器端 pdf.js 渲染：它只带标准西文字体兜底，遇到未嵌入中文字体的
+ * PDF（12306 铁路电子客票就是这种）会把所有文字丢掉，只剩底纹和二维码。
+ * 上传后保存阶段也能直接复用 file_key，不会重复上传。
  */
-async function convertPdfToImage(file) {
-  const pdfjsLib = await import('pdfjs-dist')
-  // worker 随前端一起打包，避免国内网络访问 CDN 失败导致 PDF 转图整条链路不可用
-  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    const workerModule = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
-    pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default
+async function preparePdfPreview(item) {
+  if (!item?.file) return false
+  const token = localStorage.getItem('token')
+
+  // 保存阶段复用了这里的上传结果，不再走 /parse-invoice，所以查重要提前做
+  if (item.file_md5) {
+    try {
+      const params = new URLSearchParams({ md5: item.file_md5 })
+      if (editingRecord.value?.record_id) {
+        params.set('exclude_record_id', editingRecord.value.record_id)
+      }
+      const { data } = await $api.get(`/invoices/check-duplicate?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (data?.data?.duplicate) {
+        item.duplicate_info = data.data
+        item.preview_pending = false
+        return false
+      }
+    } catch (err) {
+      // 查重失败不阻断上传，交给后续人工核对
+      console.warn('发票查重失败，继续上传:', err?.message || err)
+    }
   }
 
-  const arrayBuffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-  const page = await pdf.getPage(1)
-
-  const scale = 2.0
-  const viewport = page.getViewport({ scale })
-  const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
-
-  const ctx = canvas.getContext('2d')
-  await page.render({ canvasContext: ctx, viewport }).promise
-
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => {
-      resolve(blob)
-    }, 'image/jpeg', 0.92)
-  })
+  try {
+    const formData = new FormData()
+    formData.append('file', item.file, item.original_filename || item.file.name)
+    const res = await $api.post('/upload-file', formData, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 120000
+    })
+    if (res.data.code !== 200) {
+      throw new Error(res.data.message || '预览生成失败')
+    }
+    const data = res.data.data || {}
+    item.file_key = data.file_key || ''
+    item.preview_key = data.preview_key || ''
+    item.file_md5 = data.file_md5 || item.file_md5 || ''
+    if (data.preview_url) item.preview_url = getFullImageUrl(data.preview_url)
+    item.preview_error = ''
+    return true
+  } catch (err) {
+    console.error('PDF 预览生成失败:', err?.message || err)
+    item.preview_error = err?.response?.data?.message || '预览生成失败，保存后会重新生成'
+    return true
+  } finally {
+    item.preview_pending = false
+  }
 }
 
 const handleInvoiceUpload = async (e) => {
@@ -2365,6 +2462,10 @@ const removeInvoiceAt = (index) => {
   invoiceParseResult.value = null
   parseApplied.value = false
   aiParseError.value = ''
+  if (previewIndex.value >= invoiceDrafts.value.length) {
+    previewIndex.value = Math.max(0, invoiceDrafts.value.length - 1)
+  }
+  imageLoadingError.value = false
   // 剩余发票重新汇总，避免记录金额/发票号停留在已移除的那张上
   applyInvoiceSummaryToForm()
   syncPrimaryFormFiles()
@@ -2373,12 +2474,26 @@ const removeInvoiceAt = (index) => {
 const openInvoiceDraft = (index) => {
   const item = invoiceDrafts.value[index]
   if (!item) return
+  const previewUrl = item.blob_url || item.preview_url
+  if (previewUrl) {
+    showImageModal(previewUrl)
+    return
+  }
   if (item.is_pdf) {
     downloadDraftFile(item)
     return
   }
-  const url = item.blob_url || item.preview_url || item.file_url
+  const url = item.file_url
   if (url) showImageModal(url)
+}
+
+// 点击磁贴：先切换右侧预览；再点同一张才放大/下载
+const selectInvoiceDraft = (index) => {
+  if (previewIndex.value !== index) {
+    setPreviewIndex(index)
+    return
+  }
+  openInvoiceDraft(index)
 }
 
 const downloadDraftFile = (item) => {
@@ -2470,16 +2585,23 @@ const onInvoiceImageError = (e) => {
 const retryLoadImage = () => {
   imageLoadingError.value = false
   invoiceImageLoading.value = true
-  
-  const currentUrl = form.value._preview_display_url || form.value.invoice_preview_url || form.value.invoice_url
-  if (currentUrl) {
+
+  const item = previewDraft.value
+  const currentUrl = item?.preview_url || ''
+  if (currentUrl && !currentUrl.startsWith('blob:')) {
+    // 给同一地址加时间戳，绕开浏览器缓存的失败结果
     const timestamp = Date.now()
     const separator = currentUrl.includes('?') ? '&' : '?'
-    form.value._preview_display_url = `${currentUrl}${separator}_t=${timestamp}`
-    
+    item.preview_url = `${currentUrl}${separator}_t=${timestamp}`
+    if (form.value._preview_display_url === currentUrl) {
+      form.value._preview_display_url = item.preview_url
+    }
     setTimeout(() => {
       invoiceImageLoading.value = false
-    }, 100)
+    }, 300)
+  } else {
+    // 本地草稿：没有可重试的预览地址，等服务端预览结果
+    invoiceImageLoading.value = Boolean(item?.preview_pending)
   }
 }
 
@@ -2488,8 +2610,6 @@ const retryLoadImage = () => {
  */
 const parseInvoiceDraftFile = async (item) => {
   if (!item?.file) return
-  const imageBlob = item.preview_blob || item.file
-  if (!imageBlob) return
 
   item.parse_status = 'parsing'
   item.parse_error = ''
@@ -2497,8 +2617,9 @@ const parseInvoiceDraftFile = async (item) => {
   try {
     const token = localStorage.getItem('token')
     const formData = new FormData()
-    const filename = (item.original_filename || item.file.name).replace(/\.pdf$/i, '.jpg')
-    formData.append('file', imageBlob, filename)
+    // 直接发原文件：PDF 由服务端 PyMuPDF 渲染（自带中文兜底字体），
+    // 不能用浏览器渲染结果，否则未嵌入字体的票据会丢字。
+    formData.append('file', item.file, item.original_filename || item.file.name)
 
     const { data } = await $api.post('/parse-image', formData, {
       headers: { Authorization: `Bearer ${token}` },
@@ -2740,14 +2861,10 @@ const saveRecord = async () => {
     const invoiceFiles = []
     if (!payload.cannot_invoice) {
       for (const item of invoiceDrafts.value) {
-        if (item.file) {
+        // PDF 选文件时已上传换过预览图（item.file_key），保存时直接复用，不重复上传
+        if (item.file && !item.file_key) {
           const invoiceForm = new FormData()
           invoiceForm.append('file', item.file)
-          // 附带客户端生成的预览图（PDF转图片），供服务端在自身转换失败时使用
-          if (item.preview_blob) {
-            const previewName = item.file.name.replace(/\.pdf$/i, '.jpg')
-            invoiceForm.append('preview_file', item.preview_blob, previewName)
-          }
           // 选文件时已解析过：保存阶段只落盘，不重复调用 AI
           if (item.parse_status === 'parsed') {
             invoiceForm.append('skip_ai', '1')
@@ -4269,6 +4386,17 @@ const formatMoney = (val) => {
   font-size: 0.85rem; font-weight: 600; color: #92400e;
 }
 .preview-panel-title svg { color: #f59e0b; }
+/* 多张发票时在面板内切换上一张/下一张 */
+.preview-switch { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; margin-right: 8px; }
+.preview-switch-btn {
+  width: 24px; height: 24px; border-radius: 6px;
+  border: 1px solid #fcd34d; background: #fff; color: #b45309;
+  font-size: 15px; line-height: 1; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all .15s ease; padding: 0;
+}
+.preview-switch-btn:hover:not(:disabled) { background: #fef3c7; }
+.preview-switch-btn:disabled { opacity: .4; cursor: not-allowed; }
 .ai-parse-trigger {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 6px 14px;

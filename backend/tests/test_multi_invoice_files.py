@@ -218,3 +218,61 @@ def test_apply_parsed_info_ignores_invalid_amount_and_date(app):
     assert row.invoice_date is None
     assert row.invoice_amount is None
     assert row.parse_status == 'parsed'
+
+
+def test_find_invoice_by_md5_detects_duplicate_and_honours_exclude(app):
+    """PDF 选文件即上传，保存不再走 /parse-invoice，查重改由 find_invoice_by_md5 承担。"""
+    from routes.parse import InvoiceUploadService
+
+    record = _make_record()
+    db.session.add(record)
+    db.session.flush()
+    _replace_record_files(
+        record, PurchaseRecord.FILE_TYPE_INVOICE,
+        _normalize_file_entries(
+            [{'file_key': 'invoices/dup.pdf', 'file_md5': 'md5-dup-1', 'invoice_number': 'D1'}],
+            PurchaseRecord.FILE_TYPE_INVOICE,
+        ),
+    )
+    _sync_legacy_file_columns(record)
+    db.session.commit()
+
+    hit = InvoiceUploadService.find_invoice_by_md5('md5-dup-1')
+    assert hit['duplicate'] is True
+    assert hit['record_id'] == record.record_id
+
+    # 编辑同一条记录时允许重传自己的发票
+    same_record = InvoiceUploadService.find_invoice_by_md5('md5-dup-1', record.record_id)
+    assert same_record['duplicate'] is False
+
+    # 未出现过的 md5 不算重复
+    assert InvoiceUploadService.find_invoice_by_md5('md5-not-exists')['duplicate'] is False
+
+
+def test_find_invoice_by_md5_detects_duplicate_and_honours_exclude(app):
+    """PDF 选文件即上传，保存不再走 /parse-invoice，查重改由 find_invoice_by_md5 承担。"""
+    from routes.parse import InvoiceUploadService
+
+    record = _make_record()
+    db.session.add(record)
+    db.session.flush()
+    _replace_record_files(
+        record, PurchaseRecord.FILE_TYPE_INVOICE,
+        _normalize_file_entries(
+            [{'file_key': 'invoices/dup.pdf', 'file_md5': 'md5-dup-1', 'invoice_number': 'D1'}],
+            PurchaseRecord.FILE_TYPE_INVOICE,
+        ),
+    )
+    _sync_legacy_file_columns(record)
+    db.session.commit()
+
+    hit = InvoiceUploadService.find_invoice_by_md5('md5-dup-1')
+    assert hit['duplicate'] is True
+    assert hit['record_id'] == record.record_id
+
+    # 编辑同一条记录时允许重传自己的发票
+    same_record = InvoiceUploadService.find_invoice_by_md5('md5-dup-1', record.record_id)
+    assert same_record['duplicate'] is False
+
+    # 未出现过的 md5 不算重复
+    assert InvoiceUploadService.find_invoice_by_md5('md5-not-exists')['duplicate'] is False

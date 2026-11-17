@@ -1455,9 +1455,14 @@ def get_invoice_preview(record_id):
 
         preview_key = invoice_file['preview_key']
         is_pdf = invoice_file['file_key'].lower().endswith('.pdf')
+        force = str(request.args.get('force') or '').lower() in ('1', 'true', 'yes')
+        # 历史预览图可能是浏览器端（pdf.js）渲染的 JPEG：遇到未嵌入中文字体的 PDF
+        # （如 12306 电子客票）会渲染成只有底纹、没有文字的废图，这里统一改用服务端 PNG。
+        legacy_preview = bool(preview_key) and preview_key.lower().endswith(('.jpg', '.jpeg'))
 
-        if not preview_key and is_pdf:
-            # 兼容历史数据：早期上传的 PDF 发票没有预览图，这里按需补生成并落库
+        if is_pdf and (not preview_key or force or legacy_preview):
+            # 兼容历史数据：早期上传的 PDF 发票没有预览图（或是浏览器渲染的 JPEG），
+            # 这里按需用 PyMuPDF 重新渲染 PNG 并落库。
             pdf_bytes = _read_file_bytes(invoice_file['file_key'])
             if pdf_bytes:
                 try:
@@ -1470,7 +1475,7 @@ def get_invoice_preview(record_id):
                     if generated_key:
                         _persist_invoice_preview(record, invoice_file['file_key'], generated_key)
                         preview_key = generated_key
-                        logger.info(f'历史 PDF 发票预览图已补生成: record_id={record_id}')
+                        logger.info(f'发票预览图已重新生成: record_id={record_id}, key={generated_key}')
         elif not preview_key and not is_pdf:
             # 图片发票本身即预览图
             preview_key = invoice_file['file_key']
